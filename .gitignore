@@ -13,9 +13,8 @@ __pycache__/
 !.env.example
 
 # Local downloads, reverse-engineering dumps and reference checkouts.
-# Keep authored research notes; fetch external packages separately.
-/research/*
-!/research/*.md
+# Development research stays local; fetch external packages separately.
+/research/
 
 # Keep only the dependency source/provenance used by this project.
 /third_party/*
@@ -27,3 +26,8 @@ __pycache__/
 *.local.json
 *.local.ps1
 *.local.ini
+
+# Internal planning and setup notes stay local.
+/REPOSITORY_SETUP.md
+/V0_1_PLAN.md
+/VR_CONVERSION_PLAN.md
