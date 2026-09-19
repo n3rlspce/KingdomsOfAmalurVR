@@ -223,7 +223,7 @@ int main(int argc,char** argv) {
             XrSpaceLocation head{XR_TYPE_SPACE_LOCATION};
             if(trackingMode){
                 XR(xrLocateSpace(r.view,r.local,fs.predictedDisplayTime,&head));
-                amalur::PosePacket packet;packet.tick=GetTickCount64();packet.gameMode=gameMode?1u:0u;
+                amalur::PosePacket packet;packet.tick=GetTickCount64();packet.gameMode=gameMode?(settings.interfaceView?3u:1u):0u;
                 packet.depth=settings.depth;packet.convergence=settings.convergence;packet.worldScale=settings.scale;packet.horizontalFov=settings.fov;packet.recenter=settings.recenter;
                 constexpr XrSpaceLocationFlags required=XR_SPACE_LOCATION_ORIENTATION_VALID_BIT|XR_SPACE_LOCATION_POSITION_VALID_BIT|XR_SPACE_LOCATION_ORIENTATION_TRACKED_BIT|XR_SPACE_LOCATION_POSITION_TRACKED_BIT;
                 packet.valid=focused&&(head.locationFlags&required)==required;
@@ -248,7 +248,7 @@ int main(int argc,char** argv) {
                 // Cache across nonblocking mutex misses; expiry still cancels gameplay.
                 amalur::RigStatus freshRig;
                 if(rigStatus.transfer(freshRig,false)&&freshRig.version==1)latestRig=freshRig;
-                const bool gameplay=latestRig.pid&&GetTickCount()-latestRig.tick<1000
+                const bool gameplay=!settings.interfaceView&&latestRig.pid&&GetTickCount()-latestRig.tick<1000
                     &&latestRig.weaponRemaps>0&&latestRig.paused==0;
                 auto mapped=touchMapper.map(touch,gameMode&&!settings.visible&&VrSettings::gameFocused(),gameplay);
                 settings.selectedWeapon=mapped.selectedWeapon;
@@ -260,7 +260,7 @@ int main(int argc,char** argv) {
                     if(trackingMode){
                         XrActionStateGetInfo gripInfo{XR_TYPE_ACTION_STATE_GET_INFO};gripInfo.action=pose;gripInfo.subactionPath=handPaths[i];
                         XrActionStatePose grip{XR_TYPE_ACTION_STATE_POSE};XR(xrGetActionStatePose(r.session,&gripInfo,&grip));
-                        amalur::PosePacket packet;packet.tick=GetTickCount64();packet.gameMode=gameMode?1u:0u;
+                        amalur::PosePacket packet;packet.tick=GetTickCount64();packet.gameMode=gameMode?(settings.interfaceView?3u:1u):0u;
                         constexpr XrSpaceLocationFlags required=XR_SPACE_LOCATION_ORIENTATION_VALID_BIT|XR_SPACE_LOCATION_POSITION_VALID_BIT|XR_SPACE_LOCATION_ORIENTATION_TRACKED_BIT|XR_SPACE_LOCATION_POSITION_TRACKED_BIT;
                         packet.valid=grip.isActive&&(hand.locationFlags&required)==required;
                         packet.orientation[0]=hand.pose.orientation.x;packet.orientation[1]=hand.pose.orientation.y;packet.orientation[2]=hand.pose.orientation.z;packet.orientation[3]=hand.pose.orientation.w;
@@ -277,7 +277,7 @@ int main(int argc,char** argv) {
             bool trackedGame=false;
             if(gameMode){
                 bool sourceReady=stereoSource.acquirePaired(device.Get(),context.Get(),gameFrame);
-                trackedGame=sourceReady&&gameFrame.valid&&gameFrame.projectionX>0&&gameFrame.projectionY>0;
+                trackedGame=!settings.interfaceView&&sourceReady&&gameFrame.valid&&gameFrame.projectionX>0&&gameFrame.projectionY>0;
                 render=render&&sourceReady;
             }
             if(render)for(int i=0;i<2;++i){
@@ -287,7 +287,7 @@ int main(int argc,char** argv) {
                 D3D11_VIEWPORT viewport{0,0,float(td.Width),float(td.Height),0,1};context->RSSetViewports(1,&viewport);context->RSSetState(raster.Get());
                 if(gameMode){
                     auto f=views[i].fov;
-                    int sourceEye=settings.swap?1-i:i;
+                    int sourceEye=settings.interfaceView?0:(settings.swap?1-i:i);
                     float bias=settings.alignment*(settings.depth/20.f);
                     if(trackedGame)stereoSource.draw(context.Get(),sourceEye,std::tan(f.angleLeft),std::tan(f.angleRight),std::tan(f.angleDown),std::tan(f.angleUp),gameFrame.projectionX,gameFrame.projectionY,sourceEye==0?bias:-bias,settings.sharpness);
                     else stereoSource.draw(context.Get(),sourceEye,-1,1,-1,1,1,1,0,settings.sharpness);
@@ -316,7 +316,8 @@ int main(int argc,char** argv) {
                 menu[i].type=XR_TYPE_COMPOSITION_LAYER_QUAD;menu[i].space=r.view;
                 menu[i].eyeVisibility=i==0?XR_EYE_VISIBILITY_LEFT:XR_EYE_VISIBILITY_RIGHT;
                 menu[i].subImage=projectionViews[i].subImage;menu[i].pose.orientation.w=1;menu[i].pose.position.z=-2;
-                menu[i].size={2.f,1.125f};menuLayers[i]=reinterpret_cast<const XrCompositionLayerBaseHeader*>(&menu[i]);
+                const float interfaceScale=settings.interfaceView?settings.interfaceScale:1.f;
+                menu[i].size={2.f*interfaceScale,1.125f*interfaceScale};menuLayers[i]=reinterpret_cast<const XrCompositionLayerBaseHeader*>(&menu[i]);
             }
             std::vector<const XrCompositionLayerBaseHeader*> submitted;
             if(render){if(gameMode&&!trackedGame){submitted.push_back(menuLayers[0]);submitted.push_back(menuLayers[1]);}else submitted.push_back(layers[0]);}

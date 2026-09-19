@@ -4,6 +4,7 @@
 namespace hud_size {
 static amalur::HudSettingsChannel channel;
 static float requested=.8f,uploaded=-1;
+static bool uploadedInterface{};
 static ComPtr<ID3D11Texture1D> texture;
 static ComPtr<ID3D11ShaderResourceView> view;
 static void poll(){if(channel.open(false))channel.read(requested);}
@@ -22,8 +23,10 @@ public:
             if(FAILED(device->CreateTexture1D(&d,nullptr,&texture)))return;
             if(FAILED(device->CreateShaderResourceView(texture.Get(),nullptr,&view))){texture.Reset();return;}
         }
-        if(uploaded!=requested){
-            float values[4]{requested,1,0,0};c->UpdateSubresource(texture.Get(),0,nullptr,values,sizeof(values),0);
+        const bool flat=interfaceView.load();
+        if(uploaded!=requested||uploadedInterface!=flat){
+            float values[4]{requested,1,flat?1.f:0.f,0};c->UpdateSubresource(texture.Get(),0,nullptr,values,sizeof(values),0);
+            uploadedInterface=flat;
             uploaded=requested;log("HUD size uploaded: %.0f%%\n",uploaded*100);
         }
         context=c;c->VSGetShaderResources(119,1,&previous);

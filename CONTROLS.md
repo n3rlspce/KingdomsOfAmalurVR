@@ -26,3 +26,5 @@ After leaving D-pad mode, center the left stick before moving. In menus, face bu
 Y selects an attack slot without firing it. With staff primary and bow secondary, choose secondary with Y, then use the right trigger. Bow drawing/aiming with tracked hands is not implemented; the tracked held-weapon prototype supports the staff.
 
 Press `*` to open/close VR settings. Use up/down to choose a row, left/right to adjust. Grip pitch/yaw/roll tune the staff angle in 5-degree steps and are saved automatically. The panel shows the selected weapon slot. Press F7 to recenter.
+
+Press `Ctrl+I` with the game focused to toggle Interface View for lockpicking, dispelling and other object interfaces. It shows the full image on a flat panel and keeps native gamepad menu controls. Toggle it off to return to VR gameplay. The VR settings panel also has Interface View and Interface size controls; size is saved, while Interface View starts off each session.

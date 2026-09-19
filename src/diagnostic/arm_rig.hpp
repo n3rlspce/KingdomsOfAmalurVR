@@ -18,7 +18,7 @@ inline float gripPitch{},gripYaw{},gripRoll{};
 inline amalur::ArmReference neutralArm{};
 inline bool calibratedBodyAnchor{};
 inline bool solveUnsafe(uintptr_t root,Scratch& scratch,bool solveHand=true){
-    if(!headTracking.load()||!root||root!=rig_probe::playerRoot())return false;
+    if(interfaceView.load()||!headTracking.load()||!root||root!=rig_probe::playerRoot())return false;
     auto source=root+0x34;
     auto count=player_rig::word(source+4);if(count<3||count>64)return false;
     auto buffer=player_rig::word(source);if(!buffer)return false;

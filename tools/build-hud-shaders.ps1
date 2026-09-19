@@ -16,7 +16,7 @@ vrHud.xy *= hudSize;
 // Row 3 X is enabled by a minimap-triggered geo-11 preset.
 // Defaults to zero and expires when the triggering draw disappears.
 float4 vrHudGate = IniParams.Load(int2(3, 0));
-if (vrHudGate.x > 0.5 && vrHud.x > 0.0 && abs(o0.w) > 0.00001) {
+if (hudControl.z < 0.5 && vrHudGate.x > 0.5 && vrHud.x > 0.0 && abs(o0.w) > 0.00001) {
     float2 canvas = o0.xy / o0.w;
     float arc = clamp(vrHud.z, 0.01, 0.9);
     float angle = clamp(canvas.x, -1.0, 1.0) * arc;

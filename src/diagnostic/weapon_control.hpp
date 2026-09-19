@@ -84,7 +84,7 @@ inline bool apply(uintptr_t self,mgs5vr::Pose grip,unsigned center){
 inline void __fastcall evaluate(void* self,void*,uintptr_t first,uintptr_t second){
     AcquireSRWLockExclusive(&editLock);restore(reinterpret_cast<uintptr_t>(self));ReleaseSRWLockExclusive(&editLock);
     original(self,first,second);
-    if(!firstPerson.load()||!headTracking.load()||!enabled.load())return;
+    if(interfaceView.load()||!firstPerson.load()||!headTracking.load()||!enabled.load())return;
     mgs5vr::Pose grip;uint64_t timestamp;unsigned center;
     AcquireSRWLockShared(&poseLock);grip=desired;timestamp=tick;center=generation;ReleaseSRWLockShared(&poseLock);
     auto now=GetTickCount64();if(!timestamp||timestamp>now||now-timestamp>150)return;

@@ -53,6 +53,7 @@ static ULONG_PTR gameBase{};
 static std::atomic<unsigned> cameraLogs{0};
 static std::atomic<bool> headTracking{true};
 static std::atomic<bool> firstPerson{true};
+static std::atomic<bool> interfaceView{false};
 static std::atomic<bool> coherentCamera{true};
 static amalur::CameraInputs cameraInputs;
 static void restoreCameraInputs(){
@@ -209,10 +210,12 @@ static void __fastcall onRebuildCamera(void* camera,void*) {
         const auto currentPresent=presents.load();
         if(sampledPresent!=currentPresent){renderPose={};poseChannel.read(renderPose);sampledPresent=currentPresent;}
         packet=renderPose;
+        const bool objectInterface=packet.valid&&packet.tick<=now&&now-packet.tick<250&&packet.gameMode==3;
+        interfaceView.store(objectInterface);
         const bool desktopPose=packet.gameMode==2&&packet.valid&&packet.tick<=now&&now-packet.tick<250;
         weapon_control::desktopPose.store(desktopPose);
-        const bool useFirstPerson=firstPerson.load()&&!desktopPose;
-        if(packet.valid&&packet.tick<=now&&now-packet.tick<250){
+        const bool useFirstPerson=firstPerson.load()&&!desktopPose&&!objectInterface;
+        if(packet.valid&&packet.tick<=now&&now-packet.tick<250&&!objectInterface){
             mgs5vr::Pose head{{packet.orientation[0],packet.orientation[1],packet.orientation[2],packet.orientation[3]},{packet.position[0],packet.position[1],packet.position[2]}};
             if(mgs5vr::valid(head)){
                 unsigned generation=recenterGeneration.load();
@@ -244,7 +247,10 @@ static void __fastcall onRebuildCamera(void* camera,void*) {
     }else haveOrigin=false;
     mgs5vr::Vec3 bodyForward{};
     bool bodyHeadingValid=tracked&&bodyHeading.get(adjusted.target-adjusted.eye,bodyForward);
-    motion_controls::sampleMovementBasis(originalCamera.target-originalCamera.eye,bodyForward,
+    // Native locomotion consumes this camera's rebuilt VR matrices. Using the
+    // pre-override chase heading here rotates the stick twice after a head turn.
+    // Verified against actual displacement through 360 degrees and back.
+    motion_controls::sampleMovementBasis(adjusted.target-adjusted.eye,bodyForward,
         tracked&&firstPerson.load()&&bodyHeadingValid&&packet.gameMode==1&&game_pause::sample(true)==0,GetTickCount64());
     // Keep the collar/shoulders behind the eyes without moving the camera with gait.
     auto anchor=adjusted.eye-bodyForward*18.f;
