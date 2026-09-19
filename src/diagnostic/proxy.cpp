@@ -427,6 +427,7 @@ static HRESULT STDMETHODCALLTYPE onPresent(IDXGISwapChain* chain,UINT sync,UINT 
     HRESULT result=realPresent(chain,sync,flags);
     if(SUCCEEDED(result)&&!(flags&DXGI_PRESENT_TEST))publishStereoFrame(presentedPose);
     camera_audit::present(presentedPose);
+    if(count%120==0){const auto p=render_pose::performance();log("Render pose /120 frames: descriptors=%llu %.3fms scans=%llu %.3fms candidates=%llu matched=%llu\n",p.descriptors,p.descriptorMs,p.scans,p.scanMs,p.candidates,p.matched);}
     // Native inputs are restored only by their owning camera-update thread.
     // Restoring here raced the next native camera rebuild on another thread.
     if(count%600==0 || (FAILED(result)&&count<=10))log("Present #%lu result=0x%08lx\n",count,static_cast<unsigned long>(result));
