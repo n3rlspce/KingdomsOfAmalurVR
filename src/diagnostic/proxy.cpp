@@ -51,6 +51,7 @@ static std::atomic<void*> probeCamera{nullptr};
 static ULONG_PTR gameBase{};
 static std::atomic<unsigned> cameraLogs{0};
 static std::atomic<bool> headTracking{false};
+static std::atomic<bool> firstPerson{false};
 static std::atomic<unsigned> recenterGeneration{0};
 static amalur::PoseChannel poseChannel;
 static amalur::PoseChannel frameChannel{true};
@@ -140,6 +141,9 @@ static bool hook(void* target,void* detour,void** original,const char* name) {
     log("Hook %s: %s\n",name,MH_StatusToString(status));location(name,target);
     return status==MH_OK;
 }
+#include "player_rig.hpp"
+#include "motion_controls.hpp"
+#include "weapon_control.hpp"
 static bool isCameraCore(unsigned char* core) {
     // Core is embedded at BHG::Camera +8. Other embedded camera structures also
     // use the rebuild routine, so never infer ownership from its address alone.
@@ -153,6 +157,8 @@ static bool isCameraCore(unsigned char* core) {
 static void __fastcall onRebuildCamera(void* camera,void*) {
     auto core=static_cast<unsigned char*>(camera);
     if(!isCameraCore(core)){realRebuildCamera(camera);return;}
+    mgs5vr::Vec3 selectedPlayerPosition{};
+    if(firstPerson.load()&&player_rig::location(camera,selectedPlayerPosition))probeCamera.store(camera);
     void* expected=nullptr;
     probeCamera.compare_exchange_strong(expected,camera);
     if(probeCamera.load()!=camera){realRebuildCamera(camera);return;}
@@ -179,7 +185,17 @@ static void __fastcall onRebuildCamera(void* camera,void*) {
                 unsigned generation=recenterGeneration.load();
                 if(!haveOrigin||centeredGeneration!=generation||bridgeCenter!=packet.recenter){origin=amalur::levelOrigin(head);haveOrigin=true;centeredGeneration=generation;bridgeCenter=packet.recenter;log("Head tracking recentered (position and heading; horizon level)\n");}
                 auto relative=mgs5vr::compose(mgs5vr::inverse(origin),head);
-                tracked=amalur::trackedCamera(originalCamera,relative,packet.worldScale,adjusted);
+                auto baseCamera=originalCamera;
+                mgs5vr::Vec3 playerPosition{};
+                if(firstPerson.load()&&player_rig::location(camera,playerPosition)){
+                    auto heading=originalCamera.target-originalCamera.eye;heading.z=0;
+                    if(amalur::normalize(heading)){
+                        baseCamera.eye=playerPosition+mgs5vr::Vec3{0,0,170}+heading*15.f;
+                        baseCamera.target=baseCamera.eye+heading*200.f;baseCamera.up={0,0,1};
+                        weapon_control::sample(baseCamera,origin,packet.worldScale,centeredGeneration+bridgeCenter);
+                    }
+                }
+                tracked=amalur::trackedCamera(baseCamera,relative,packet.worldScale,adjusted);
             }
         }
     }else haveOrigin=false;
@@ -229,6 +245,9 @@ static void installCameraProbe() {
     auto target=reinterpret_cast<unsigned char*>(gameBase+0x008e1c80);
     const unsigned char expected[]={0x83,0xec,0x40,0x53,0x8b,0xd9,0xf6,0x83,0x5e,0x03,0,0,1};
     if(memcmp(target,expected,sizeof(expected))!=0){log("Camera signature mismatch; native hook skipped\n");return;}
+    player_rig::install();
+    weapon_control::install();
+    motion_controls::install();
     hook(target,reinterpret_cast<void*>(&onRebuildCamera),reinterpret_cast<void**>(&realRebuildCamera),"CameraRebuild (F9 FOV probe)");
 }
 static void members(ID3D11ShaderReflectionType* type,UINT offset,unsigned depth) {
@@ -311,6 +330,10 @@ static HRESULT STDMETHODCALLTYPE onPresent(IDXGISwapChain* chain,UINT sync,UINT 
     static bool f10Down=false,f7Down=false;bool f10=(GetAsyncKeyState(VK_F10)&0x8000)!=0,f7=(GetAsyncKeyState(VK_F7)&0x8000)!=0;
     if(f10&&!f10Down){bool enabled=!headTracking.load();headTracking.store(enabled);++recenterGeneration;log("F10: head tracking requested %s\n",enabled?"ON":"OFF");}f10Down=f10;
     if(f7&&!f7Down){++recenterGeneration;log("F7: recenter requested\n");}f7Down=f7;
+    static bool f3Down=false;bool f3=(GetAsyncKeyState(VK_F3)&0x8000)!=0;
+    if(f3&&!f3Down&&motion_controls::gameFocused()){bool enabled=!weapon_control::enabled.load();weapon_control::enabled.store(enabled);++recenterGeneration;log("F3: experimental weapon pose %s\n",enabled?"ON":"OFF");}f3Down=f3;
+    static bool f5Down=false;bool f5=(GetAsyncKeyState(VK_F5)&0x8000)!=0;
+    if(f5&&!f5Down&&motion_controls::gameFocused()){bool enabled=!firstPerson.load();firstPerson.store(enabled);if(enabled)headTracking.store(true);++recenterGeneration;log("F5: experimental first-person and Touch movement %s\n",enabled?"ON":"OFF");}f5Down=f5;
     auto count=++presents;
     if(count<=3){log("Present #%lu chain=%p sync=%u flags=0x%x\n",count,chain,sync,flags);stack();}
     HRESULT result=realPresent(chain,sync,flags);
