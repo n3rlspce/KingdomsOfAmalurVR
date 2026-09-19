@@ -2,7 +2,7 @@
 #include "../tracking/arm_pose.hpp"
 namespace rig_probe {inline uintptr_t playerRoot();}
 namespace arm_rig {
-inline std::atomic<bool> enabled{false};
+inline std::atomic<bool> enabled{true};
 inline std::atomic<unsigned> samples{0};
 struct Scratch {amalur::RigBone bones[64];uintptr_t descriptor[3];};
 inline SRWLOCK calibrationLock=SRWLOCK_INIT;

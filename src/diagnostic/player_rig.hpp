@@ -1,10 +1,12 @@
 #pragma once
 // Re-Reckoning build 10619381 only. Resolve generation-checked engine handles;
-// never retain part pointers across a load or write player simulation transforms.
+// never retain part pointers across a load. Facing uses the native script service.
 namespace player_rig {
 inline std::atomic<void*> player{nullptr};
 using SetCamera=void(__thiscall*)(void*,void*);
 inline SetCamera originalSetCamera{};
+using SetFacing=void(__thiscall*)(void*,uint32_t,int);
+inline SetFacing nativeFacing{};
 inline void __fastcall setCamera(void* self,void*,void* camera){
     originalSetCamera(self,camera);player.store(self);
     log("Player camera assigned: player=%p camera=%p\n",self,camera);
@@ -36,10 +38,36 @@ inline bool location(void* camera,mgs5vr::Vec3& position){
         return std::isfinite(position.x)&&std::isfinite(position.y)&&std::isfinite(position.z);
     } __except(EXCEPTION_EXECUTE_HANDLER){return false;}
 }
+inline void face(void* camera,mgs5vr::Vec3 forward){
+    if(!nativeFacing||!std::isfinite(forward.x)||!std::isfinite(forward.y)||forward.x*forward.x+forward.y*forward.y<.01f)return;
+    __try {
+        mgs5vr::Vec3 position;if(!location(camera,position))return;
+        auto p=reinterpret_cast<uintptr_t>(player.load());
+        auto owner=static_cast<uint32_t>(word(p+0x1ec)),entity=resolve(owner);
+        auto loc=part(entity,6,owner,0x1355cdc),motion=part(entity,42,owner,0x13561e4);
+        if(!loc||!motion||!(word(loc+0x20)&1)||!(word(motion+0x20)&1))return;
+        // Native set_facing accepts integer degrees, clockwise from world +X.
+        // PartLocation+b0 is an unsigned full-turn angle; PartMotion receives
+        // the requested delta and performs the actual simulation rotation.
+        int degrees=static_cast<int>(std::lround(std::atan2(-forward.y,forward.x)*57.2957795131f));
+        if(degrees<0)degrees+=360;
+        float current=static_cast<float>(static_cast<double>(static_cast<uint32_t>(word(loc+0xb0)))*(360.0/4294967296.0));
+        if(std::abs(std::remainder(static_cast<float>(degrees)-current,360.f))<1.5f)return;
+        static unsigned lastFrame=~0u;auto frame=presents.load();if(lastFrame==frame)return;lastFrame=frame;
+        nativeFacing(nullptr,owner,degrees);
+        static unsigned logged=0;if(logged++<8)log("Head facing: native=%.2f requested=%d\n",current,degrees);
+    } __except(EXCEPTION_EXECUTE_HANDLER){nativeFacing=nullptr;log("Native head facing disabled after invalid state\n");}
+}
 inline void install(){
     auto target=reinterpret_cast<unsigned char*>(gameBase+0x9c6670);
     const unsigned char expected[]={0x83,0xec,0x28,0x53,0x57,0x8b,0x7c,0x24,0x34,0x8b,0xd9};
     if(memcmp(target,expected,sizeof(expected))){log("Player camera signature mismatch; first-person unavailable\n");return;}
     hook(target,reinterpret_cast<void*>(&setCamera),reinterpret_cast<void**>(&originalSetCamera),"Player camera ownership");
+    auto facing=reinterpret_cast<unsigned char*>(gameBase+0xa3afc0);
+    const unsigned char prefix[]={0x8b,0x44,0x24,0x04,0x8b,0x0d};
+    const unsigned char tail[]={0x83,0xc4,0x1c,0xc2,0x08,0x00};
+    if(!memcmp(facing,prefix,sizeof(prefix))&&word(reinterpret_cast<uintptr_t>(facing)+6)==gameBase+0x15fec38
+       &&!memcmp(facing+0x11a,tail,sizeof(tail)))nativeFacing=reinterpret_cast<SetFacing>(facing);
+    log("Native head facing %s\n",nativeFacing?"available":"signature mismatch");
 }
 }

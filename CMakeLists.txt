@@ -32,3 +32,6 @@ target_link_libraries(motion_check PRIVATE mgs5vr_core)
 
 add_executable(arm_check src/tracking/arm_check.cpp)
 target_link_libraries(arm_check PRIVATE mgs5vr_core)
+
+add_executable(motion_driver src/tracking/motion_driver.cpp)
+target_compile_features(motion_driver PRIVATE cxx_std_17)

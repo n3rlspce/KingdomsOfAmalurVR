@@ -2,7 +2,7 @@
 // Temporary first-person workaround: hide only the local player's appearance
 // and armor attachments. The player rig and weapon attachment remain active.
 namespace body_visibility {
-inline std::atomic<bool> enabled{true};
+inline std::atomic<bool> enabled{false};
 using Visibility=void(__thiscall*)(void*);
 inline Visibility hide{},show{};
 struct Entry {uint32_t index{},owner{};bool wasHidden{};};

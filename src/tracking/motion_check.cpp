@@ -24,6 +24,23 @@ int main(){
     check(!amalur::validMotionInput(input,1300)&&!amalur::validMotionInput(input,900),"stale and future input rejected");
     input.active=0;check(!amalur::validMotionInput(input,1100),"focus loss neutral");
     input.active=1;input.moveX=NAN;check(!amalur::validMotionInput(input,1100),"NaN rejected");
+    amalur::TouchMapper mapper;amalur::TouchInput touch;
+    touch.a=touch.b=touch.x=touch.y=true;touch.leftTrigger=.8f;touch.rightGrip=.9f;touch.leftGrip=1;
+    auto padInput=mapper.map(touch,true);padInput.tick=1000;
+    check(amalur::validMotionInput(padInput,1100),"valid complete Touch packet");
+    check((padInput.buttons&0xf000)==0xf000&&padInput.abilities==.9f,"four spell face buttons preserved under modifier");
+    check((padInput.buttons&XINPUT_GAMEPAD_LEFT_SHOULDER)&&padInput.block==.8f,"bank switch and Reckoning chord available");
+    touch={};touch.rightTrigger=.7f;check(mapper.map(touch,true).buttons&XINPUT_GAMEPAD_X,"right trigger attacks");
+    touch.rightTrigger=.5f;check(mapper.map(touch,true).buttons&XINPUT_GAMEPAD_X,"trigger hysteresis holds");
+    touch.rightTrigger=.4f;check(!(mapper.map(touch,true).buttons&XINPUT_GAMEPAD_X),"trigger releases");
+    touch.menu=touch.rightClick=touch.leftClick=true;touch.rightX=-1;touch.rightY=1;
+    auto shortcuts=mapper.map(touch,true);
+    check(shortcuts.buttons==(XINPUT_GAMEPAD_START|XINPUT_GAMEPAD_BACK|XINPUT_GAMEPAD_RIGHT_SHOULDER|XINPUT_GAMEPAD_DPAD_LEFT|XINPUT_GAMEPAD_DPAD_UP),"menu map stealth and D-pad mapping");
+    check(!mapper.map(touch,false).active&&mapper.map(touch,false).buttons==0,"overlay/focus loss releases all controls");
+    XINPUT_GAMEPAD real{};real.wButtons=XINPUT_GAMEPAD_B;real.sThumbLX=1234;
+    amalur::mergeMotion(real,padInput);check(real.sThumbLX==1234&&(real.wButtons&XINPUT_GAMEPAD_B),"physical pad preserved with neutral XR stick");
+    padInput.buttons|=0x80000000;check(!amalur::validMotionInput(padInput,1100),"unknown buttons rejected");
+    padInput.buttons=0;padInput.abilities=NAN;check(!amalur::validMotionInput(padInput,1100),"invalid analog trigger rejected");
     const float s=std::sqrt(.5f);
     for(auto forward:{mgs5vr::Vec3{0,1,0},mgs5vr::Vec3{-1,0,0}}){
         amalur::CameraPose rig{{10,20,170},{10+forward.x*200,20+forward.y*200,170},{0,0,1}};

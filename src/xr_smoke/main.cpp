@@ -83,6 +83,7 @@ int main(int argc,char** argv) {
     if(gameMode)settings.captureInput();
     amalur::PoseChannel poses;
     amalur::MotionInputChannel motionInput;
+    amalur::TouchMapper touchMapper;
     amalur::PoseChannel leftHand(L"Local\\AmalurVRLeftHandV3",L"Local\\AmalurVRLeftHandMutexV3");
     amalur::PoseChannel rightHand(L"Local\\AmalurVRRightHandV3",L"Local\\AmalurVRRightHandMutexV3");
     StereoSource stereoSource;
@@ -137,10 +138,18 @@ int main(int argc,char** argv) {
         auto action=[&](const char* name,XrActionType type) { XrActionCreateInfo ai{XR_TYPE_ACTION_CREATE_INFO}; ai.actionType=type; ai.countSubactionPaths=2; ai.subactionPaths=handPaths.data(); strcpy_s(ai.actionName,name); strcpy_s(ai.localizedActionName,name); XrAction a{}; XR(xrCreateAction(r.actions,&ai,&a)); return a; };
         XrAction pose=action("grip_pose",XR_ACTION_TYPE_POSE_INPUT),trigger=action("trigger",XR_ACTION_TYPE_FLOAT_INPUT),haptic=action("haptic",XR_ACTION_TYPE_VIBRATION_OUTPUT);
         XrAction move=action("move",XR_ACTION_TYPE_VECTOR2F_INPUT);
+        XrAction squeeze=action("squeeze",XR_ACTION_TYPE_FLOAT_INPUT);
+        XrAction primary=action("primary_button",XR_ACTION_TYPE_BOOLEAN_INPUT),secondary=action("secondary_button",XR_ACTION_TYPE_BOOLEAN_INPUT);
+        XrAction stickClick=action("thumbstick_click",XR_ACTION_TYPE_BOOLEAN_INPUT),menuAction=action("menu",XR_ACTION_TYPE_BOOLEAN_INPUT);
         std::vector<XrActionSuggestedBinding> bindings;
-        bindings.push_back({move,path("/user/hand/left/input/thumbstick")});
+        bindings.push_back({menuAction,path("/user/hand/left/input/menu/click")});
         for(auto side:{"left","right"}) {
             std::string base=std::string("/user/hand/")+side;
+            bindings.push_back({move,path((base+"/input/thumbstick").c_str())});
+            bindings.push_back({stickClick,path((base+"/input/thumbstick/click").c_str())});
+            bindings.push_back({squeeze,path((base+"/input/squeeze/value").c_str())});
+            bindings.push_back({primary,path((base+(std::string(side)=="left"?"/input/x/click":"/input/a/click")).c_str())});
+            bindings.push_back({secondary,path((base+(std::string(side)=="left"?"/input/y/click":"/input/b/click")).c_str())});
             bindings.push_back({pose,path((base+"/input/grip/pose").c_str())});
             bindings.push_back({trigger,path((base+"/input/trigger/value").c_str())});
             bindings.push_back({haptic,path((base+"/output/haptic").c_str())});
@@ -218,11 +227,18 @@ int main(int argc,char** argv) {
             }
             if(focused) {
                 XrActiveActionSet active{r.actions,XR_NULL_PATH};XrActionsSyncInfo sync{XR_TYPE_ACTIONS_SYNC_INFO};sync.countActiveActionSets=1;sync.activeActionSets=&active;XR(xrSyncActions(r.session,&sync));
-                XrActionStateGetInfo moveInfo{XR_TYPE_ACTION_STATE_GET_INFO};moveInfo.action=move;moveInfo.subactionPath=handPaths[0];
-                XrActionStateVector2f stick{XR_TYPE_ACTION_STATE_VECTOR2F};XR(xrGetActionStateVector2f(r.session,&moveInfo,&stick));
-                amalur::MotionInputPacket motion;motion.active=gameMode&&stick.isActive&&!settings.visible&&VrSettings::gameFocused();
-                motion.moveX=stick.currentState.x;motion.moveY=stick.currentState.y;
-                amalur::deadzone(motion.moveX,motion.moveY);motionInput.publish(motion);
+                auto scalar=[&](XrAction a,int hand){XrActionStateGetInfo g{XR_TYPE_ACTION_STATE_GET_INFO};g.action=a;g.subactionPath=handPaths[hand];
+                    XrActionStateFloat v{XR_TYPE_ACTION_STATE_FLOAT};XR(xrGetActionStateFloat(r.session,&g,&v));return v.isActive?v.currentState:0.f;};
+                auto button=[&](XrAction a,int hand){XrActionStateGetInfo g{XR_TYPE_ACTION_STATE_GET_INFO};g.action=a;g.subactionPath=handPaths[hand];
+                    XrActionStateBoolean v{XR_TYPE_ACTION_STATE_BOOLEAN};XR(xrGetActionStateBoolean(r.session,&g,&v));return v.isActive&&v.currentState;};
+                amalur::TouchInput touch;
+                for(int hand=0;hand<2;++hand){XrActionStateGetInfo g{XR_TYPE_ACTION_STATE_GET_INFO};g.action=move;g.subactionPath=handPaths[hand];
+                    XrActionStateVector2f v{XR_TYPE_ACTION_STATE_VECTOR2F};XR(xrGetActionStateVector2f(r.session,&g,&v));
+                    if(v.isActive){if(hand==0){touch.leftX=v.currentState.x;touch.leftY=v.currentState.y;}else{touch.rightX=v.currentState.x;touch.rightY=v.currentState.y;}}}
+                touch.leftTrigger=scalar(trigger,0);touch.rightTrigger=scalar(trigger,1);touch.leftGrip=scalar(squeeze,0);touch.rightGrip=scalar(squeeze,1);
+                touch.x=button(primary,0);touch.y=button(secondary,0);touch.a=button(primary,1);touch.b=button(secondary,1);
+                touch.leftClick=button(stickClick,0);touch.rightClick=button(stickClick,1);touch.menu=button(menuAction,0);
+                motionInput.publish(touchMapper.map(touch,gameMode&&!settings.visible&&VrSettings::gameFocused()));
                 for(int i=0;i<2;++i){XrActionStateGetInfo get{XR_TYPE_ACTION_STATE_GET_INFO};get.action=trigger;get.subactionPath=handPaths[i];XrActionStateFloat value{XR_TYPE_ACTION_STATE_FLOAT};XR(xrGetActionStateFloat(r.session,&get,&value));
                     bool down=value.isActive&&value.currentState>.75f;
                     if(down&&!pressed[i]&&!gameMode){XrHapticActionInfo hi{XR_TYPE_HAPTIC_ACTION_INFO};hi.action=haptic;hi.subactionPath=handPaths[i];XrHapticVibration vibration{XR_TYPE_HAPTIC_VIBRATION};vibration.duration=50000000;vibration.amplitude=.25f;vibration.frequency=XR_FREQUENCY_UNSPECIFIED;XR(xrApplyHapticFeedback(r.session,&hi,reinterpret_cast<XrHapticBaseHeader*>(&vibration)));std::cout<<"Trigger/haptic hand="<<i<<"\n";} pressed[i]=down;
@@ -240,7 +256,7 @@ int main(int argc,char** argv) {
                     }
                     if(frames%90==0)std::cout<<"Hand="<<i<<" flags="<<hand.locationFlags<<" xyz="<<hand.pose.position.x<<','<<hand.pose.position.y<<','<<hand.pose.position.z<<"\n";
                 }
-            } else {pressed={};motionInput.publish({});if(trackingMode){amalur::PosePacket invalid;leftHand.publish(invalid);rightHand.publish(invalid);}}
+            } else {pressed={};motionInput.publish(touchMapper.map({},false));if(trackingMode){amalur::PosePacket invalid;leftHand.publish(invalid);rightHand.publish(invalid);}}
             std::array<XrCompositionLayerProjectionView,2> projectionViews{};
             bool render=fs.shouldRender&&count==2&&(state.viewStateFlags&XR_VIEW_STATE_POSITION_VALID_BIT)&&(state.viewStateFlags&XR_VIEW_STATE_ORIENTATION_VALID_BIT);
             amalur::PosePacket gameFrame;

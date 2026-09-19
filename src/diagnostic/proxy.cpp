@@ -17,7 +17,7 @@
 #include "../tracking/stereo_frame.hpp"
 using Microsoft::WRL::ComPtr;
 
-// Observation by default. F9 opts into a reversible, desktop-only camera FOV probe.
+// VR features default on but require fresh bridge poses; F9 is a desktop FOV probe.
 // Hooks remain installed until process exit; hot unloading is unsupported.
 static HMODULE selfModule;
 static INIT_ONCE runtimeOnce=INIT_ONCE_STATIC_INIT, factoryOnce=INIT_ONCE_STATIC_INIT, chainOnce=INIT_ONCE_STATIC_INIT;
@@ -51,8 +51,8 @@ static std::atomic<bool> cameraProbe{false};
 static std::atomic<void*> probeCamera{nullptr};
 static ULONG_PTR gameBase{};
 static std::atomic<unsigned> cameraLogs{0};
-static std::atomic<bool> headTracking{false};
-static std::atomic<bool> firstPerson{false};
+static std::atomic<bool> headTracking{true};
+static std::atomic<bool> firstPerson{true};
 static std::atomic<bool> coherentCamera{true};
 static amalur::CameraInputs cameraInputs;
 static void restoreCameraInputs(){
@@ -213,6 +213,8 @@ static void __fastcall onRebuildCamera(void* camera,void*) {
         }
     }else haveOrigin=false;
     if(tracked){
+        if(firstPerson.load()&&packet.gameMode&&motion_controls::gameFocused())
+            player_rig::face(camera,adjusted.target-adjusted.eye);
         memcpy(core+4,&adjusted.eye,sizeof(mgs5vr::Vec3));
         memcpy(core+0x14,&adjusted.target,sizeof(mgs5vr::Vec3));
         memcpy(core+0x1c0,&adjusted.up,sizeof(mgs5vr::Vec3));
@@ -359,7 +361,7 @@ static HRESULT STDMETHODCALLTYPE onPresent(IDXGISwapChain* chain,UINT sync,UINT 
     static bool f1Down=false;bool f1=(GetAsyncKeyState(VK_F1)&0x8000)!=0;
     if(f1&&!f1Down&&motion_controls::gameFocused()){body_visibility::enabled.store(!body_visibility::enabled.load());log("F1: first-person body hiding %s\n",body_visibility::enabled.load()?"ON":"OFF");}f1Down=f1;
     body_visibility::update();
-    static bool f4Down=false,bodyBeforeArm=true,weaponBeforeArm=true;bool f4=(GetAsyncKeyState(VK_F4)&0x8000)!=0;
+    static bool f4Down=false,bodyBeforeArm=true,weaponBeforeArm=false;bool f4=(GetAsyncKeyState(VK_F4)&0x8000)!=0;
     if(f4&&!f4Down&&motion_controls::gameFocused()){
         if(arm_rig::enabled.exchange(!arm_rig::enabled.load())){body_visibility::enabled.store(bodyBeforeArm);weapon_control::enabled.store(weaponBeforeArm);}
         else {rig_probe::disable();bodyBeforeArm=body_visibility::enabled.load();weaponBeforeArm=weapon_control::enabled.load();

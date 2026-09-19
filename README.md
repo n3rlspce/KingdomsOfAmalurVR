@@ -12,13 +12,23 @@ Experimental VR mod for **Kingdoms of Amalur: Re-Reckoning**, targeting
 
 ## Experimental prototype — needs headset validation
 
-- `F5`: first-person camera and analog Touch left-stick movement (enables head tracking).
-- `F4`: right-controller arm IK, visibly tested with OpenXR Simulator; headset validation pending. Works in third person or alongside `F5`.
+- First person, head tracking, Touch input and right-arm IK start enabled when the VR bridge supplies tracking. `F5` toggles first person; `F4` toggles arm IK.
+- Head yaw requests native character facing in first person; initial headset validation pending.
+- Right-controller arm IK was visibly tested with OpenXR Simulator; equipment and headset validation are ongoing.
 - Legacy single-weapon pose override (`F3`); disabled while arm IK is active.
 - Close the settings panel (`*`) to move. Hold the right controller naturally and press `F7` to recalibrate its orientation.
 - Wrist alignment, body clipping, equipment coverage and animation transitions need work. Arm IK shows the body; the staff is not attached to the solved hand yet.
 - Camera consistency correction passed an initial headset test (`F2` compares it). Drawn/stowed weapon tracking is not reliable yet.
-- Temporary first-person body/armor hiding (`F1`) is being tested to prevent jogging through the camera. This hides the visible body, not just the head; head yaw currently turns the view only.
+- Temporary first-person body/armor hiding (`F1`) is available to prevent jogging through the camera. This hides the visible body, not just the head; it defaults off to show tracked arms.
+
+### Touch controls (experimental)
+
+Left stick moves or selects in menus. Right trigger sends primary weapon attack;
+right grip sends the native ability modifier, with A/B/X/Y selecting spells.
+Left grip opens the item radial; left trigger blocks. Face buttons keep their
+Xbox equivalents. Right stick sends D-pad directions; right stick click is stealth;
+left stick click opens the map; left menu opens the game menu.
+The native gamepad HUD and spell-bank switching still need verification.
 
 ## Not working reliably yet
 

@@ -8,7 +8,7 @@ inline mgs5vr::Pose desired{};
 inline uint64_t tick{};
 inline unsigned generation{};
 inline float worldScale{100.f};
-inline std::atomic<bool> enabled{true};
+inline std::atomic<bool> enabled{false};
 inline amalur::PoseChannel hand{L"Local\\AmalurVRRightHandV3",L"Local\\AmalurVRRightHandMutexV3"};
 inline void sample(amalur::CameraPose rig,mgs5vr::Pose origin,float scale,unsigned recenter){
     amalur::PosePacket p;mgs5vr::Pose result{};

@@ -4,28 +4,46 @@
 namespace motion_controls {
 using GetState=DWORD(WINAPI*)(DWORD,XINPUT_STATE*);
 inline GetState original{};
+using GetCapabilities=DWORD(WINAPI*)(DWORD,DWORD,XINPUT_CAPABILITIES*);
+inline GetCapabilities originalCapabilities{};
 inline amalur::MotionInputChannel channel;
 inline SRWLOCK lock=SRWLOCK_INIT;
 inline DWORD packetNumber{};
 inline bool gameFocused(){DWORD pid{};GetWindowThreadProcessId(GetForegroundWindow(),&pid);return pid==GetCurrentProcessId();}
 inline DWORD WINAPI getState(DWORD index,XINPUT_STATE* state){
     DWORD result=original(index,state);
-    if(index||!state||!firstPerson.load()||!headTracking.load())return result;
-    // A neutral virtual pad stays connected while enabled, including loss of XR
-    // focus. No sticky key injection, driver install or writes to player velocity.
+    if(index||!state)return result;
+    // XR buttons also work in menus. Focus/overlay/expiry gate the complete pad,
+    // not just locomotion, so released or disconnected triggers cannot stick.
     amalur::MotionInputPacket motion;
     AcquireSRWLockExclusive(&lock);
-    bool active=gameFocused()&&channel.open(false)&&channel.read(motion);
+    bool connected=channel.open(false);
+    if(!connected){ReleaseSRWLockExclusive(&lock);return result;}
+    bool active=gameFocused()&&channel.read(motion);
     if(result!=ERROR_SUCCESS)*state={};
-    if(active){state->Gamepad.sThumbLX=static_cast<SHORT>(motion.moveX*32767);state->Gamepad.sThumbLY=static_cast<SHORT>(motion.moveY*32767);}
-    else {state->Gamepad.sThumbLX=0;state->Gamepad.sThumbLY=0;}
+    if(active)amalur::mergeMotion(state->Gamepad,motion);
+    static DWORD lastInput=~0u;
+    DWORD current=static_cast<DWORD>(state->Gamepad.wButtons)|(static_cast<DWORD>(state->Gamepad.bLeftTrigger)<<16)|(static_cast<DWORD>(state->Gamepad.bRightTrigger)<<24);
+    if(current!=lastInput){log("Touch XInput active=%d buttons=%04x LT=%u RT=%u\n",active,state->Gamepad.wButtons,state->Gamepad.bLeftTrigger,state->Gamepad.bRightTrigger);lastInput=current;}
+
     state->dwPacketNumber=++packetNumber;
     ReleaseSRWLockExclusive(&lock);
+    return ERROR_SUCCESS;
+}
+inline DWORD WINAPI getCapabilities(DWORD index,DWORD flags,XINPUT_CAPABILITIES* caps){
+    auto result=originalCapabilities(index,flags,caps);if(index||!caps||result==ERROR_SUCCESS)return result;
+    AcquireSRWLockExclusive(&lock);bool connected=channel.open(false);ReleaseSRWLockExclusive(&lock);
+    if(!connected)return result;
+    *caps={};caps->Type=XINPUT_DEVTYPE_GAMEPAD;caps->SubType=XINPUT_DEVSUBTYPE_GAMEPAD;
+    caps->Gamepad.wButtons=0xf3ff;caps->Gamepad.bLeftTrigger=caps->Gamepad.bRightTrigger=255;
+    caps->Gamepad.sThumbLX=caps->Gamepad.sThumbLY=32767;
     return ERROR_SUCCESS;
 }
 inline void install(){
     HMODULE module=GetModuleHandleW(L"xinput1_3.dll");if(!module){log("XInput module unavailable\n");return;}
     auto target=GetProcAddress(module,"XInputGetState");
-    if(target)hook(reinterpret_cast<void*>(target),reinterpret_cast<void*>(&getState),reinterpret_cast<void**>(&original),"Touch left stick via XInput");
+    if(target)hook(reinterpret_cast<void*>(target),reinterpret_cast<void*>(&getState),reinterpret_cast<void**>(&original),"Touch gamepad state via XInput");
+    auto caps=GetProcAddress(module,"XInputGetCapabilities");
+    if(caps)hook(reinterpret_cast<void*>(caps),reinterpret_cast<void*>(&getCapabilities),reinterpret_cast<void**>(&originalCapabilities),"Touch gamepad capabilities");
 }
 }
