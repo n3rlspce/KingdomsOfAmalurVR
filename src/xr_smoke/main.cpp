@@ -35,6 +35,7 @@ static void xrcheck(XrResult r, const char* operation) {
 static void hrcheck(HRESULT r) { if(FAILED(r)) throw std::runtime_error("D3D failure: "+std::to_string(r)); }
 static XrPath path(const char* s) { XrPath p{}; XR(xrStringToPath(instance,s,&p)); return p; }
 #include "settings_panel.hpp"
+#include "../tracking/hud_settings.hpp"
 struct Resources {
     XrSession session{}; XrSpace local{},view{}; XrActionSet actions{};
     std::array<XrSpace,2> hands{};
@@ -76,6 +77,7 @@ int main(int argc,char** argv) {
     std::cout<<"Amalur XR smoke v1, process bits="<<sizeof(void*)*8<<", mode="<<(live?"session":"probe")<<"\n";
     Resources r;
     VrSettings settings;
+    amalur::HudSettingsChannel hudSettings;
     SettingsPanel panel;
     if(gameMode)settings.captureInput();
     amalur::PoseChannel poses;
@@ -181,7 +183,7 @@ int main(int argc,char** argv) {
         if(gameMode)std::cout<<"EXPERIMENTAL GAME STEREO: menu panel until F10 camera is active; waiting for geo-11 Katanga surface. Scale/eye convergence uncalibrated.\n";
         else if(trackingMode)std::cout<<"POSE BRIDGE: desktop camera diagnostic only. The headset still shows triangles, not Amalur.\n";
         while(!done && std::chrono::steady_clock::now()-start<std::chrono::seconds(duration) && !(GetAsyncKeyState(stopKey)&0x8000)) {
-            if(gameMode){settings.poll();if(settings.renderScale!=activeRenderScale){createEyeChains();activeRenderScale=settings.renderScale;}}
+            if(gameMode){settings.poll();if(hudSettings.open(true))hudSettings.publish(settings.hudSize);if(settings.renderScale!=activeRenderScale){createEyeChains();activeRenderScale=settings.renderScale;}}
             XrEventDataBuffer event{XR_TYPE_EVENT_DATA_BUFFER};
             for(;;) {
                 auto result=xrPollEvent(instance,&event); if(result==XR_EVENT_UNAVAILABLE) break; xrcheck(result,"xrPollEvent");

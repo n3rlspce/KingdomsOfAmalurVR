@@ -8,7 +8,7 @@ Experimental VR mod for **Kingdoms of Amalur: Re-Reckoning**, targeting
 - Third-person stereo VR and 6DoF head tracking.
 - Original gamepad and keyboard controls.
 - Curved HUD with adjustable size and stereo placement; headset testing ongoing.
-- In-VR settings panel (`*`) and recentering (`F7`).
+- In-VR settings panel (`*`), live HUD size slider and recentering (`F7`).
 
 ## Not working reliably yet
 

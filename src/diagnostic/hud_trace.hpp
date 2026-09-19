@@ -1,9 +1,10 @@
 #pragma once
 // Read-only trace of HUD candidates actually bound for draws, including the
 // GPU constant texture. Shader files existing on disk is not proof of use.
+#include "hud_size.hpp"
 namespace hud_trace {
 static const GUID tagId={0x9e1d42a1,0x6cb3,0x4ac2,{0x87,0x1b,0x21,0x76,0x98,0x5e,0x9c,0x30}};
-struct Tag {uint64_t hash{};UINT candidate{};};
+struct Tag {uint64_t hash{};UINT candidate{},sizeControl{};};
 static unsigned budget=24;
 static uint64_t seen[24]{};static unsigned seenCount{};
 static void rearm(){budget=24;seenCount=0;}
@@ -13,6 +14,7 @@ static void tag(ID3D11VertexShader* shader,const void* bytes,SIZE_T size){
     ComPtr<ID3D11ShaderReflection> reflection;
     if(SUCCEEDED(D3DReflect(bytes,size,IID_PPV_ARGS(&reflection)))){
         D3D11_SHADER_DESC d{};reflection->GetDesc(&d);
+        for(UINT i=0;i<d.BoundResources;++i){D3D11_SHADER_INPUT_BIND_DESC r{};if(SUCCEEDED(reflection->GetResourceBindingDesc(i,&r))&&r.Type==D3D_SIT_TEXTURE&&r.BindPoint==119)t.sizeControl=1;}
         if(d.ConstantBuffers==0&&d.InputParameters<=4)t.candidate=1;
         for(UINT i=0;i<d.ConstantBuffers;++i){D3D11_SHADER_BUFFER_DESC b{};
             if(SUCCEEDED(reflection->GetConstantBufferByIndex(i)->GetDesc(&b))&&
@@ -22,10 +24,13 @@ static void tag(ID3D11VertexShader* shader,const void* bytes,SIZE_T size){
     shader->SetPrivateData(tagId,sizeof(t),&t);
     if(t.candidate)log("HUD candidate created hash=%016llx bytes=%zu\n",t.hash,size);
 }
-static void sample(ID3D11DeviceContext* context){
-    if(!budget)return;
-    ComPtr<ID3D11VertexShader> shader;context->VSGetShader(&shader,nullptr,nullptr);if(!shader)return;
-    Tag t;UINT size=sizeof(t);if(FAILED(shader->GetPrivateData(tagId,&size,&t))||!t.candidate)return;
+static Tag inspect(ID3D11DeviceContext* context){
+    ComPtr<ID3D11VertexShader> shader;context->VSGetShader(&shader,nullptr,nullptr);if(!shader)return {};
+    Tag t;UINT size=sizeof(t);if(FAILED(shader->GetPrivateData(tagId,&size,&t)))return {};
+    return t;
+}
+static void sample(ID3D11DeviceContext* context,const Tag& t){
+    if(!budget||!t.candidate)return;
     for(unsigned i=0;i<seenCount;++i)if(seen[i]==t.hash)return;
     seen[seenCount++]=t.hash;--budget;
     ComPtr<ID3D11ShaderResourceView> view;context->VSGetShaderResources(120,1,&view);
@@ -52,10 +57,10 @@ using Indexed=void(STDMETHODCALLTYPE*)(ID3D11DeviceContext*,UINT,UINT,INT);
 using Instanced=void(STDMETHODCALLTYPE*)(ID3D11DeviceContext*,UINT,UINT,UINT,UINT);
 using IndexedInstanced=void(STDMETHODCALLTYPE*)(ID3D11DeviceContext*,UINT,UINT,UINT,INT,UINT);
 static Draw draw;static Indexed indexed;static Instanced instanced;static IndexedInstanced indexedInstanced;
-static void STDMETHODCALLTYPE onDraw(ID3D11DeviceContext* c,UINT n,UINT first){sample(c);draw(c,n,first);}
-static void STDMETHODCALLTYPE onIndexed(ID3D11DeviceContext* c,UINT n,UINT first,INT base){sample(c);indexed(c,n,first,base);}
-static void STDMETHODCALLTYPE onInstanced(ID3D11DeviceContext* c,UINT n,UINT instances,UINT first,UINT start){sample(c);instanced(c,n,instances,first,start);}
-static void STDMETHODCALLTYPE onIndexedInstanced(ID3D11DeviceContext* c,UINT n,UINT instances,UINT first,INT base,UINT start){sample(c);indexedInstanced(c,n,instances,first,base,start);}
+static void STDMETHODCALLTYPE onDraw(ID3D11DeviceContext* c,UINT n,UINT first){auto t=inspect(c);hud_size::Binding hud(c,t.sizeControl!=0);sample(c,t);draw(c,n,first);}
+static void STDMETHODCALLTYPE onIndexed(ID3D11DeviceContext* c,UINT n,UINT first,INT base){auto t=inspect(c);hud_size::Binding hud(c,t.sizeControl!=0);sample(c,t);indexed(c,n,first,base);}
+static void STDMETHODCALLTYPE onInstanced(ID3D11DeviceContext* c,UINT n,UINT instances,UINT first,UINT start){auto t=inspect(c);hud_size::Binding hud(c,t.sizeControl!=0);sample(c,t);instanced(c,n,instances,first,start);}
+static void STDMETHODCALLTYPE onIndexedInstanced(ID3D11DeviceContext* c,UINT n,UINT instances,UINT first,INT base,UINT start){auto t=inspect(c);hud_size::Binding hud(c,t.sizeControl!=0);sample(c,t);indexedInstanced(c,n,instances,first,base,start);}
 static void install(void** vt){
     hook(vt[13],reinterpret_cast<void*>(onDraw),reinterpret_cast<void**>(&draw),"HUD Draw trace");
     hook(vt[12],reinterpret_cast<void*>(onIndexed),reinterpret_cast<void**>(&indexed),"HUD DrawIndexed trace");

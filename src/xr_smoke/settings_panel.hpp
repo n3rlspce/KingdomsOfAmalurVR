@@ -26,9 +26,12 @@ public:
         text(42,130,L"Ctrl + Home: reset row    Ctrl + R: recenter    Auto-saved");
         wchar_t line[256];swprintf_s(line,L"Headset IPD: %.1f mm (runtime)   |   %s",ipd,tracking?L"6DoF active":L"Menu view - F10 enables tracking");SetTextColor(dc,RGB(200,208,220));text(42,195,line);
         swprintf_s(line,L"Source / eye: %u x %u     XR / eye: %u x %u",sourceWidth,sourceHeight,eyeWidth,eyeHeight);text(42,234,line);
-        const wchar_t* labels[]={L"Stereo depth strength",L"Convergence (game units)",L"Infinity alignment at 20% depth",L"World units per metre",L"Game horizontal FOV",L"XR render scale",L"Sharpening",L"Reverse source eyes"};
-        float values[]={s.depth,s.convergence,s.alignment*100,s.scale,s.fov,s.renderScale*100,s.sharpness*100,s.swap?1.f:0.f};
-        for(int i=0;i<8;++i){int y=302+i*61;if(i==s.selected){RECT row{24,y-6,width-24,y+45};HBRUSH h=CreateSolidBrush(RGB(34,67,88));FillRect(dc,&row,h);DeleteObject(h);}SetTextColor(dc,RGB(227,235,244));text(44,y,labels[i]);swprintf_s(line,i==7?(s.swap?L"ON":L"OFF"):L"%.2f",values[i]);text(850,y,line);}
+        const wchar_t* labels[]={L"HUD size",L"Stereo depth strength",L"Convergence (game units)",L"Infinity alignment at 20% depth",L"World units per metre",L"Game horizontal FOV",L"XR render scale",L"Sharpening",L"Reverse source eyes"};
+        float values[]={s.hudSize*100,s.depth,s.convergence,s.alignment*100,s.scale,s.fov,s.renderScale*100,s.sharpness*100,s.swap?1.f:0.f};
+        for(int i=0;i<VrSettings::rowCount;++i){int y=302+i*52;if(i==s.selected){RECT row{24,y-6,width-24,y+45};HBRUSH h=CreateSolidBrush(RGB(34,67,88));FillRect(dc,&row,h);DeleteObject(h);}SetTextColor(dc,RGB(227,235,244));text(44,y,labels[i]);swprintf_s(line,i==8?(s.swap?L"ON":L"OFF"):(i==0?L"%.0f%%":L"%.2f"),values[i]);text(850,y,line);}
+        // Keyboard-operated slider, matching the panel's existing arrow controls.
+        RECT track{360,338,780,344};HBRUSH rail=CreateSolidBrush(RGB(73,91,110));FillRect(dc,&track,rail);DeleteObject(rail);
+        int knob=360+static_cast<int>((s.hudSize-.4f)/.8f*420);RECT thumb{knob-5,333,knob+5,349};HBRUSH accent=CreateSolidBrush(RGB(116,194,217));FillRect(dc,&thumb,accent);DeleteObject(accent);
         SetTextColor(dc,RGB(159,177,195));text(42,824,L"Depth strength is not calibrated IPD. Hardware IPD uses Quest's dial.");
         swprintf_s(line,L"Stereo control: %s   |   F7 recenter   F10 tracking   F12 exit",stereoStatus==0?L"connected":L"waiting / unavailable");text(42,865,line);
         text(42,906,L"XR scale changes output only. Source resolution requires game restart.");

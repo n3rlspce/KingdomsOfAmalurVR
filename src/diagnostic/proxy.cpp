@@ -301,6 +301,7 @@ static void publishStereoFrame(){
         log("Paired stereo frame published #%u tracked=%u poseTick=%llu\n",published,metadata.valid,metadata.tick);
 }
 static HRESULT STDMETHODCALLTYPE onPresent(IDXGISwapChain* chain,UINT sync,UINT flags) {
+    hud_size::poll();
     source_resolution::apply(chain);
     applyStereoSettings(chain);
     static bool f8Down=false;bool down=(GetAsyncKeyState(VK_F8)&0x8000)!=0;

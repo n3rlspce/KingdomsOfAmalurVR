@@ -10,6 +10,9 @@ $placement=@'
 // Amalur VR curved HUD candidate, built on mikear69's shader identification.
 // IniParams[2]: horizontal extent, vertical extent, half arc radians, disparity.
 float4 vrHud = IniParams.Load(int2(2, 0));
+float4 hudControl = AmalurHudSettings.Load(int2(0, 0));
+float hudSize = hudControl.y > 0.5 ? clamp(hudControl.x, 0.4, 1.2) : 0.8;
+vrHud.xy *= hudSize;
 // Row 3 X is enabled by a minimap-triggered geo-11 preset.
 // Defaults to zero and expires when the triggering draw disappears.
 float4 vrHudGate = IniParams.Load(int2(3, 0));
@@ -32,6 +35,7 @@ if (vrHudGate.x > 0.5 && vrHud.x > 0.0 && abs(o0.w) > 0.00001) {
 foreach($hash in @('887f6506d28f9ff1','bd9cebc4f7e1ed36','cc7258d9790a0bbd','bf098be2e4587ca5')){
     $name="$hash-vs_replace.txt"
     $text=Get-Content -LiteralPath (Join-Path $donor $name) -Raw
+    $text=$text.Replace('Texture1D<float4> IniParams', 'Texture1D<float4> AmalurHudSettings : register(t119);'+[Environment]::NewLine+'Texture1D<float4> IniParams')
     $needle='o0.x += stereo.x*hud;'
     if(-not $text.Contains($needle)){throw "Expected donor HUD adjustment missing: $name"}
     [IO.File]::WriteAllText((Join-Path $OutputDirectory $name),$text.Replace($needle,$placement),[Text.Encoding]::ASCII)
