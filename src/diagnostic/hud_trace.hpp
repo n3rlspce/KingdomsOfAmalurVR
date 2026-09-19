@@ -57,10 +57,10 @@ using Indexed=void(STDMETHODCALLTYPE*)(ID3D11DeviceContext*,UINT,UINT,INT);
 using Instanced=void(STDMETHODCALLTYPE*)(ID3D11DeviceContext*,UINT,UINT,UINT,UINT);
 using IndexedInstanced=void(STDMETHODCALLTYPE*)(ID3D11DeviceContext*,UINT,UINT,UINT,INT,UINT);
 static Draw draw;static Indexed indexed;static Instanced instanced;static IndexedInstanced indexedInstanced;
-static void STDMETHODCALLTYPE onDraw(ID3D11DeviceContext* c,UINT n,UINT first){auto t=inspect(c);hud_size::Binding hud(c,t.sizeControl!=0);sample(c,t);draw(c,n,first);}
-static void STDMETHODCALLTYPE onIndexed(ID3D11DeviceContext* c,UINT n,UINT first,INT base){auto t=inspect(c);hud_size::Binding hud(c,t.sizeControl!=0);sample(c,t);indexed(c,n,first,base);}
-static void STDMETHODCALLTYPE onInstanced(ID3D11DeviceContext* c,UINT n,UINT instances,UINT first,UINT start){auto t=inspect(c);hud_size::Binding hud(c,t.sizeControl!=0);sample(c,t);instanced(c,n,instances,first,start);}
-static void STDMETHODCALLTYPE onIndexedInstanced(ID3D11DeviceContext* c,UINT n,UINT instances,UINT first,INT base,UINT start){auto t=inspect(c);hud_size::Binding hud(c,t.sizeControl!=0);sample(c,t);indexedInstanced(c,n,instances,first,base,start);}
+static void STDMETHODCALLTYPE onDraw(ID3D11DeviceContext* c,UINT n,UINT first){render_pose::draw(c);camera_audit::draw(c);auto t=inspect(c);hud_size::Binding hud(c,t.sizeControl!=0);sample(c,t);draw(c,n,first);}
+static void STDMETHODCALLTYPE onIndexed(ID3D11DeviceContext* c,UINT n,UINT first,INT base){render_pose::draw(c);camera_audit::draw(c);auto t=inspect(c);hud_size::Binding hud(c,t.sizeControl!=0);sample(c,t);indexed(c,n,first,base);}
+static void STDMETHODCALLTYPE onInstanced(ID3D11DeviceContext* c,UINT n,UINT instances,UINT first,UINT start){render_pose::draw(c);camera_audit::draw(c);auto t=inspect(c);hud_size::Binding hud(c,t.sizeControl!=0);sample(c,t);instanced(c,n,instances,first,start);}
+static void STDMETHODCALLTYPE onIndexedInstanced(ID3D11DeviceContext* c,UINT n,UINT instances,UINT first,INT base,UINT start){render_pose::draw(c);camera_audit::draw(c);auto t=inspect(c);hud_size::Binding hud(c,t.sizeControl!=0);sample(c,t);indexedInstanced(c,n,instances,first,base,start);}
 static void install(void** vt){
     hook(vt[13],reinterpret_cast<void*>(onDraw),reinterpret_cast<void**>(&draw),"HUD Draw trace");
     hook(vt[12],reinterpret_cast<void*>(onIndexed),reinterpret_cast<void**>(&indexed),"HUD DrawIndexed trace");

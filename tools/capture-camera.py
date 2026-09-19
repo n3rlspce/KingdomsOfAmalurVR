@@ -93,6 +93,7 @@ try:
                 row.update(rebuild=struct.unpack_from('<I', camera, 12)[0],
                            cameraFrame=struct.unpack_from('<I', camera, 8)[0],
                            cameraSampled=struct.unpack_from('<Q', camera, 16)[0],
+                           appliedPoseTick=struct.unpack_from('<Q', camera, 24)[0],
                            tracked=struct.unpack_from('<I', camera, 32)[0],
                            playerValid=struct.unpack_from('<I', camera, 36)[0],
                            head=struct.unpack_from('<3f', camera, 40),

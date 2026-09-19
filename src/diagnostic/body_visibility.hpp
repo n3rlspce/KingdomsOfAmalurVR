@@ -61,7 +61,7 @@ inline void restore(){
 inline void update(){
     if(!hide||!show)return;
     __try {
-        bool active=firstPerson.load()&&headTracking.load()&&haveCameraForFrame;
+        bool active=firstPerson.load()&&headTracking.load()&&trackedCameraAvailable.load();
         bool wholeBody=enabled.load();
         if(previousWholeBody!=wholeBody){if(savedCount)restore();previousWholeBody=wholeBody;}
         auto p=reinterpret_cast<uintptr_t>(player_rig::player.load());

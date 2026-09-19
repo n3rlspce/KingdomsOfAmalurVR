@@ -31,7 +31,7 @@ inline void publish(){
     AcquireSRWLockExclusive(&lock);
     current.pid=GetCurrentProcessId();current.tick=GetTickCount();current.frames=presents.load();
     current.remaps=arm_rig::samples.load();current.focused=motion_controls::gameFocused();
-    current.firstPerson=firstPerson.load();current.tracked=haveCameraForFrame&&cameraForFrame.valid;
+    current.firstPerson=firstPerson.load();current.tracked=trackedCameraAvailable.load();
     current.paused=game_pause::sample(current.weaponRemaps!=0);
     AcquireSRWLockShared(&weapon_control::poseLock);
     auto now=GetTickCount64();current.handFresh=weapon_control::tick&&weapon_control::tick<=now&&now-weapon_control::tick<150;

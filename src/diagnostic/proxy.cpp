@@ -64,9 +64,12 @@ static amalur::PoseChannel frameChannel{true};
 static std::atomic<int> stereoStatus{-1};
 static ComPtr<ID3D11Device> captureDevice;
 static amalur::PosePacket renderPose;
-static bool sampledRenderPose=false,haveCameraForFrame=false;
-static amalur::PosePacket cameraForFrame;
+// Only the camera-update thread owns this sample and native input lease.
+static unsigned long sampledPresent=~0ul;
+static std::atomic<bool> trackedCameraAvailable{false};
 #include "camera_status.hpp"
+#include "camera_audit.hpp"
+#include "render_pose.hpp"
 
 static void log(const char* format,...) {
     char line[2048]; va_list args; va_start(args,format);
@@ -90,6 +93,7 @@ static void stack() {
 }
 static HRESULT STDMETHODCALLTYPE onMap(ID3D11DeviceContext* context,ID3D11Resource* resource,UINT subresource,D3D11_MAP type,UINT flags,D3D11_MAPPED_SUBRESOURCE* mapped) {
     HRESULT result=realMap(context,resource,subresource,type,flags,mapped);
+    if(SUCCEEDED(result)&&mapped){camera_audit::map(context,resource,subresource,mapped->pData);render_pose::map(context,resource,subresource,mapped->pData);}
     if(SUCCEEDED(result)&&mapped&&mapped->pData&&samples.load()<8) {
         ComPtr<ID3D11Buffer> buffer;
         if(SUCCEEDED(resource->QueryInterface(IID_PPV_ARGS(&buffer)))){
@@ -103,6 +107,8 @@ static HRESULT STDMETHODCALLTYPE onMap(ID3D11DeviceContext* context,ID3D11Resour
     return result;
 }
 static void STDMETHODCALLTYPE onUnmap(ID3D11DeviceContext* context,ID3D11Resource* resource,UINT subresource) {
+    camera_audit::unmap(context,resource,subresource);
+    render_pose::unmap(context,resource,subresource);
     if(pending.context==context&&pending.resource==resource&&pending.subresource==subresource){
         if(samples.fetch_add(1)<8){
             // Copy only while the mapping is valid, before forwarding Unmap.
@@ -116,6 +122,8 @@ static void STDMETHODCALLTYPE onUnmap(ID3D11DeviceContext* context,ID3D11Resourc
     realUnmap(context,resource,subresource);
 }
 static void STDMETHODCALLTYPE onUpdate(ID3D11DeviceContext* context,ID3D11Resource* resource,UINT subresource,const D3D11_BOX* box,const void* data,UINT rowPitch,UINT depthPitch) {
+    if(!box)camera_audit::update(resource,data);
+    if(!box)render_pose::update(context,resource,data);
     if(data&&!box&&samples.load()<8){
         ComPtr<ID3D11Buffer> buffer;
         if(SUCCEEDED(resource->QueryInterface(IID_PPV_ARGS(&buffer)))){
@@ -198,7 +206,8 @@ static void __fastcall onRebuildCamera(void* camera,void*) {
     if(headTracking.load()) {
         auto now=GetTickCount64();
         if(now-lastOpenAttempt>1000){poseChannel.open(false);lastOpenAttempt=now;}
-        if(!sampledRenderPose){renderPose={};poseChannel.read(renderPose);sampledRenderPose=true;}
+        const auto currentPresent=presents.load();
+        if(sampledPresent!=currentPresent){renderPose={};poseChannel.read(renderPose);sampledPresent=currentPresent;}
         packet=renderPose;
         const bool desktopPose=packet.gameMode==2&&packet.valid&&packet.tick<=now&&now-packet.tick<250;
         weapon_control::desktopPose.store(desktopPose);
@@ -265,14 +274,16 @@ static void __fastcall onRebuildCamera(void* camera,void*) {
     else if(enabled&&dirty)*reinterpret_cast<float*>(core+0x2c)=original*.85f;
     realRebuildCamera(camera);
     camera_status::publish(packet,tracked,selectedPlayerValid,selectedPlayerPosition,originalCamera,tracked?adjusted:originalCamera,core);
-    haveCameraForFrame=false;
+    camera_audit::camera(core,packet);
     if(tracked&&packet.gameMode){
         packet.projectionX=*reinterpret_cast<float*>(core+0xc4);
         packet.projectionY=*reinterpret_cast<float*>(core+0xd8);
         packet.stereoStatus=stereoStatus.load();
         if(frameChannel.open(true))frameChannel.publish(packet);
-        cameraForFrame=packet;haveCameraForFrame=true;
     }
+    auto renderedPacket=packet;if(!tracked||!packet.gameMode)renderedPacket.valid=0;
+    trackedCameraAvailable.store(renderedPacket.valid!=0);
+    render_pose::camera(core,renderedPacket);
     const bool retainInputs=tracked&&packet.gameMode&&firstPerson.load()&&coherentCamera.load();
     if(retainInputs){
         cameraInputs={core,originalCamera,adjusted,original,*reinterpret_cast<float*>(core+0x2c)};
@@ -342,7 +353,9 @@ static void applyStereoSettings(IDXGISwapChain* chain){
     using Set=int(__cdecl*)(void*,float);static void* handle{};static Set setDepth{},setConvergence{};
     static ULONGLONG next{};static float oldDepth=-1,oldConvergence=-1;
     auto now=GetTickCount64();if(!gameBase||now<next)return;next=now+500;
-    amalur::PosePacket p;if(!poseChannel.open(false)||!poseChannel.read(p)||!p.gameMode)return;
+    // Reader caches are thread-owned even though shared-memory packets use a mutex.
+    static amalur::PoseChannel settingsChannel;
+    amalur::PosePacket p;if(!settingsChannel.open(false)||!settingsChannel.read(p)||!p.gameMode)return;
     if(!handle){auto module=GetModuleHandleW(L"nvapi.dll");if(!module)return;
         auto query=reinterpret_cast<Query>(GetProcAddress(module,"nvapi_QueryInterface"));if(!query){log("Stereo settings: query export missing\n");return;}
         auto create=reinterpret_cast<Create>(query(0xac7e37f4));setDepth=reinterpret_cast<Set>(query(0x5c069fa3));setConvergence=reinterpret_cast<Set>(query(0x3dd6b54b));
@@ -357,7 +370,7 @@ static void applyStereoSettings(IDXGISwapChain* chain){
     if(!a&&!b){oldDepth=p.depth;oldConvergence=p.convergence;}
 }
 #include "source_resolution.hpp"
-static void publishStereoFrame(){
+static void publishStereoFrame(const amalur::PosePacket& metadata){
     if(!captureDevice)return;
     static HANDLE mapping{};static const ULONG_PTR* sharedHandle{};
     static ULONG_PTR opened{};static ComPtr<ID3D11Texture2D> stereo;
@@ -368,13 +381,14 @@ static void publishStereoFrame(){
     ComPtr<ID3D11DeviceContext> context;captureDevice->GetImmediateContext(&context);
     // Executed after geo-11 Present has assembled the packed stereo image on
     // this immediate context, before the next game frame can overwrite it.
-    amalur::PosePacket metadata;
-    if(haveCameraForFrame)metadata=cameraForFrame;
     static unsigned published=0;
     if(publisher.publish(captureDevice.Get(),context.Get(),stereo.Get(),metadata)&&++published%300==1)
         log("Paired stereo frame published #%u tracked=%u poseTick=%llu\n",published,metadata.valid,metadata.tick);
 }
 static HRESULT STDMETHODCALLTYPE onPresent(IDXGISwapChain* chain,UINT sync,UINT flags) {
+    // Take the completed draw's attribution before Present permits recording
+    // the next image. Keep this local packet through geo-11's stereo copy.
+    const auto presentedPose=(flags&DXGI_PRESENT_TEST)?amalur::PosePacket{}:render_pose::beginPresent();
     hud_size::poll();
     source_resolution::apply(chain);
     applyStereoSettings(chain);
@@ -411,11 +425,10 @@ static HRESULT STDMETHODCALLTYPE onPresent(IDXGISwapChain* chain,UINT sync,UINT 
     rig_status::publish();
     if(count<=3){log("Present #%lu chain=%p sync=%u flags=0x%x\n",count,chain,sync,flags);stack();}
     HRESULT result=realPresent(chain,sync,flags);
-    restoreCameraInputs();
-    if(SUCCEEDED(result)&&!(flags&DXGI_PRESENT_TEST))publishStereoFrame();
-    // If the engine reuses its cached camera matrices next frame, their last
-    // rendered pose remains the correct attribution until that camera rebuilds.
-    sampledRenderPose=false;
+    if(SUCCEEDED(result)&&!(flags&DXGI_PRESENT_TEST))publishStereoFrame(presentedPose);
+    camera_audit::present(presentedPose);
+    // Native inputs are restored only by their owning camera-update thread.
+    // Restoring here raced the next native camera rebuild on another thread.
     if(count%600==0 || (FAILED(result)&&count<=10))log("Present #%lu result=0x%08lx\n",count,static_cast<unsigned long>(result));
     return result;
 }
@@ -441,6 +454,7 @@ static BOOL CALLBACK hookFactory(PINIT_ONCE,PVOID parameter,PVOID*) {
     installCameraProbe();
     auto device=static_cast<ID3D11Device*>(parameter);ComPtr<IDXGIDevice> dxgi;ComPtr<IDXGIAdapter> adapter;ComPtr<IDXGIFactory> factory;
     captureDevice=device;
+    camera_audit::initialize();
     void** deviceVt=*reinterpret_cast<void***>(device);
     hook(deviceVt[12],reinterpret_cast<void*>(&onCreateVS),reinterpret_cast<void**>(&realCreateVS),"CreateVertexShader");
     ComPtr<ID3D11DeviceContext> context;device->GetImmediateContext(&context);

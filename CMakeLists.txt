@@ -33,6 +33,8 @@ add_executable(dodge_check src/tracking/dodge_check.cpp)
 target_compile_features(dodge_check PRIVATE cxx_std_17)
 add_executable(movement_check src/tracking/movement_check.cpp)
 target_link_libraries(movement_check PRIVATE mgs5vr_core)
+add_executable(render_match_check src/tracking/render_match_check.cpp)
+target_compile_features(render_match_check PRIVATE cxx_std_17)
 
 add_executable(arm_check src/tracking/arm_check.cpp)
 target_link_libraries(arm_check PRIVATE mgs5vr_core)
