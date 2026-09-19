@@ -1,4 +1,4 @@
-param([switch]$LoadSave,[switch]$Observe,[switch]$MouseAttack,[string]$Output='')
+param([switch]$LoadSave,[switch]$Observe,[switch]$MouseAttack,[switch]$StaticPose,[string]$Output='')
 # Bounded local gameplay test. Reports rig feedback instead of screenshot polling.
 # LoadSave sends at most two Enter presses (title screen, Continue). It stops if
 # gameplay isn't detected; it cannot recognize arbitrary menus or dialogs.
@@ -68,6 +68,12 @@ if($LoadSave -and !$rigState.weapons){
  }
 }
 if(!$rigState.weapons){throw 'No equipped-weapon rig detected. Load a gameplay save, then rerun without -LoadSave.'}
+if($StaticPose){
+ if(Get-Process rig_driver -ErrorAction SilentlyContinue){throw 'A rig driver is already running'}
+ Start-Process $rigDriver -ArgumentList '--static' -WindowStyle Hidden -RedirectStandardOutput (Join-Path $rigRoot 'build/static-pose.jsonl') -RedirectStandardError (Join-Path $rigRoot 'build/static-pose-error.log')
+ Write-Output 'Static third-person pose running for ten minutes; stop rig_driver to restore normal tracking.'
+ return
+}
 $rigOutputParent=Split-Path -Parent $Output
 if($rigOutputParent){New-Item -ItemType Directory -Force -Path $rigOutputParent|Out-Null}
 if($Observe){& $rigDriver --observe | Set-Content -LiteralPath $Output}elseif($MouseAttack){& $rigDriver --mouse-attack | Set-Content -LiteralPath $Output}else{& $rigDriver | Set-Content -LiteralPath $Output}

@@ -195,6 +195,9 @@ static void __fastcall onRebuildCamera(void* camera,void*) {
         if(now-lastOpenAttempt>1000){poseChannel.open(false);lastOpenAttempt=now;}
         if(!sampledRenderPose){renderPose={};poseChannel.read(renderPose);sampledRenderPose=true;}
         packet=renderPose;
+        const bool desktopPose=packet.gameMode==2&&packet.valid&&packet.tick<=now&&now-packet.tick<250;
+        weapon_control::desktopPose.store(desktopPose);
+        const bool useFirstPerson=firstPerson.load()&&!desktopPose;
         if(packet.valid&&packet.tick<=now&&now-packet.tick<250){
             mgs5vr::Pose head{{packet.orientation[0],packet.orientation[1],packet.orientation[2],packet.orientation[3]},{packet.position[0],packet.position[1],packet.position[2]}};
             if(mgs5vr::valid(head)){
@@ -207,17 +210,17 @@ static void __fastcall onRebuildCamera(void* camera,void*) {
                     auto heading=originalCamera.target-originalCamera.eye;heading.z=0;
                     auto owner=player_rig::player.load();
                     if(headingCamera!=camera||headingPlayer!=owner){headingAnchor.reset();headingCamera=camera;headingPlayer=owner;}
-                    if(firstPerson.load())headingAnchor.get(heading,heading);
+                    if(useFirstPerson)headingAnchor.get(heading,heading);
                     else headingAnchor.reset();
                     if(amalur::normalize(heading)){
                         auto handCamera=baseCamera;
                         handCamera.eye=playerPosition+mgs5vr::Vec3{0,0,185}+heading*15.f;
                         handCamera.target=handCamera.eye+heading*200.f;handCamera.up={0,0,1};
                         weapon_control::sample(handCamera,origin,packet.worldScale,centeredGeneration+bridgeCenter);
-                        if(firstPerson.load())baseCamera=handCamera;
+                        if(useFirstPerson)baseCamera=handCamera;
                     }
                 }
-                tracked=amalur::trackedCamera(baseCamera,relative,packet.worldScale,adjusted);
+                tracked=!desktopPose&&amalur::trackedCamera(baseCamera,relative,packet.worldScale,adjusted);
             }
         }
     }else haveOrigin=false;

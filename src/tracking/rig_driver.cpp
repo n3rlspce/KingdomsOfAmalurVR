@@ -15,6 +15,7 @@ static bool bridgeRunning(){
 int main(int argc,char** argv){
     bool statusOnly=argc>1&&!strcmp(argv[1],"--status");
     bool observe=argc>1&&!strcmp(argv[1],"--observe");
+    bool preview=argc>1&&!strcmp(argv[1],"--static");
     bool mouseAttack=argc>1&&!strcmp(argv[1],"--mouse-attack");
     if(!observe&&!statusOnly&&bridgeRunning()){std::fprintf(stderr,"Stop the XR bridge before desktop replay.\n");return 2;}
     amalur::RigStatusChannel status;amalur::RigStatus state;
@@ -27,19 +28,20 @@ int main(int argc,char** argv){
     struct MouseRelease {bool down{};~MouseRelease(){if(down)mouse_event(MOUSEEVENTF_LEFTUP,0,0,0,0);}} mouse;
     auto start=GetTickCount64(),lastPrint=uint64_t{};auto initial=state.weaponRemaps;auto initialSlot=state.nativeWeaponSlot;bool drewWeapon=false;
     std::puts("{\"test\":\"rig-replay-v1\",\"units\":\"game units\"}");
-    while(GetTickCount64()-start<2500){
+    while(GetTickCount64()-start<(preview?600000:2500)){
         auto now=GetTickCount64();float t=static_cast<float>(now-start)/1000.f;
         if(!status.transfer(state,false)){Sleep(8);continue;}
-        if(GetTickCount()-state.tick>1000||(!observe&&!state.focused)){std::fprintf(stderr,"Stopped: game telemetry stale or focus lost.\n");return 5;}
+        if(GetTickCount()-state.tick>1000||(!observe&&!preview&&!state.focused)){std::fprintf(stderr,"Stopped: game telemetry stale or focus lost.\n");return 5;}
         if(initialSlot==8&&state.nativeWeaponSlot==5)drewWeapon=true;
-        const char* phase=t<.3f?"idle":t<.7f?"attack":t<2?"hand_sweep":"recover";
+        const char* phase=preview?"preview":t<.3f?"idle":t<.7f?"attack":t<2?"hand_sweep":"recover";
         if(!observe){
-            amalur::PosePacket p;p.valid=1;p.gameMode=1;p.tick=now;p.position[1]=1.7f;
+            amalur::PosePacket p;p.valid=1;p.gameMode=preview?2:1;p.recenter=preview?1000:0;p.tick=now;p.position[1]=1.7f;
             head.publish(p);p.position[0]=.25f;p.position[1]=1.3f;p.position[2]=-.35f;
-            if(t>=.7f&&t<2){p.position[0]+=.15f*std::sin((t-.7f)*4);p.orientation[1]=std::sin(.4f*std::sin(t));p.orientation[3]=std::sqrt(1-p.orientation[1]*p.orientation[1]);}
+            if(preview){p.position[0]=.65f;p.position[1]=1.3f;p.position[2]=0;}
+            if(!preview&&t>=.7f&&t<2){p.position[0]+=.15f*std::sin((t-.7f)*4);p.orientation[1]=std::sin(.4f*std::sin(t));p.orientation[3]=std::sqrt(1-p.orientation[1]*p.orientation[1]);}
             hand.publish(p);amalur::MotionInputPacket m;m.active=1;
             if(mouseAttack){bool down=t>=.3f&&t<.65f;if(down!=mouse.down){mouse_event(down?MOUSEEVENTF_LEFTDOWN:MOUSEEVENTF_LEFTUP,0,0,0,0);mouse.down=down;}}
-            else if(t>=.3f&&t<.65f)m.buttons=XINPUT_GAMEPAD_X;input.publish(m);
+            else if(!preview&&t>=.3f&&t<.65f)m.buttons=XINPUT_GAMEPAD_X;input.publish(m);
         }
         if(now-lastPrint>=50){
             std::printf("{\"ms\":%llu,\"phase\":\"%s\",\"frames\":%u,\"remaps\":%u,\"weapons\":%u,\"tracked\":%u,\"hand\":%u,\"slot\":%u,\"bone\":%u,\"nativeSlot\":%u,\"wrist\":[%.3f,%.3f,%.3f],\"socket\":[%.3f,%.3f,%.3f],\"rendered\":[%.3f,%.3f,%.3f]}\n",now-start,phase,state.frames,state.remaps,state.weaponRemaps,state.tracked,state.handFresh,state.weaponSlot,state.sourceBone,state.nativeWeaponSlot,state.nativeWrist[0],state.nativeWrist[1],state.nativeWrist[2],state.nativeSocket[0],state.nativeSocket[1],state.nativeSocket[2],state.renderedSocket[0],state.renderedSocket[1],state.renderedSocket[2]);

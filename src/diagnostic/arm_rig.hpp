@@ -60,18 +60,19 @@ inline bool solveUnsafe(uintptr_t root,Scratch& scratch,bool solveHand=true){
     if(wrist==count||!mgs5vr::valid(amalur::bonePose(native[wrist])))return false;
     auto rootOwner=player_rig::word(root+0xf8);mgs5vr::Pose alignment;amalur::ArmReference reference;
     amalur::ArmReference candidate;
-    if(bodyApplied)amalur::captureRightArmReference(native,count,parents,ids,localAnchor,candidate);
+    const bool lockArm=bodyApplied||weapon_control::desktopPose.load();
+    if(lockArm)amalur::captureRightArmReference(native,count,parents,ids,localAnchor,candidate);
     AcquireSRWLockExclusive(&calibrationLock);
     if(calibratedRoot!=root||calibratedOwner!=rootOwner||calibratedCenter!=center){
         trim=mgs5vr::compose(mgs5vr::inverse(grip),mgs5vr::compose(worldRoot,amalur::bonePose(native[wrist])));
         trim.position={};calibratedRoot=root;calibratedOwner=rootOwner;calibratedCenter=center;
         neutralArm={};
     }
-    if(bodyApplied&&!neutralArm.ready)neutralArm=candidate;
+    if(lockArm&&!neutralArm.ready)neutralArm=candidate;
     reference=neutralArm;alignment=trim;ReleaseSRWLockExclusive(&calibrationLock);
     auto target=mgs5vr::compose(mgs5vr::inverse(worldRoot),mgs5vr::compose(grip,alignment));
     if(!amalur::solveRightArm(native,scratch.bones,count,parents,ids,target,scale,
-        bodyApplied&&reference.ready?&reference:nullptr,localAnchor))return false;
+        lockArm&&reference.ready?&reference:nullptr,localAnchor))return false;
     // Remapper reads this private copy synchronously. Never edit the authoritative
     // root animation or feed last frame's solved bones back into the solver.
     memcpy(scratch.descriptor,reinterpret_cast<void*>(source),sizeof(scratch.descriptor));
