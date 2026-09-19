@@ -150,6 +150,7 @@ static bool hook(void* target,void* detour,void** original,const char* name) {
 }
 #include "player_rig.hpp"
 #include "motion_controls.hpp"
+#include "game_pause.hpp"
 #include "weapon_control.hpp"
 #include "body_visibility.hpp"
 #include "rig_probe.hpp"
@@ -234,6 +235,8 @@ static void __fastcall onRebuildCamera(void* camera,void*) {
     }else haveOrigin=false;
     mgs5vr::Vec3 bodyForward{};
     bool bodyHeadingValid=tracked&&bodyHeading.get(adjusted.target-adjusted.eye,bodyForward);
+    motion_controls::sampleMovementBasis(originalCamera.target-originalCamera.eye,bodyForward,
+        tracked&&firstPerson.load()&&bodyHeadingValid&&packet.gameMode==1&&game_pause::sample(true)==0,GetTickCount64());
     // Keep the collar/shoulders behind the eyes without moving the camera with gait.
     auto anchor=adjusted.eye-bodyForward*18.f;
     arm_rig::sampleBody(anchor,bodyHeadingValid&&packet.gameMode?packet.tick:0);
@@ -261,7 +264,7 @@ static void __fastcall onRebuildCamera(void* camera,void*) {
     if(tracked&&packet.gameMode&&dirty)*reinterpret_cast<float*>(core+0x2c)=packet.horizontalFov;
     else if(enabled&&dirty)*reinterpret_cast<float*>(core+0x2c)=original*.85f;
     realRebuildCamera(camera);
-    camera_status::publish(packet,tracked,selectedPlayerValid,selectedPlayerPosition,originalCamera,tracked?adjusted:originalCamera);
+    camera_status::publish(packet,tracked,selectedPlayerValid,selectedPlayerPosition,originalCamera,tracked?adjusted:originalCamera,core);
     haveCameraForFrame=false;
     if(tracked&&packet.gameMode){
         packet.projectionX=*reinterpret_cast<float*>(core+0xc4);

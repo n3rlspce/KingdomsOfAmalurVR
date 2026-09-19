@@ -2,6 +2,7 @@
 import argparse
 import ctypes as c
 import json
+import math
 from pathlib import Path
 import statistics
 import struct
@@ -11,8 +12,8 @@ parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--seconds', type=float, default=10)
 parser.add_argument('--output', default='captures/camera-timing.jsonl')
 args = parser.parse_args()
-if not 0 < args.seconds <= 60:
-    parser.error('--seconds must be between 0 and 60')
+if not 0 < args.seconds <= 600:
+    parser.error('--seconds must be between 0 and 600')
 k = c.WinDLL('kernel32', use_last_error=True)
 k.OpenFileMappingW.argtypes = [c.c_uint, c.c_int, c.c_wchar_p]
 k.OpenFileMappingW.restype = c.c_void_p
@@ -65,9 +66,12 @@ channels = [
     Channel('AmalurVRFrameV3', 'AmalurVRFrameMutexV3', 80),
     Channel('AmalurRigStatusV1', 'AmalurRigStatusMutexV1', 92),
     Channel('AmalurStereoFrameV1', 'AmalurStereoFrameMutexV1', 120),
-    Channel('AmalurCameraStatusV1', 'AmalurCameraStatusMutexV1', 120),
+    Channel('AmalurCameraStatusV2', 'AmalurCameraStatusMutexV2', 184),
 ]
 rows = []
+output = Path(args.output)
+output.parent.mkdir(parents=True, exist_ok=True)
+stream = output.open('w', buffering=1)
 try:
     until = time.monotonic() + args.seconds
     while time.monotonic() < until:
@@ -85,7 +89,7 @@ try:
                 row.update(sequence=struct.unpack_from('<Q', stereo, 16)[0],
                            published=struct.unpack_from('<Q', stereo, 24)[0],
                            pairedPoseTick=struct.unpack_from('<Q', stereo, 48)[0])
-            if camera and struct.unpack_from('<I', camera)[0] == 1:
+            if camera and struct.unpack_from('<I', camera)[0] == 2:
                 row.update(rebuild=struct.unpack_from('<I', camera, 12)[0],
                            cameraFrame=struct.unpack_from('<I', camera, 8)[0],
                            cameraSampled=struct.unpack_from('<Q', camera, 16)[0],
@@ -96,19 +100,35 @@ try:
                            player=struct.unpack_from('<3f', camera, 68),
                            nativeEye=struct.unpack_from('<3f', camera, 80),
                            renderedEye=struct.unpack_from('<3f', camera, 92),
-                           renderedForward=struct.unpack_from('<3f', camera, 104))
+                           renderedForward=struct.unpack_from('<3f', camera, 104),
+                           nativeTarget=struct.unpack_from('<3f', camera, 116),
+                           cachedRight=struct.unpack_from('<3f', camera, 128),
+                           cachedUp=struct.unpack_from('<3f', camera, 140),
+                           cachedForward=struct.unpack_from('<3f', camera, 152),
+                           projection=struct.unpack_from('<4f', camera, 164))
             rows.append(row)
+            stream.write(json.dumps(row) + '\n')
         time.sleep(.01)
 finally:
+    stream.close()
     for channel in channels:
         channel.close()
-output = Path(args.output)
-output.parent.mkdir(parents=True, exist_ok=True)
-output.write_text(''.join(json.dumps(row) + '\n' for row in rows))
 for state in sorted({(row['paused'], row['focused']) for row in rows}):
     group = [row for row in rows if (row['paused'], row['focused']) == state]
     ages = [row['tick'] - row['cameraPoseTick'] for row in group]
-    print(json.dumps(dict(paused=state[0], focused=state[1], samples=len(group),
-                          poseAgeMedianMs=statistics.median(ages), poseAgeMaxMs=max(ages),
-                          distinctCameraPoses=len({row['cameraPoseTick'] for row in group}))))
+    summary = dict(paused=state[0], focused=state[1], samples=len(group),
+                   poseAgeMedianMs=statistics.median(ages), poseAgeMaxMs=max(ages),
+                   distinctCameraPoses=len({row['cameraPoseTick'] for row in group}))
+    errors = []
+    for row in group:
+        if not row.get('tracked') or 'cachedForward' not in row:
+            continue
+        a, b = row['cachedForward'], row['renderedForward']
+        length = math.sqrt(sum(x*x for x in a) * sum(x*x for x in b))
+        if length > 1e-9:
+            errors.append(math.degrees(math.acos(max(-1, min(1, sum(x*y for x, y in zip(a, b))/length)))))
+    if errors:
+        summary.update(cachedForwardErrorMedianDegrees=statistics.median(errors),
+                       cachedForwardErrorMaxDegrees=max(errors))
+    print(json.dumps(summary))
 print(f'Saved {len(rows)} read-only samples to {output}')

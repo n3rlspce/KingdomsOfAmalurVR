@@ -13,6 +13,8 @@ class StereoSource {
     template<class T> using Ptr=Microsoft::WRL::ComPtr<T>;
     HANDLE mapping_{};const volatile ULONG_PTR* mapped_{};ULONG_PTR handle_{};
     Ptr<ID3D11Texture2D> shared_,copy_;
+    struct SharedSlot {ULONG_PTR handle{};Ptr<ID3D11Texture2D> texture;Ptr<IDXGIKeyedMutex> keyed;};
+    std::array<SharedSlot,3> sharedSlots_{};unsigned nextShared_{};
     Ptr<ID3D11ShaderResourceView> view_;
     Ptr<ID3D11VertexShader> vs_;Ptr<ID3D11PixelShader> ps_;
     Ptr<ID3D11Buffer> constants_;Ptr<ID3D11SamplerState> sampler_;
@@ -72,7 +74,7 @@ float4 ps(V i):SV_TARGET{
             if(lock.frame&&lock.frame->version==1&&lock.frame->texture){
                 const auto& f=*lock.frame;
                 if(f.producer!=openedProducer_||f.generation!=openedGeneration_){
-                    view_.Reset();shared_.Reset();copy_.Reset();handle_=0;pairedFrame_={};
+                    sharedSlots_={};nextShared_=0;shared_.Reset();handle_=0;pairedFrame_={};
                     openedProducer_=f.producer;openedGeneration_=f.generation;
                 }
                 if(f.sequence!=pairedFrame_.sequence&&snapshot(device,context,f.texture,true))pairedFrame_=f;
@@ -85,12 +87,25 @@ float4 ps(V i):SV_TARGET{
     bool snapshot(ID3D11Device* device,ID3D11DeviceContext* context,ULONG_PTR handle,bool paired){
         auto now=GetTickCount64();
         if(!handle){view_.Reset();shared_.Reset();copy_.Reset();handle_=0;return false;}
-        if(handle!=handle_||!view_){
+        Ptr<IDXGIKeyedMutex> keyed;
+        if(paired){
+            SharedSlot* entry=nullptr;
+            for(auto& slot:sharedSlots_)if(slot.handle==handle&&slot.texture){entry=&slot;break;}
+            if(!entry){
+                auto& slot=sharedSlots_[nextShared_];
+                Ptr<ID3D11Texture2D> texture;Ptr<IDXGIKeyedMutex> mutex;
+                if(FAILED(device->OpenSharedResource(reinterpret_cast<HANDLE>(handle),IID_PPV_ARGS(&texture)))||FAILED(texture.As(&mutex)))return false;
+                slot={handle,texture,mutex};entry=&slot;nextShared_=(nextShared_+1)%static_cast<unsigned>(sharedSlots_.size());
+            }
+            shared_=entry->texture;keyed=entry->keyed;handle_=handle;
+        }else if(handle!=handle_||!shared_){
             if(now<retry_&&handle==handle_)return false;retry_=now+1000;handle_=handle;
-            view_.Reset();shared_.Reset();copy_.Reset();
+            shared_.Reset();
             HRESULT hr=device->OpenSharedResource(reinterpret_cast<HANDLE>(handle),IID_PPV_ARGS(&shared_));
             if(FAILED(hr)){printf("Stereo shared texture open failed: %08lx\n",static_cast<unsigned long>(hr));return false;}
-            D3D11_TEXTURE2D_DESC d{};shared_->GetDesc(&d);
+        }
+        {
+            D3D11_TEXTURE2D_DESC d{},existing{};shared_->GetDesc(&d);
             if(d.ArraySize!=1||d.SampleDesc.Count!=1||d.Width<2||d.Width%2)return false;
             DXGI_FORMAT format=d.Format;
             // geo-11's final color is display-encoded even when its shared
@@ -103,14 +118,22 @@ float4 ps(V i):SV_TARGET{
                 d.Format=DXGI_FORMAT_B8G8R8A8_TYPELESS;format=DXGI_FORMAT_B8G8R8A8_UNORM_SRGB;
             }
             d.BindFlags=D3D11_BIND_SHADER_RESOURCE;d.MiscFlags=0;d.CPUAccessFlags=0;d.Usage=D3D11_USAGE_DEFAULT;
-            D3D11_SHADER_RESOURCE_VIEW_DESC sv{};sv.Format=format;sv.ViewDimension=D3D11_SRV_DIMENSION_TEXTURE2D;sv.Texture2D.MipLevels=d.MipLevels;
-            if(FAILED(device->CreateTexture2D(&d,nullptr,&copy_))||FAILED(device->CreateShaderResourceView(copy_.Get(),&sv,&view_)))return false;
-            printf("Stereo source opened: %ux%u full SBS, format=%u\n",d.Width,d.Height,d.Format);
+            if(copy_)copy_->GetDesc(&existing);
+            if(!copy_||!view_||existing.Width!=d.Width||existing.Height!=d.Height||existing.Format!=d.Format||existing.MipLevels!=d.MipLevels){
+                D3D11_SHADER_RESOURCE_VIEW_DESC sv{};sv.Format=format;sv.ViewDimension=D3D11_SRV_DIMENSION_TEXTURE2D;sv.Texture2D.MipLevels=d.MipLevels;
+                Ptr<ID3D11Texture2D> copy;Ptr<ID3D11ShaderResourceView> view;
+                if(FAILED(device->CreateTexture2D(&d,nullptr,&copy))||FAILED(device->CreateShaderResourceView(copy.Get(),&sv,&view)))return false;
+                copy_=copy;view_=view;
+                printf("Stereo source opened: %ux%u full SBS, format=%u\n",d.Width,d.Height,d.Format);
+            }
         }
-        Ptr<IDXGIKeyedMutex> keyed;
-        if(paired&&(FAILED(shared_.As(&keyed))||keyed->AcquireSync(1,0)!=S_OK))return false;
+        if(paired&&keyed->AcquireSync(1,0)!=S_OK)return false;
         context->CopyResource(copy_.Get(),shared_.Get());
-        if(paired){context->Flush();if(keyed->ReleaseSync(0)!=S_OK)return false;}
+        if(paired){context->Flush();if(keyed->ReleaseSync(0)!=S_OK){
+            // A copy was queued, so the private image can no longer be labelled
+            // with the previous metadata if ownership handoff failed.
+            pairedFrame_={};copy_.Reset();view_.Reset();return false;
+        }}
         return true;
     }
     bool capture(ID3D11Device* device,ID3D11DeviceContext* context,const char* path){

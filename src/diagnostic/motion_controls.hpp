@@ -2,6 +2,7 @@
 #include <Xinput.h>
 #include "../tracking/motion_input.hpp"
 #include "../tracking/dodge_facing.hpp"
+#include "../tracking/movement_basis.hpp"
 namespace motion_controls {
 using GetState=DWORD(WINAPI*)(DWORD,XINPUT_STATE*);
 inline GetState original{};
@@ -10,6 +11,12 @@ inline GetCapabilities originalCapabilities{};
 inline amalur::MotionInputChannel channel;
 inline SRWLOCK lock=SRWLOCK_INIT;
 inline DWORD packetNumber{};
+inline amalur::MovementBasis movementBasis;
+inline void sampleMovementBasis(mgs5vr::Vec3 nativeForward,mgs5vr::Vec3 headForward,bool enabled,uint64_t tick){
+    AcquireSRWLockExclusive(&lock);
+    movementBasis.sample(nativeForward,headForward,enabled,tick);
+    ReleaseSRWLockExclusive(&lock);
+}
 struct ViewControls {uint32_t selectedWeapon{},session{};float turnYawDegrees{};};
 inline ViewControls cachedViewControls;
 inline ViewControls viewControls(){
@@ -36,7 +43,13 @@ inline DWORD WINAPI getState(DWORD index,XINPUT_STATE* state){
     if(!connected){ReleaseSRWLockExclusive(&lock);return result;}
     bool active=gameFocused()&&channel.read(motion);
     if(result!=ERROR_SUCCESS)*state={};
-    if(active)amalur::mergeMotion(state->Gamepad,motion);
+    if(active){
+        // Item radial directions belong to its screen-space selector, not the
+        // world. Rotate virtual locomotion only; keep physical pads untouched.
+        if(!(motion.buttons&XINPUT_GAMEPAD_LEFT_SHOULDER))
+            movementBasis.transform(motion.moveX,motion.moveY,GetTickCount64());
+        amalur::mergeMotion(state->Gamepad,motion);
+    }
     amalur::locomotionFacing.observe(gameFocused(),state->Gamepad.sThumbLX,
         state->Gamepad.sThumbLY,GetTickCount64());
     // Observe the final merged pad so a physical controller gets the same dodge

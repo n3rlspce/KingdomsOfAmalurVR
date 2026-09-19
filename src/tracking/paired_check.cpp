@@ -2,6 +2,7 @@
 #include "../xr_smoke/stereo_source.hpp"
 #include <string>
 #include <unordered_map>
+#include <set>
 #include <cmath>
 using Microsoft::WRL::ComPtr;
 static void check(bool ok,const char* what){if(!ok){printf("FAIL: %s\n",what);exit(1);}}
@@ -52,7 +53,6 @@ int main(int argc,char** argv){
         amalur::PosePacket pose;pose.valid=1;pose.tick=GetTickCount64();pose.position[0]=static_cast<float>(i);
         auto start=GetTickCount64();while(!publisher.publish(producer.Get(),pc.Get(),input.Get(),pose)&&GetTickCount64()-start<1000)Sleep(1);
         check(GetTickCount64()-start<1000,"producer progresses");
-        pose.position[0]=-1;check(!publisher.publish(producer.Get(),pc.Get(),input.Get(),pose),"unconsumed image cannot be overwritten");
         amalur::PosePacket got;uint64_t seq=last;start=GetTickCount64();
         while((!source.acquirePaired(consumer.Get(),cc.Get(),got,&seq)||seq==last)&&GetTickCount64()-start<1000)Sleep(1);
         check(seq>last&&got.position[0]==i,"image sequence retains original pose");last=seq;
@@ -62,6 +62,49 @@ int main(int argc,char** argv){
         auto p=static_cast<unsigned char*>(m.pData)+m.RowPitch*2+8;
         check(i%2?(p[0]>250&&p[1]<5):(p[1]>250&&p[0]<5),"GPU pixel matches paired pose");cc->Unmap(read.Get(),0);
     }
+    amalur::StereoMailbox inspect(name.c_str(),mutex.c_str());check(inspect.open(false),"test mailbox");
+    std::set<ULONG_PTR> handles;uint64_t poolGeneration{};
+    auto publishTag=[&](unsigned tag){
+        for(auto& pixel:pixels)pixel=0xff000000u|(tag&0x00ffffffu);
+        pc->UpdateSubresource(input.Get(),0,nullptr,pixels,32,0);
+        amalur::PosePacket p;p.valid=1;p.tick=GetTickCount64();p.position[0]=static_cast<float>(tag);
+        auto start=GetTickCount64();bool published=false;
+        while(!(published=publisher.publish(producer.Get(),pc.Get(),input.Get(),p))&&GetTickCount64()-start<1000)Sleep(1);
+        check(published,"fast producer progresses with slow consumer");
+        amalur::MailboxLock lock(inspect);check(lock.frame!=nullptr,"inspect publication");
+        handles.insert(lock.frame->texture);
+        if(!poolGeneration)poolGeneration=lock.frame->generation;
+        check(poolGeneration==lock.frame->generation,"bounded pool reuses one generation under contention");
+    };
+    auto consumeTag=[&](unsigned tag){
+        amalur::PosePacket got;uint64_t seq=last;auto start=GetTickCount64();
+        while((!source.acquirePaired(consumer.Get(),cc.Get(),got,&seq)||seq==last)&&GetTickCount64()-start<1000)Sleep(1);
+        check(seq>last&&got.position[0]==tag,"slow consumer gets newest complete pose");last=seq;
+        D3D11_VIEWPORT vp{0,0,4,4,0,1};cc->RSSetViewports(1,&vp);auto rt=rtv.Get();cc->OMSetRenderTargets(1,&rt,nullptr);
+        source.draw(cc.Get(),0,-1,1,-1,1,1,1);cc->OMSetRenderTargets(0,nullptr,nullptr);cc->CopyResource(read.Get(),output.Get());
+        D3D11_MAPPED_SUBRESOURCE m{};check(SUCCEEDED(cc->Map(read.Get(),0,D3D11_MAP_READ,0,&m)),"slow consumer readback");
+        auto p=static_cast<unsigned char*>(m.pData)+m.RowPitch*2+8;
+        check(p[0]==(tag&255)&&p[1]==((tag>>8)&255)&&p[2]==((tag>>16)&255),"newest GPU pixel matches newest pose");cc->Unmap(read.Get(),0);
+    };
+    unsigned tag=240;
+    for(unsigned burst=0;burst<24;++burst){for(unsigned n=0;n<8;++n)publishTag(++tag);consumeTag(tag);}
+    check(handles.size()<=3,"fast producer uses at most three shared textures");
+    // Hold a GPU lease after releasing the metadata lock. Publication can use
+    // other slots, but must never reclaim this slot until key 0 is returned.
+    publishTag(++tag);const auto leasedTag=tag;
+    ComPtr<ID3D11Texture2D> leased;ComPtr<IDXGIKeyedMutex> lease;
+    {amalur::MailboxLock lock(inspect);check(lock.frame!=nullptr,"lease metadata lock");
+        check(SUCCEEDED(consumer->OpenSharedResource(reinterpret_cast<HANDLE>(lock.frame->texture),IID_PPV_ARGS(&leased)))&&SUCCEEDED(leased.As(&lease)),"open held lease");
+        check(lease->AcquireSync(1,1000)==S_OK,"acquire held GPU lease");}
+    for(unsigned n=0;n<12;++n)publishTag(++tag);
+    D3D11_TEXTURE2D_DESC heldDesc{};leased->GetDesc(&heldDesc);heldDesc.Usage=D3D11_USAGE_STAGING;heldDesc.BindFlags=0;heldDesc.MiscFlags=0;heldDesc.CPUAccessFlags=D3D11_CPU_ACCESS_READ;
+    ComPtr<ID3D11Texture2D> heldRead;check(SUCCEEDED(consumer->CreateTexture2D(&heldDesc,nullptr,&heldRead)),"held lease staging");
+    cc->CopyResource(heldRead.Get(),leased.Get());D3D11_MAPPED_SUBRESOURCE heldPixels{};
+    check(SUCCEEDED(cc->Map(heldRead.Get(),0,D3D11_MAP_READ,0,&heldPixels)),"held lease readback");
+    auto held=static_cast<const unsigned char*>(heldPixels.pData);
+    check(held[0]==(leasedTag&255)&&held[1]==((leasedTag>>8)&255)&&held[2]==((leasedTag>>16)&255),"consumer-leased image never overwritten while pool wraps");
+    cc->Unmap(heldRead.Get(),0);check(lease->ReleaseSync(0)==S_OK,"return held lease");
+    consumeTag(tag);check(handles.size()<=3,"held lease does not grow pool");
     Sleep(1010);amalur::PosePacket pose;check(!source.acquirePaired(consumer.Get(),cc.Get(),pose),"stopped producer expires");
     pose.valid=0;pose.tick=GetTickCount64();check(publisher.publish(producer.Get(),pc.Get(),input.Get(),pose),"producer recovers after consumer pause");
     auto start=GetTickCount64();uint64_t seq=last;
@@ -72,5 +115,5 @@ int main(int argc,char** argv){
     check(publisher.publish(producer.Get(),pc.Get(),input.Get(),pose),"resize publishes new generation");
     start=GetTickCount64();while(source.sourceWidth()!=8&&GetTickCount64()-start<1000){source.acquirePaired(consumer.Get(),cc.Get(),pose);Sleep(1);}
     check(source.sourceWidth()==8,"consumer follows source resize");
-    puts("PASS: 240 GPU image/pose pairs, overwrite exclusion, expiry, recovery, invalid tracking and resize");
+    puts("PASS: 240 GPU pairs, newest-frame bursts, three-slot bounded reuse, lease exclusion, expiry, recovery, invalid tracking and resize");
 }
