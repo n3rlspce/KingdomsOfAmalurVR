@@ -182,6 +182,8 @@ static void __fastcall onRebuildCamera(void* camera,void*) {
     static void* headingCamera{};
     static void* headingPlayer{};
     static ULONGLONG lastOpenAttempt=0,lastPoseTick=0;
+    static amalur::CameraPose lastTrackedCamera{};
+    static bool hadTrackedCamera=false;
     amalur::PosePacket packet;
     bool tracked=false;
     amalur::CameraPose originalCamera{},adjusted{};
@@ -209,7 +211,7 @@ static void __fastcall onRebuildCamera(void* camera,void*) {
                     else headingAnchor.reset();
                     if(amalur::normalize(heading)){
                         auto handCamera=baseCamera;
-                        handCamera.eye=playerPosition+mgs5vr::Vec3{0,0,170}+heading*15.f;
+                        handCamera.eye=playerPosition+mgs5vr::Vec3{0,0,185}+heading*15.f;
                         handCamera.target=handCamera.eye+heading*200.f;handCamera.up={0,0,1};
                         weapon_control::sample(handCamera,origin,packet.worldScale,centeredGeneration+bridgeCenter);
                         if(firstPerson.load())baseCamera=handCamera;
@@ -219,16 +221,20 @@ static void __fastcall onRebuildCamera(void* camera,void*) {
             }
         }
     }else haveOrigin=false;
-    arm_rig::sampleBody(adjusted.eye,tracked&&packet.gameMode?packet.tick:0);
+    arm_rig::sampleBody(amalur::bodyAnchor(adjusted,10.f),tracked&&packet.gameMode?packet.tick:0);
     if(tracked){
         if(firstPerson.load()&&packet.gameMode&&motion_controls::gameFocused())
             player_rig::face(camera,adjusted.target-adjusted.eye);
         memcpy(core+4,&adjusted.eye,sizeof(mgs5vr::Vec3));
         memcpy(core+0x14,&adjusted.target,sizeof(mgs5vr::Vec3));
         memcpy(core+0x1c0,&adjusted.up,sizeof(mgs5vr::Vec3));
-        if(packet.tick!=lastPoseTick)core[0x35e]|=1;
+        // Locomotion can change the camera between two equal headset samples.
+        // Do not pair a newly published pose with the previous cached matrices.
+        if(packet.tick!=lastPoseTick||!hadTrackedCamera||amalur::cameraChanged(adjusted,lastTrackedCamera))core[0x35e]|=1;
         lastPoseTick=packet.tick;
+        lastTrackedCamera=adjusted;hadTrackedCamera=true;
     }
+    else hadTrackedCamera=false;
     if(tracked!=wasTracked){core[0x35e]|=1;log("Native head tracking %s (100 units/m provisional)\n",tracked?"ACTIVE":"INACTIVE");}
     // Apply on dirty rebuilds only, preserving the engine's matrix/frustum cache.
     // F9 is sampled here too, so toggling forces a refresh on the selected camera.

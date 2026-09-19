@@ -6,8 +6,18 @@ namespace amalur {
 using mgs5vr::Vec3;
 using mgs5vr::Pose;
 struct CameraPose { Vec3 eye,target,up; };
+inline bool cameraChanged(const CameraPose& a,const CameraPose& b){
+    return a.eye.x!=b.eye.x||a.eye.y!=b.eye.y||a.eye.z!=b.eye.z
+        ||a.target.x!=b.target.x||a.target.y!=b.target.y||a.target.z!=b.target.z
+        ||a.up.x!=b.up.x||a.up.y!=b.up.y||a.up.z!=b.up.z;
+}
 inline Vec3 cross(Vec3 a,Vec3 b){return {a.y*b.z-a.z*b.y,a.z*b.x-a.x*b.z,a.x*b.y-a.y*b.x};}
 inline bool normalize(Vec3& v){float n=std::sqrt(mgs5vr::dot(v,v));if(!std::isfinite(n)||n<1e-5f)return false;v=v*(1.f/n);return true;}
+inline Vec3 bodyAnchor(const CameraPose& camera,float clearance){
+    Vec3 forward=camera.target-camera.eye;forward.z=0;
+    if(!std::isfinite(clearance)||clearance<0||!normalize(forward))return camera.eye;
+    return camera.eye-forward*clearance;
+}
 // The native chase camera follows body turns. Capture a world heading once,
 // rather than adding physical head yaw to that moving basis every frame.
 struct HeadingAnchor {

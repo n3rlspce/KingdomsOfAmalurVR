@@ -33,6 +33,13 @@ int main(int argc,char** argv){
     auto heading=amalur::levelOrigin(origin);
     relative=mgs5vr::compose(mgs5vr::inverse(heading),origin);
     expect(amalur::trackedCamera(base,relative,100,out)&&closeEnough(out.target.y,220),"level recenter cancels heading");
+    auto translated=base;translated.eye.x+=1;translated.target.x+=1;
+    expect(amalur::cameraChanged(base,translated)&&!amalur::cameraChanged(base,base),"locomotion invalidates cached camera even with unchanged headset sample");
+    auto body=amalur::bodyAnchor(base,10);
+    expect(closeEnough(body.x,base.eye.x)&&closeEnough(body.y,base.eye.y-10)&&closeEnough(body.z,base.eye.z),"body clearance follows horizontal viewing direction");
+    auto pitched=base;pitched.target.z+=100;
+    auto pitchedBody=amalur::bodyAnchor(pitched,10);
+    expect(closeEnough(pitchedBody.y,body.y)&&closeEnough(pitchedBody.z,body.z),"looking up does not lift body anchor");
     amalur::HeadingAnchor anchor; mgs5vr::Vec3 fixed;
     expect(anchor.get({0,200,50},fixed)&&closeEnough(fixed.y,1)&&closeEnough(fixed.z,0),"anchor uses horizontal heading");
     for(int frame=0;frame<500;++frame){
