@@ -28,6 +28,20 @@ struct HeadingAnchor {
         result=heading;return true;
     }
 };
+// Looking almost vertically makes projected head yaw ill-conditioned. Keep the
+// body's last reliable heading there; the headset camera remains unfiltered.
+struct BodyHeading {
+    Vec3 heading{};bool valid{};
+    void reset(){valid=false;}
+    bool get(Vec3 view,Vec3& result){
+        float total=mgs5vr::dot(view,view),horizontal=view.x*view.x+view.y*view.y;
+        if(std::isfinite(total)&&total>1e-8f&&horizontal>total*.01f){
+            view.z=0;if(normalize(view)){heading=view;valid=true;}
+        }
+        if(valid)result=heading;
+        return valid;
+    }
+};
 // Recenter position and heading only. Capturing initial pitch/roll would leave
 // a tilted horizon when the headset is subsequently held upright.
 inline Pose levelOrigin(Pose head) {

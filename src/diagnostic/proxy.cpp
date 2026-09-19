@@ -179,6 +179,7 @@ static void __fastcall onRebuildCamera(void* camera,void*) {
     static bool haveOrigin=false;
     static unsigned centeredGeneration=0,bridgeCenter=0;
     static amalur::HeadingAnchor headingAnchor;
+    static amalur::BodyHeading bodyHeading;
     static void* headingCamera{};
     static void* headingPlayer{};
     static ULONGLONG lastOpenAttempt=0,lastPoseTick=0;
@@ -202,20 +203,21 @@ static void __fastcall onRebuildCamera(void* camera,void*) {
             mgs5vr::Pose head{{packet.orientation[0],packet.orientation[1],packet.orientation[2],packet.orientation[3]},{packet.position[0],packet.position[1],packet.position[2]}};
             if(mgs5vr::valid(head)){
                 unsigned generation=recenterGeneration.load();
-                if(!haveOrigin||centeredGeneration!=generation||bridgeCenter!=packet.recenter){origin=amalur::levelOrigin(head);haveOrigin=true;centeredGeneration=generation;bridgeCenter=packet.recenter;headingAnchor.reset();log("Head tracking recentered (position and heading; horizon level)\n");}
+                if(!haveOrigin||centeredGeneration!=generation||bridgeCenter!=packet.recenter){origin=amalur::levelOrigin(head);haveOrigin=true;centeredGeneration=generation;bridgeCenter=packet.recenter;headingAnchor.reset();bodyHeading.reset();log("Head tracking recentered (position and heading; horizon level)\n");}
                 auto relative=mgs5vr::compose(mgs5vr::inverse(origin),head);
                 auto baseCamera=originalCamera;
                 mgs5vr::Vec3 playerPosition{};
                 if((firstPerson.load()||arm_rig::enabled.load())&&player_rig::location(camera,playerPosition)){
                     auto heading=originalCamera.target-originalCamera.eye;heading.z=0;
                     auto owner=player_rig::player.load();
-                    if(headingCamera!=camera||headingPlayer!=owner){headingAnchor.reset();headingCamera=camera;headingPlayer=owner;}
+                    if(headingCamera!=camera||headingPlayer!=owner){headingAnchor.reset();bodyHeading.reset();headingCamera=camera;headingPlayer=owner;}
                     if(useFirstPerson)headingAnchor.get(heading,heading);
                     else headingAnchor.reset();
                     if(amalur::normalize(heading)){
                         auto handCamera=baseCamera;
                         handCamera.eye=playerPosition+mgs5vr::Vec3{0,0,185}+heading*15.f;
                         handCamera.target=handCamera.eye+heading*200.f;handCamera.up={0,0,1};
+                        if(!bodyHeading.valid){mgs5vr::Vec3 seed;bodyHeading.get(heading,seed);}
                         weapon_control::sample(handCamera,origin,packet.worldScale,centeredGeneration+bridgeCenter);
                         if(useFirstPerson)baseCamera=handCamera;
                     }
@@ -224,10 +226,14 @@ static void __fastcall onRebuildCamera(void* camera,void*) {
             }
         }
     }else haveOrigin=false;
-    arm_rig::sampleBody(amalur::bodyAnchor(adjusted,10.f),tracked&&packet.gameMode?packet.tick:0);
+    mgs5vr::Vec3 bodyForward{};
+    bool bodyHeadingValid=tracked&&bodyHeading.get(adjusted.target-adjusted.eye,bodyForward);
+    // Keep the collar/shoulders behind the eyes without moving the camera with gait.
+    auto anchor=adjusted.eye-bodyForward*18.f;
+    arm_rig::sampleBody(anchor,bodyHeadingValid&&packet.gameMode?packet.tick:0);
     if(tracked){
-        if(firstPerson.load()&&packet.gameMode&&motion_controls::gameFocused())
-            player_rig::face(camera,adjusted.target-adjusted.eye);
+        if(firstPerson.load()&&bodyHeadingValid&&packet.gameMode&&motion_controls::gameFocused())
+            player_rig::face(camera,bodyForward);
         memcpy(core+4,&adjusted.eye,sizeof(mgs5vr::Vec3));
         memcpy(core+0x14,&adjusted.target,sizeof(mgs5vr::Vec3));
         memcpy(core+0x1c0,&adjusted.up,sizeof(mgs5vr::Vec3));

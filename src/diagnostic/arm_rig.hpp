@@ -33,7 +33,7 @@ inline bool solveUnsafe(uintptr_t root,Scratch& scratch,bool solveHand=true){
     AcquireSRWLockShared(&weapon_control::poseLock);
     grip=weapon_control::desired;timestamp=weapon_control::tick;center=weapon_control::generation;scale=weapon_control::worldScale;
     ReleaseSRWLockShared(&weapon_control::poseLock);
-    auto now=GetTickCount64();bool handValid=solveHand&&enabled.load()&&timestamp&&timestamp<=now&&now-timestamp<150&&mgs5vr::valid(grip);
+    auto now=GetTickCount64();bool handValid=solveHand&&enabled.load()&&timestamp&&timestamp<=now&&now-timestamp<250&&mgs5vr::valid(grip);
     mgs5vr::Pose worldRoot;
     memcpy(&worldRoot.position,reinterpret_cast<void*>(root+0x124),12);
     memcpy(&worldRoot.orientation,reinterpret_cast<void*>(root+0x134),16);
@@ -42,7 +42,7 @@ inline bool solveUnsafe(uintptr_t root,Scratch& scratch,bool solveHand=true){
     amalur::RigBone native[64];memcpy(native,reinterpret_cast<void*>(buffer),count*sizeof(amalur::RigBone));
     bool bodyApplied=false;mgs5vr::Vec3 anchor,localAnchor{};uint64_t bodyTick;
     AcquireSRWLockShared(&bodyLock);anchor=headAnchor;bodyTick=headTick;ReleaseSRWLockShared(&bodyLock);
-    if(firstPerson.load()&&bodyTick&&bodyTick<=now&&now-bodyTick<150){
+    if(firstPerson.load()&&bodyTick&&bodyTick<=now&&now-bodyTick<250){
         auto local=mgs5vr::compose(mgs5vr::inverse(worldRoot),mgs5vr::Pose{{},anchor});
         localAnchor=local.position;
         amalur::RigBone stable[64];
@@ -103,7 +103,7 @@ inline uintptr_t trackedWeaponSlot(void* mapper,uintptr_t slot,uintptr_t output,
     __try {
         if(!solved||slot!=8||!firstPerson.load()||!enabled.load()||output<0x34)return slot;
         AcquireSRWLockShared(&weapon_control::poseLock);auto tick=weapon_control::tick;ReleaseSRWLockShared(&weapon_control::poseLock);
-        auto now=GetTickCount64();if(!tick||tick>now||now-tick>=150)return slot;
+        auto now=GetTickCount64();if(!tick||tick>now||now-tick>=250)return slot;
         auto object=output-0x34;if(!weapon_control::isSinglePlayerWeapon(object)||player_rig::word(output+4)!=4)return slot;
         auto manager=player_rig::word(gameBase+0x15fdf54),assetId=player_rig::word(object+0xf0);
         if(assetId<2||assetId>=100000)return slot;

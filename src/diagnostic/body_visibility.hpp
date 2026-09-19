@@ -24,26 +24,39 @@ inline bool headMesh(uintptr_t object){
 }
 using Visibility=void(__thiscall*)(void*);
 inline Visibility hide{},show{};
-struct Entry {uint32_t index{},owner{};bool wasHidden{};};
+struct Entry {
+    uint32_t index{},owner{},parentIndex{},parentOwner{};
+    bool wasHidden{};
+};
 inline Entry saved[128];inline unsigned savedCount{};
 inline uint32_t currentOwner{};
-inline Entry roots[32];inline unsigned rootCount{};
-inline bool capture(uintptr_t object,unsigned depth=0){
-    if(!object||depth>8||savedCount>=128)return false;
-    auto index=player_rig::word(object+0x194);
-    for(unsigned i=0;i<savedCount;++i)if(saved[i].index==index)return true;
-    saved[savedCount++]={index,player_rig::word(object+0xf8),(player_rig::word(object+0x1d0)&4)!=0};
+inline bool sameNode(const Entry& a,const Entry& b){return a.index==b.index&&a.owner==b.owner;}
+inline bool sameLink(const Entry& a,const Entry& b){
+    return sameNode(a,b)&&a.parentIndex==b.parentIndex&&a.parentOwner==b.parentOwner;
+}
+// Build a fresh tree each frame. A saved parent must not prevent discovery of
+// newly attached hair/face meshes. Reject cycles/shared-parent ambiguity before
+// calling the game's recursive visibility functions.
+inline bool capture(uintptr_t object,Entry* entries,unsigned& size,unsigned depth=0,
+    uint32_t parentIndex=0,uint32_t parentOwner=0){
+    if(!object||depth>8)return false;
+    Entry e{player_rig::word(object+0x194),player_rig::word(object+0xf8),
+        parentIndex,parentOwner,(player_rig::word(object+0x1d0)&4)!=0};
+    for(unsigned i=0;i<size;++i)if(entries[i].index==e.index)return sameLink(entries[i],e);
+    if(size>=128)return false;
+    entries[size++]=e;
     auto count=player_rig::word(object+0x28);if(count>32)return false;
     for(unsigned i=0;i<count;++i){auto child=weapon_control::fab(player_rig::word(player_rig::word(object+0x24)+i*4));
-        if(child&&!capture(child,depth+1))return false;}
+        if(child&&!capture(child,entries,size,depth+1,e.index,e.owner))return false;}
     return true;
 }
-inline void restore(){
-    // Parents precede children. Reapply each child's original hidden state after
-    // the native parent operation recursively changes its descendants.
-    for(unsigned i=0;i<savedCount;++i){auto e=saved[i];auto p=weapon_control::fab(e.index);
+inline void applyOriginal(const Entry* entries,unsigned count){
+    // Parents precede children; restore descendants after recursive parent calls.
+    for(unsigned i=0;i<count;++i){auto e=entries[i];auto p=weapon_control::fab(e.index);
         if(p&&player_rig::word(p+0xf8)==e.owner)(e.wasHidden?hide:show)(reinterpret_cast<void*>(p));}
-    savedCount=0;currentOwner=0;rootCount=0;
+}
+inline void restore(){
+    applyOriginal(saved,savedCount);savedCount=0;currentOwner=0;
 }
 inline void update(){
     if(!hide||!show)return;
@@ -60,24 +73,37 @@ inline void update(){
         auto rendering=player_rig::part(entity,7,owner,0x13560e4);if(!rendering)return;
         auto root=weapon_control::fab(player_rig::word(rendering+0x9c));if(!root||player_rig::word(root+0xf8)!=owner)return;
         auto count=player_rig::word(root+0x28);if(count>32)return;
-        bool changed=false;
-        for(unsigned i=0;i<rootCount;++i){bool found=false;
-            for(unsigned j=0;j<count;++j)if(player_rig::word(player_rig::word(root+0x24)+j*4)==roots[i].index){auto child=weapon_control::fab(roots[i].index);found=child&&player_rig::word(child+0xf8)==roots[i].owner;break;}
-            if(!found)changed=true;
-        }
-        if(changed)restore();
+        Entry current[128]{};unsigned currentCount=0;
         for(unsigned i=0;i<count;++i){auto child=weapon_control::fab(player_rig::word(player_rig::word(root+0x24)+i*4));if(!child)continue;
             auto childOwner=player_rig::word(child+0xf8);auto item=player_rig::resolve(childOwner);
             if(player_rig::part(item,11,childOwner,0x135745c))continue;
             if(!player_rig::part(item,12,childOwner,0x13563e4)&&!player_rig::part(item,40,childOwner,0x1356bec))continue;
             if(!wholeBody&&!headMesh(child))continue;
-            bool known=false;for(unsigned j=0;j<savedCount;++j)if(saved[j].index==player_rig::word(child+0x194)&&saved[j].owner==childOwner){known=true;break;}
-            if(!known){unsigned previous=savedCount;if(!capture(child)){savedCount=previous;continue;}
-                if(rootCount<32)roots[rootCount++]={player_rig::word(child+0x194),childOwner,false};
-                log("First-person %s attachment hidden: slot=%u owner=%08x\n",wholeBody?"body":"head",i,childOwner);}
-            currentOwner=owner;
-            if(!(player_rig::word(child+0x1d0)&4))hide(reinterpret_cast<void*>(child));
+            unsigned previous=currentCount;
+            if(!capture(child,current,currentCount)){currentCount=previous;continue;}
         }
+        bool changed=currentCount!=savedCount;
+        for(unsigned i=0;i<currentCount;++i){
+            // Preserve the state before our first hide, including reparented
+            // meshes. Fresh nodes retain their actual state at discovery.
+            for(unsigned j=0;j<savedCount;++j)if(sameNode(current[i],saved[j])){
+                current[i].wasHidden=saved[j].wasHidden;break;
+            }
+            if(i>=savedCount||!sameLink(current[i],saved[i]))changed=true;
+        }
+        if(changed){
+            // Restore detached nodes as well. Then undo any recursive effect on
+            // new descendants using the snapshot taken before restoration.
+            restore();applyOriginal(current,currentCount);
+            memcpy(saved,current,currentCount*sizeof(Entry));savedCount=currentCount;
+            if(currentCount)log("First-person %s visibility tree refreshed: meshes=%u\n",wholeBody?"body":"head",currentCount);
+        }
+        currentOwner=owner;
+        // A child can be revealed independently while its parent stays hidden.
+        // Enforce every currently owned descendant, never detached old entries.
+        for(unsigned i=0;i<savedCount;++i){auto object=weapon_control::fab(saved[i].index);
+            if(object&&player_rig::word(object+0xf8)==saved[i].owner
+                &&!(player_rig::word(object+0x1d0)&4))hide(reinterpret_cast<void*>(object));}
     } __except(EXCEPTION_EXECUTE_HANDLER){log("Body visibility unavailable; skipping\n");}
 }
 inline void install(){

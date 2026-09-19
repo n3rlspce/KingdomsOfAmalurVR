@@ -46,6 +46,13 @@ int main(int argc,char** argv){
         float angle=frame*.02f;expect(anchor.get({std::sin(angle),std::cos(angle),0},fixed)&&closeEnough(fixed.x,0)&&closeEnough(fixed.y,1),"native body/camera turns cannot accumulate in VR heading");
     }
     anchor.reset();expect(anchor.get({1,0,0},fixed)&&closeEnough(fixed.x,1),"recenter accepts new world heading");
+    amalur::BodyHeading bodyHeading;
+    expect(bodyHeading.get({0,200,0},fixed)&&closeEnough(fixed.y,1),"body heading starts level");
+    for(float sign:{-1.f,1.f}){
+        expect(bodyHeading.get({sign*.01f,-.01f,200},fixed)&&closeEnough(fixed.x,0)&&closeEnough(fixed.y,1),"vertical head-pose noise cannot spin body or collar clearance");
+    }
+    expect(bodyHeading.get({200,0,0},fixed)&&closeEnough(fixed.x,1),"body yaw follows ordinary head turns without smoothing");
+    bodyHeading.reset();expect(!bodyHeading.get({0,0,200},fixed),"uninitialized vertical heading rejected");
     if(argc==2&&std::strcmp(argv[1],"--math")==0){puts("PASS: camera axes, yaw, roll, level recenter, stable heading and invalid pose");return 0;}
     const wchar_t* map=L"Local\\AmalurVRTestPose";const wchar_t* mutex=L"Local\\AmalurVRTestMutex";
     amalur::PoseChannel writer(map,mutex),reader(map,mutex);expect(writer.open(true)&&reader.open(false),"pose channel opens");
