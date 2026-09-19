@@ -25,6 +25,16 @@ int main(){
         for(unsigned i=0;i<7;++i)check(out[i].positionW==3&&!memcmp(out[i].opaque,native[i].opaque,16),"opaque bytes preserved");
     }
     native[4]=copy[4];check(!memcmp(copy,native,sizeof(copy)),"source remains native");
+    for(float angle:{0.f,1.5707963268f,3.1415926536f,-1.5707963268f}){
+        // Independent native formula for a Z-axis quaternion: clockwise rotation.
+        Pose stored{{0,0,std::sin(angle*.5f),std::cos(angle*.5f)},{200,300,40}};
+        Vec3 worldTarget{220,310,210};
+        auto local=compose(inverse(amalur::nativePose(stored)),Pose{{},worldTarget});
+        check(amalur::stabilizeBody(native,out,7,parents,ids,local.position),"body anchor at cardinal heading");
+        auto p=out[4].position;
+        Vec3 actual{200+std::cos(angle)*p.x+std::sin(angle)*p.y,300-std::sin(angle)*p.x+std::cos(angle)*p.y,40+p.z};
+        check(std::abs(actual.x-worldTarget.x)<.001f&&std::abs(actual.y-worldTarget.y)<.001f,"native rendered head stays under world anchor after turns");
+    }
     check(!amalur::stabilizeBody(native,out,7,parents,ids,{NAN,0,0}),"invalid anchor rejected");
     parents[3]=3;check(!amalur::stabilizeBody(native,out,7,parents,ids,{}),"invalid hierarchy rejected");
     puts("PASS: whole-body anchoring, intact gait, segment lengths, immutable source and invalid-state guards");

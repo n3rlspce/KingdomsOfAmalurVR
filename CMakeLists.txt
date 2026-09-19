@@ -38,3 +38,5 @@ target_link_libraries(body_check PRIVATE mgs5vr_core)
 
 add_executable(motion_driver src/tracking/motion_driver.cpp)
 target_compile_features(motion_driver PRIVATE cxx_std_17)
+add_executable(rig_driver src/tracking/rig_driver.cpp)
+target_compile_features(rig_driver PRIVATE cxx_std_17)

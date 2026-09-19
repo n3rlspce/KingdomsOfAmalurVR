@@ -13,6 +13,7 @@ struct Scratch {amalur::RigBone bones[64];uintptr_t descriptor[3];};
 inline SRWLOCK calibrationLock=SRWLOCK_INIT;
 inline uintptr_t calibratedRoot{};inline uint32_t calibratedOwner{};inline unsigned calibratedCenter{};
 inline mgs5vr::Pose trim{};
+inline amalur::ArmReference neutralArm{};
 inline bool solveUnsafe(uintptr_t root,Scratch& scratch,bool solveHand=true){
     if(!headTracking.load()||!root||root!=rig_probe::playerRoot())return false;
     auto source=root+0x34;
@@ -36,12 +37,14 @@ inline bool solveUnsafe(uintptr_t root,Scratch& scratch,bool solveHand=true){
     mgs5vr::Pose worldRoot;
     memcpy(&worldRoot.position,reinterpret_cast<void*>(root+0x124),12);
     memcpy(&worldRoot.orientation,reinterpret_cast<void*>(root+0x134),16);
+    worldRoot=amalur::nativePose(worldRoot);
     if(!mgs5vr::valid(worldRoot))return false;
     amalur::RigBone native[64];memcpy(native,reinterpret_cast<void*>(buffer),count*sizeof(amalur::RigBone));
-    bool bodyApplied=false;mgs5vr::Vec3 anchor;uint64_t bodyTick;
+    bool bodyApplied=false;mgs5vr::Vec3 anchor,localAnchor{};uint64_t bodyTick;
     AcquireSRWLockShared(&bodyLock);anchor=headAnchor;bodyTick=headTick;ReleaseSRWLockShared(&bodyLock);
     if(firstPerson.load()&&bodyTick&&bodyTick<=now&&now-bodyTick<150){
         auto local=mgs5vr::compose(mgs5vr::inverse(worldRoot),mgs5vr::Pose{{},anchor});
+        localAnchor=local.position;
         amalur::RigBone stable[64];
         if(amalur::stabilizeBody(native,stable,count,parents,ids,local.position)){
             memcpy(native,stable,count*sizeof(amalur::RigBone));bodyApplied=true;
@@ -55,15 +58,20 @@ inline bool solveUnsafe(uintptr_t root,Scratch& scratch,bool solveHand=true){
     }
     unsigned wrist=count;for(unsigned i=0;i<count;++i)if(ids[i]==0x0088d0eb)wrist=i;
     if(wrist==count||!mgs5vr::valid(amalur::bonePose(native[wrist])))return false;
-    auto rootOwner=player_rig::word(root+0xf8);mgs5vr::Pose alignment;
+    auto rootOwner=player_rig::word(root+0xf8);mgs5vr::Pose alignment;amalur::ArmReference reference;
+    amalur::ArmReference candidate;
+    if(bodyApplied)amalur::captureRightArmReference(native,count,parents,ids,localAnchor,candidate);
     AcquireSRWLockExclusive(&calibrationLock);
     if(calibratedRoot!=root||calibratedOwner!=rootOwner||calibratedCenter!=center){
         trim=mgs5vr::compose(mgs5vr::inverse(grip),mgs5vr::compose(worldRoot,amalur::bonePose(native[wrist])));
         trim.position={};calibratedRoot=root;calibratedOwner=rootOwner;calibratedCenter=center;
+        neutralArm={};
     }
-    alignment=trim;ReleaseSRWLockExclusive(&calibrationLock);
+    if(bodyApplied&&!neutralArm.ready)neutralArm=candidate;
+    reference=neutralArm;alignment=trim;ReleaseSRWLockExclusive(&calibrationLock);
     auto target=mgs5vr::compose(mgs5vr::inverse(worldRoot),mgs5vr::compose(grip,alignment));
-    if(!amalur::solveRightArm(native,scratch.bones,count,parents,ids,target,scale))return false;
+    if(!amalur::solveRightArm(native,scratch.bones,count,parents,ids,target,scale,
+        bodyApplied&&reference.ready?&reference:nullptr,localAnchor))return false;
     // Remapper reads this private copy synchronously. Never edit the authoritative
     // root animation or feed last frame's solved bones back into the solver.
     memcpy(scratch.descriptor,reinterpret_cast<void*>(source),sizeof(scratch.descriptor));
@@ -77,16 +85,43 @@ inline bool prepareUnsafe(uintptr_t source,uintptr_t output,Scratch& scratch){
     if(childCount>32)return false;bool owned=false;
     for(unsigned i=0;i<childCount;++i)if(weapon_control::fab(player_rig::word(children+i*4))==object){owned=true;break;}
     if(!owned)return false;
-    // All owned appearance meshes share body translation; only armor gets arm IK.
+    // Held weapon maps include finger bones (staff slot 5: root55 -> weapon1).
+    // Feed the same solved arm to armor and weapons so they cannot diverge.
     auto owner=player_rig::word(object+0xf8);
     auto entity=player_rig::resolve(owner);
     bool weapon=player_rig::part(entity,11,owner,0x135745c)!=0;
     if(!weapon&&!player_rig::part(entity,12,owner,0x13563e4)
        &&!player_rig::part(entity,40,owner,0x1356bec))return false;
-    return solveUnsafe(root,scratch,!weapon);
+    return solveUnsafe(root,scratch);
 }
 inline bool prepare(uintptr_t source,uintptr_t output,Scratch& scratch){
     __try{return prepareUnsafe(source,output,scratch);}__except(EXCEPTION_EXECUTE_HANDLER){return false;}
 }
 inline void resetCalibration(){AcquireSRWLockExclusive(&calibrationLock);calibratedRoot=0;ReleaseSRWLockExclusive(&calibrationLock);}
+inline uintptr_t trackedWeaponSlot(void* mapper,uintptr_t slot,uintptr_t output,bool solved){
+    __try {
+        if(!solved||slot!=8||!firstPerson.load()||!enabled.load()||output<0x34)return slot;
+        AcquireSRWLockShared(&weapon_control::poseLock);auto tick=weapon_control::tick;ReleaseSRWLockShared(&weapon_control::poseLock);
+        auto now=GetTickCount64();if(!tick||tick>now||now-tick>=150)return slot;
+        auto object=output-0x34;if(!weapon_control::isSinglePlayerWeapon(object)||player_rig::word(output+4)!=4)return slot;
+        auto manager=player_rig::word(gameBase+0x15fdf54),assetId=player_rig::word(object+0xf0);
+        if(assetId<2||assetId>=100000)return slot;
+        auto state=*reinterpret_cast<unsigned char*>(player_rig::word(manager+0x28)+assetId);
+        if(!(state&4)||(state&0x10))return slot;
+        auto asset=player_rig::word(player_rig::word(manager+0x18)+assetId*4),blob=player_rig::word(asset+0x1c);
+        if(player_rig::word(blob)!=0x45533033||player_rig::word(blob+0x10)!=4)return slot;
+        auto offset=player_rig::word(blob+0x20);if(!offset||offset>65536)return slot;
+        // Verified four-bone staff layout. Other weapon types keep native slots.
+        constexpr uint32_t staffIds[]{11436941,6711025,12316630,8749139};
+        if(memcmp(reinterpret_cast<void*>(blob+0x20+offset),staffIds,sizeof(staffIds)))return slot;
+        auto table=player_rig::word(reinterpret_cast<uintptr_t>(mapper));
+        auto stowed=table+8*32,held=table+5*32;
+        if(player_rig::word(stowed+4)!=1||player_rig::word(held+4)!=2)return slot;
+        constexpr uint32_t stowedMap[]{62,0,0},heldMap[]{62,0,0,55,1,0};
+        if(memcmp(reinterpret_cast<void*>(player_rig::word(stowed)),stowedMap,sizeof(stowedMap))
+            ||memcmp(reinterpret_cast<void*>(player_rig::word(held)),heldMap,sizeof(heldMap)))return slot;
+        // Visual remap only: native equipment, attack timers and events still run.
+        return 5;
+    } __except(EXCEPTION_EXECUTE_HANDLER){return slot;}
+}
 }

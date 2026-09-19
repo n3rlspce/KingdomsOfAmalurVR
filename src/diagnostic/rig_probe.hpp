@@ -1,5 +1,6 @@
 #pragma once
 #include "arm_rig.hpp"
+#include "rig_status.hpp"
 // Reversible discovery probe, not controller IK. Only the verified local-player
 // armor child is eligible; NPCs and opaque bone bytes are untouched.
 namespace rig_probe {
@@ -17,12 +18,12 @@ inline void adjustSocket(uintptr_t root,unsigned index,amalur::RigBone* output){
         if(index>=64||!mgs5vr::valid(amalur::bonePose(native[index]))||!mgs5vr::valid(amalur::bonePose(*output)))return;
         if(!memcmp(&native[index],&scratch.bones[index],sizeof(amalur::RigBone)))return;
         mgs5vr::Pose world;memcpy(&world.position,reinterpret_cast<void*>(root+0x124),12);
-        memcpy(&world.orientation,reinterpret_cast<void*>(root+0x134),16);if(!mgs5vr::valid(world))return;
+        memcpy(&world.orientation,reinterpret_cast<void*>(root+0x134),16);world=amalur::nativePose(world);if(!mgs5vr::valid(world))return;
         auto before=mgs5vr::compose(world,amalur::bonePose(native[index]));
         auto after=mgs5vr::compose(world,amalur::bonePose(scratch.bones[index]));
         auto delta=mgs5vr::compose(after,mgs5vr::inverse(before));
         auto result=mgs5vr::compose(delta,amalur::bonePose(*output));if(!mgs5vr::valid(result))return;
-        output->position=result.position;output->orientation=result.orientation;
+        output->position=result.position;output->orientation=amalur::nativeQuaternion(result.orientation);
         static unsigned logs=0;if(logs++<12)log("Tracked native socket bone=%u\n",index);
     } __except(EXCEPTION_EXECUTE_HANDLER){}
 }
@@ -124,8 +125,11 @@ inline void __fastcall evaluateBones(void* mapper,void*,uintptr_t slot,uintptr_t
     auto object=output>=0x34?output-0x34:0;
     beforeEvaluation(object);
     arm_rig::Scratch scratch;
-    const auto input=arm_rig::prepare(source,output,scratch)?reinterpret_cast<uintptr_t>(scratch.descriptor):source;
-    originalBones(mapper,slot,input,output,skeleton,extra,flags);
+    const bool solved=arm_rig::prepare(source,output,scratch);
+    const auto input=solved?reinterpret_cast<uintptr_t>(scratch.descriptor):source;
+    const auto renderSlot=arm_rig::trackedWeaponSlot(mapper,slot,output,solved);
+    originalBones(mapper,renderSlot,input,output,skeleton,extra,flags);
+    rig_status::attachment(mapper,renderSlot,source,output,slot);
     afterEvaluation(object);
 }
 inline void disable(){

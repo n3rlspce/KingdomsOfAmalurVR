@@ -29,12 +29,15 @@ inline bool isSinglePlayerWeapon(uintptr_t self){
     auto render=player_rig::part(entity,7,owner,0x13560e4);if(!render)return false;
     auto parent=fab(player_rig::word(render+0x9c));if(!parent||player_rig::word(parent+0xf8)!=owner)return false;
     auto count=player_rig::word(parent+0x28);if(count>32)return false;
-    auto children=player_rig::word(parent+0x24);unsigned weapons=0;uintptr_t selected=0;
+    auto children=player_rig::word(parent+0x24);uintptr_t selected=0;
     for(unsigned i=0;i<count;++i){auto child=fab(player_rig::word(children+i*4));if(!child)continue;
         auto childOwner=player_rig::word(child+0xf8);auto childEntity=player_rig::resolve(childOwner);
-        if(player_rig::part(childEntity,11,childOwner,0x135745c)){++weapons;selected=child;}}
+        if(player_rig::part(childEntity,11,childOwner,0x135745c)){
+            // Native draw/sheath transitions can reference one Fab in two slots.
+            if(selected&&selected!=child)return false;selected=child;
+        }}
     // Dual weapons and ambiguous equipment deliberately await explicit slot mapping.
-    return weapons==1&&selected==self;
+    return selected==self;
 }
 struct Bone {mgs5vr::Vec3 position;float positionW;mgs5vr::Quat orientation;float scale[3];uint32_t flags;};
 static_assert(sizeof(Bone)==48);

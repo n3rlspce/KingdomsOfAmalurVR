@@ -15,12 +15,36 @@ int main(){
     const Pose target{{0,0,.38268343f,.92387953f},{35,40,140}};
     check(amalur::solveRightArm(bones,out,6,parents,ids,target,100),"reachable target");
     check(distance(out[3].position,target.position)<.001f,"wrist reaches controller");
+    auto wristDirection=rotate(amalur::bonePose(out[3]).orientation,{1,0,0});
+    auto targetDirection=rotate(target.orientation,{1,0,0});
+    check(distance(wristDirection,targetDirection)<.001f,"solved wrist orientation survives native quaternion storage");
     check(std::abs(distance(out[1].position,out[2].position)-distance(bones[1].position,bones[2].position))<.001f,"upper arm length preserved");
     check(std::abs(distance(out[2].position,out[3].position)-distance(bones[2].position,bones[3].position))<.001f,"forearm length preserved");
     check(std::abs(distance(out[4].position,out[3].position)-distance(bones[4].position,bones[3].position))<.001f,"finger relative distance preserved");
     check(!std::memcmp(bones,original,sizeof(bones)),"native animation not mutated");
     check(!std::memcmp(out+5,bones+5,sizeof(bones[5])),"unrelated limb untouched");
     for(unsigned i=0;i<6;++i)check(out[i].positionW==7&&!std::memcmp(out[i].opaque,bones[i].opaque,16),"opaque bone bytes preserved");
+    amalur::ArmReference reference;const Vec3 anchor{0,0,170};
+    check(amalur::captureRightArmReference(bones,6,parents,ids,anchor,reference),"neutral arm reference captured");
+    amalur::RigBone stable[6],attack[6],attackOriginal[6];
+    check(amalur::solveRightArm(bones,stable,6,parents,ids,target,100,&reference,anchor),"reference arm solved");
+    std::memcpy(attack,bones,sizeof(attack));
+    // Model a spell animation which pulls the shoulder forward and sweeps the
+    // whole arm upward. It must not change the controller-driven visual arm.
+    for(unsigned i=1;i<=4;++i){attack[i].position=attack[i].position+Vec3{28,-15,20};attack[i].orientation={0,0,.70710678f,.70710678f};}
+    std::memcpy(attackOriginal,attack,sizeof(attack));
+    check(amalur::solveRightArm(attack,out,6,parents,ids,target,100,&reference,anchor),"cast pose solved against neutral reference");
+    for(unsigned i=1;i<=3;++i){
+        check(distance(out[i].position,stable[i].position)<.001f,"cast animation cannot move controlled arm joints");
+        check(distance(rotate(amalur::bonePose(out[i]).orientation,{1,0,0}),rotate(amalur::bonePose(stable[i]).orientation,{1,0,0}))<.001f,"cast animation cannot rotate controlled arm joints");
+    }
+    check(!std::memcmp(attack,attackOriginal,sizeof(attack)),"native attack pose remains untouched");
+    check(!std::memcmp(out+5,attack+5,sizeof(attack[5])),"reference leaves other limbs animated");
+    const Vec3 movedAnchor=anchor+Vec3{12,-23,7};auto movedTarget=target;movedTarget.position=movedTarget.position+(movedAnchor-anchor);
+    check(amalur::solveRightArm(attack,out,6,parents,ids,movedTarget,100,&reference,movedAnchor),"reference follows body anchor");
+    for(unsigned i=1;i<=3;++i)check(distance(out[i].position,stable[i].position+(movedAnchor-anchor))<.001f,"anchor shift translates solved arm coherently");
+    amalur::ArmReference missing;
+    check(!amalur::solveRightArm(bones,out,6,parents,ids,target,100,&missing,anchor),"uncaptured reference rejected");
     check(amalur::solveRightArm(bones,out,6,parents,ids,{{},{1000,40,150}},100),"distant target clamps");
     check(distance(out[1].position,out[3].position)<distance(bones[1].position,bones[2].position)+distance(bones[2].position,bones[3].position),"reach bounded");
     check(amalur::solveRightArm(bones,out,6,parents,ids,{{},bones[1].position},100),"coincident shoulder target stays finite");
@@ -29,5 +53,5 @@ int main(){
     check(!amalur::solveRightArm(bones,out,6,parents,ids,invalid,100),"NaN target rejected");
     parents[2]=2;check(!amalur::solveRightArm(bones,out,6,parents,ids,target,100),"cyclic hierarchy rejected");parents[2]=1;
     ids[4]=ids[3];check(!amalur::solveRightArm(bones,out,6,parents,ids,target,100),"ambiguous wrist ID rejected");
-    std::puts("PASS: arm reach, bone lengths, descendant propagation, immutable source, opaque data and invalid input guards");
+    std::puts("PASS: arm reach, native quaternion storage, animation-independent reference, moving body anchor, immutable source and input guards");
 }

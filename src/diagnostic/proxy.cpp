@@ -389,6 +389,7 @@ static HRESULT STDMETHODCALLTYPE onPresent(IDXGISwapChain* chain,UINT sync,UINT 
         log("F6: player wrist discovery displacement %s (samples=%u)\n",rig_probe::enabled.load()?"ON":"OFF",rig_probe::samples.load());
     }f6Down=f6;
     auto count=++presents;
+    rig_status::publish();
     if(count<=3){log("Present #%lu chain=%p sync=%u flags=0x%x\n",count,chain,sync,flags);stack();}
     HRESULT result=realPresent(chain,sync,flags);
     restoreCameraInputs();
