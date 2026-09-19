@@ -1,7 +1,7 @@
 #pragma once
 #include "../tracking/weapon_pose.hpp"
 namespace weapon_control {
-using Evaluate=void(__thiscall*)(void*,uintptr_t);
+using Evaluate=void(__thiscall*)(void*,uintptr_t,uintptr_t);
 inline Evaluate original{};
 inline SRWLOCK poseLock=SRWLOCK_INIT;
 inline mgs5vr::Pose desired{};
@@ -76,9 +76,9 @@ inline bool apply(uintptr_t self,mgs5vr::Pose grip,unsigned center){
         memcpy(bones,adjusted,count*sizeof(Bone));return true;
     } __except(EXCEPTION_EXECUTE_HANDLER){return false;}
 }
-inline void __fastcall evaluate(void* self,void*,uintptr_t flags){
+inline void __fastcall evaluate(void* self,void*,uintptr_t first,uintptr_t second){
     AcquireSRWLockExclusive(&editLock);restore(reinterpret_cast<uintptr_t>(self));ReleaseSRWLockExclusive(&editLock);
-    original(self,flags);
+    original(self,first,second);
     if(!firstPerson.load()||!headTracking.load()||!enabled.load())return;
     mgs5vr::Pose grip;uint64_t timestamp;unsigned center;
     AcquireSRWLockShared(&poseLock);grip=desired;timestamp=tick;center=generation;ReleaseSRWLockShared(&poseLock);
@@ -86,9 +86,12 @@ inline void __fastcall evaluate(void* self,void*,uintptr_t flags){
     AcquireSRWLockExclusive(&editLock);apply(reinterpret_cast<uintptr_t>(self),grip,center);ReleaseSRWLockExclusive(&editLock);
 }
 inline void install(){
-    auto target=reinterpret_cast<unsigned char*>(gameBase+0x91b4f0);
-    const unsigned char expected[]={0x8b,0x44,0x24,0x04,0x56,0x8b,0xf1,0x50,0x8d,0x4e,0x34};
+    // Full FabInstancePhysics evaluation includes the alternate animation path
+    // that bypasses 0x91b4f0. Apply only after both native paths have completed.
+    auto target=reinterpret_cast<unsigned char*>(gameBase+0x96f600);
+    const unsigned char expected[]={0x83,0xec,0x34,0xa1};
     if(memcmp(target,expected,sizeof(expected))){log("Weapon evaluation signature mismatch; skipped\n");return;}
+    if(*reinterpret_cast<uintptr_t*>(target+4)!=gameBase+0x157713c||target[8]!=0x33||target[9]!=0xc4){log("Weapon evaluation guard mismatch; skipped\n");return;}
     hook(target,reinterpret_cast<void*>(&evaluate),reinterpret_cast<void**>(&original),"Weapon pose after native evaluation");
 }
 }

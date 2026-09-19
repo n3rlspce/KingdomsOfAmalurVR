@@ -16,6 +16,7 @@ Experimental VR mod for **Kingdoms of Amalur: Re-Reckoning**, targeting
 - Right-controller pose override for a single equipped weapon; `F3` toggles it separately.
 - Close the settings panel (`*`) to move. Hold the right controller naturally and press `F7` to recalibrate its orientation.
 - Grip placement, body clipping and animation transitions still need testing. Dual weapons are skipped; there is no swing-based damage or arm IK yet.
+- Ground/object alignment in first person is under investigation (`F2` compares the camera consistency correction). Drawn/stowed weapon tracking is not reliable yet.
 
 ## Not working reliably yet
 

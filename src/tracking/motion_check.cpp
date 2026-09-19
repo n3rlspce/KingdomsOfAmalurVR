@@ -1,10 +1,21 @@
 #include "motion_input.hpp"
 #include "weapon_pose.hpp"
+#include "camera_inputs.hpp"
 #include <cstdio>
 #include <cstdlib>
 static void check(bool pass,const char* label){if(!pass){printf("FAIL: %s\n",label);std::exit(1);}}
 static bool closeEnough(float a,float b){return std::abs(a-b)<.002f;}
 int main(){
+    unsigned char core[0x400]{};
+    amalur::CameraPose flat{{1,2,3},{4,5,6},{0,0,1}},vr{{10,20,30},{40,50,60},{0,0,1}};
+    float vrFov=130;
+    memcpy(core+4,&vr.eye,12);memcpy(core+0x14,&vr.target,12);memcpy(core+0x1c0,&vr.up,12);memcpy(core+0x2c,&vrFov,4);
+    amalur::CameraInputs lease{core,flat,vr,90,vrFov};
+    // Engine may update its target before the next rebuild. Keep that update.
+    mgs5vr::Vec3 nativeTarget{7,8,9};memcpy(core+0x14,&nativeTarget,12);
+    lease.restore();lease.restore();
+    check(memcmp(core+4,&flat.eye,12)==0&&memcmp(core+0x14,&nativeTarget,12)==0,"restore own camera offset without discarding engine updates");
+    float restoredFov;memcpy(&restoredFov,core+0x2c,4);check(restoredFov==90,"restore native FOV at frame boundary");
     float x=.1f,y=.1f;amalur::deadzone(x,y);check(x==0&&y==0,"stick drift suppressed");
     x=1;y=1;amalur::deadzone(x,y);check(closeEnough(x*x+y*y,1),"diagonal normalized");
     x=.6f;y=0;amalur::deadzone(x,y);check(closeEnough(x,.5f)&&y==0,"analog range after dead zone");
@@ -23,5 +34,5 @@ int main(){
         check(closeEnough(grip.position.x,camera.eye.x)&&closeEnough(grip.position.y,camera.eye.y)&&closeEnough(grip.position.z,camera.eye.z),"hand and head share positional origin");
         auto local=mgs5vr::compose(mgs5vr::inverse(grip),grip);check(closeEnough(local.position.x,0)&&closeEnough(local.orientation.w,1),"attachment inverse cancels world transform");
     }
-    puts("PASS: analog dead zone, input expiry/focus, and weapon/head coordinate consistency");
+    puts("PASS: camera input restoration, analog dead zone, input expiry/focus, and weapon/head coordinate consistency");
 }

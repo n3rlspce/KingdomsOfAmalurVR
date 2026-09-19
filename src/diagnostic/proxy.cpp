@@ -13,6 +13,7 @@
 #include "MinHook.h"
 #include "../tracking/pose_channel.hpp"
 #include "../tracking/camera_pose.hpp"
+#include "../tracking/camera_inputs.hpp"
 #include "../tracking/stereo_frame.hpp"
 using Microsoft::WRL::ComPtr;
 
@@ -52,6 +53,11 @@ static ULONG_PTR gameBase{};
 static std::atomic<unsigned> cameraLogs{0};
 static std::atomic<bool> headTracking{false};
 static std::atomic<bool> firstPerson{false};
+static std::atomic<bool> coherentCamera{true};
+static amalur::CameraInputs cameraInputs;
+static void restoreCameraInputs(){
+    __try {cameraInputs.restore();} __except(EXCEPTION_EXECUTE_HANDLER){cameraInputs.core=nullptr;}
+}
 static std::atomic<unsigned> recenterGeneration{0};
 static amalur::PoseChannel poseChannel;
 static amalur::PoseChannel frameChannel{true};
@@ -156,6 +162,9 @@ static bool isCameraCore(unsigned char* core) {
 }
 static void __fastcall onRebuildCamera(void* camera,void*) {
     auto core=static_cast<unsigned char*>(camera);
+    // Rebuild may be requested several times in one frame. Do not feed our
+    // previous offset back into the engine rig on a subsequent request.
+    if(cameraInputs.core==core)restoreCameraInputs();
     if(!isCameraCore(core)){realRebuildCamera(camera);return;}
     mgs5vr::Vec3 selectedPlayerPosition{};
     if(firstPerson.load()&&player_rig::location(camera,selectedPlayerPosition))probeCamera.store(camera);
@@ -225,11 +234,16 @@ static void __fastcall onRebuildCamera(void* camera,void*) {
         if(frameChannel.open(true))frameChannel.publish(packet);
         cameraForFrame=packet;haveCameraForFrame=true;
     }
-    memcpy(core+4,&originalCamera.eye,sizeof(mgs5vr::Vec3));
-    memcpy(core+0x14,&originalCamera.target,sizeof(mgs5vr::Vec3));
-    memcpy(core+0x1c0,&originalCamera.up,sizeof(mgs5vr::Vec3));
+    const bool retainInputs=tracked&&packet.gameMode&&firstPerson.load()&&coherentCamera.load();
+    if(retainInputs){
+        cameraInputs={core,originalCamera,adjusted,original,*reinterpret_cast<float*>(core+0x2c)};
+    }else{
+        memcpy(core+4,&originalCamera.eye,sizeof(mgs5vr::Vec3));
+        memcpy(core+0x14,&originalCamera.target,sizeof(mgs5vr::Vec3));
+        memcpy(core+0x1c0,&originalCamera.up,sizeof(mgs5vr::Vec3));
+        *reinterpret_cast<float*>(core+0x2c)=original;
+    }
     wasTracked=tracked;
-    *reinterpret_cast<float*>(core+0x2c)=original;
     if((dirty&&cameraLogs.fetch_add(1)<4)||enabled!=wasEnabled)
         log("Camera core=%p probe=%d inputFov=%.6g projectionXY=%.6g,%.6g\n",camera,enabled,original,*reinterpret_cast<float*>(core+0xc4),*reinterpret_cast<float*>(core+0xd8));
     wasEnabled=enabled;
@@ -334,9 +348,12 @@ static HRESULT STDMETHODCALLTYPE onPresent(IDXGISwapChain* chain,UINT sync,UINT 
     if(f3&&!f3Down&&motion_controls::gameFocused()){bool enabled=!weapon_control::enabled.load();weapon_control::enabled.store(enabled);++recenterGeneration;log("F3: experimental weapon pose %s\n",enabled?"ON":"OFF");}f3Down=f3;
     static bool f5Down=false;bool f5=(GetAsyncKeyState(VK_F5)&0x8000)!=0;
     if(f5&&!f5Down&&motion_controls::gameFocused()){bool enabled=!firstPerson.load();firstPerson.store(enabled);if(enabled)headTracking.store(true);++recenterGeneration;log("F5: experimental first-person and Touch movement %s\n",enabled?"ON":"OFF");}f5Down=f5;
+    static bool f2Down=false;bool f2=(GetAsyncKeyState(VK_F2)&0x8000)!=0;
+    if(f2&&!f2Down&&motion_controls::gameFocused()){coherentCamera.store(!coherentCamera.load());log("F2: camera input consistency %s\n",coherentCamera.load()?"ON":"OFF");}f2Down=f2;
     auto count=++presents;
     if(count<=3){log("Present #%lu chain=%p sync=%u flags=0x%x\n",count,chain,sync,flags);stack();}
     HRESULT result=realPresent(chain,sync,flags);
+    restoreCameraInputs();
     if(SUCCEEDED(result)&&!(flags&DXGI_PRESENT_TEST))publishStereoFrame();
     // If the engine reuses its cached camera matrices next frame, their last
     // rendered pose remains the correct attribution until that camera rebuilds.
