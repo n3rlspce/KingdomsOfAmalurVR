@@ -150,6 +150,7 @@ static bool hook(void* target,void* detour,void** original,const char* name) {
 #include "player_rig.hpp"
 #include "motion_controls.hpp"
 #include "weapon_control.hpp"
+#include "body_visibility.hpp"
 static bool isCameraCore(unsigned char* core) {
     // Core is embedded at BHG::Camera +8. Other embedded camera structures also
     // use the rebuild routine, so never infer ownership from its address alone.
@@ -261,6 +262,7 @@ static void installCameraProbe() {
     if(memcmp(target,expected,sizeof(expected))!=0){log("Camera signature mismatch; native hook skipped\n");return;}
     player_rig::install();
     weapon_control::install();
+    body_visibility::install();
     motion_controls::install();
     hook(target,reinterpret_cast<void*>(&onRebuildCamera),reinterpret_cast<void**>(&realRebuildCamera),"CameraRebuild (F9 FOV probe)");
 }
@@ -350,6 +352,9 @@ static HRESULT STDMETHODCALLTYPE onPresent(IDXGISwapChain* chain,UINT sync,UINT 
     if(f5&&!f5Down&&motion_controls::gameFocused()){bool enabled=!firstPerson.load();firstPerson.store(enabled);if(enabled)headTracking.store(true);++recenterGeneration;log("F5: experimental first-person and Touch movement %s\n",enabled?"ON":"OFF");}f5Down=f5;
     static bool f2Down=false;bool f2=(GetAsyncKeyState(VK_F2)&0x8000)!=0;
     if(f2&&!f2Down&&motion_controls::gameFocused()){coherentCamera.store(!coherentCamera.load());log("F2: camera input consistency %s\n",coherentCamera.load()?"ON":"OFF");}f2Down=f2;
+    static bool f1Down=false;bool f1=(GetAsyncKeyState(VK_F1)&0x8000)!=0;
+    if(f1&&!f1Down&&motion_controls::gameFocused()){body_visibility::enabled.store(!body_visibility::enabled.load());log("F1: first-person body hiding %s\n",body_visibility::enabled.load()?"ON":"OFF");}f1Down=f1;
+    body_visibility::update();
     auto count=++presents;
     if(count<=3){log("Present #%lu chain=%p sync=%u flags=0x%x\n",count,chain,sync,flags);stack();}
     HRESULT result=realPresent(chain,sync,flags);
