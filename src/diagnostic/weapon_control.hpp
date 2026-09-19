@@ -5,18 +5,25 @@ using Evaluate=void(__thiscall*)(void*,uintptr_t,uintptr_t);
 inline Evaluate original{};
 inline SRWLOCK poseLock=SRWLOCK_INIT;
 inline mgs5vr::Pose desired{};
+inline mgs5vr::Pose desiredLeft{};
+inline uint64_t leftTick{};
 inline uint64_t tick{};
 inline unsigned generation{};
 inline float worldScale{100.f};
 inline std::atomic<bool> enabled{false};
 inline std::atomic<bool> desktopPose{false};
 inline amalur::PoseChannel hand{L"Local\\AmalurVRRightHandV3",L"Local\\AmalurVRRightHandMutexV3"};
+inline amalur::PoseChannel leftHand{L"Local\\AmalurVRLeftHandV3",L"Local\\AmalurVRLeftHandMutexV3"};
 inline void sample(amalur::CameraPose rig,mgs5vr::Pose origin,float scale,unsigned recenter){
     amalur::PosePacket p;mgs5vr::Pose result{};
     bool valid=hand.open(false)&&hand.read(p);
     if(valid){mgs5vr::Pose local{{p.orientation[0],p.orientation[1],p.orientation[2],p.orientation[3]},{p.position[0],p.position[1],p.position[2]}};
         valid=amalur::gripInGame(rig,mgs5vr::compose(mgs5vr::inverse(origin),local),scale,result);}
-    AcquireSRWLockExclusive(&poseLock);desired=result;tick=valid?p.tick:0;generation=recenter;worldScale=scale;ReleaseSRWLockExclusive(&poseLock);
+    amalur::PosePacket l;mgs5vr::Pose leftResult{};
+    bool leftValid=leftHand.open(false)&&leftHand.read(l);
+    if(leftValid){mgs5vr::Pose local{{l.orientation[0],l.orientation[1],l.orientation[2],l.orientation[3]},{l.position[0],l.position[1],l.position[2]}};
+        leftValid=amalur::gripInGame(rig,mgs5vr::compose(mgs5vr::inverse(origin),local),scale,leftResult);}
+    AcquireSRWLockExclusive(&poseLock);desired=result;tick=valid?p.tick:0;desiredLeft=leftResult;leftTick=leftValid?l.tick:0;generation=recenter;worldScale=scale;ReleaseSRWLockExclusive(&poseLock);
 }
 inline uintptr_t fab(uint32_t index){
     auto mgr=player_rig::word(gameBase+0x15fdf54);if(!mgr||index<2||index>=player_rig::word(mgr+0xc8))return 0;

@@ -53,15 +53,15 @@ $rigRaw=& $rigDriver --status
 if($LASTEXITCODE -ne 0){throw 'Telemetry unavailable after focus'}
 $rigState=$rigRaw|ConvertFrom-Json
 if($rigState.paused -eq 1 -and !$Observe){
- try{[RigTestWindow]::keybd_event(27,0,0,[UIntPtr]::Zero);Start-Sleep -Milliseconds 60}
- finally{[RigTestWindow]::keybd_event(27,0,2,[UIntPtr]::Zero)}
+ try{[RigTestWindow]::keybd_event(27,1,0,[UIntPtr]::Zero);Start-Sleep -Milliseconds 60}
+ finally{[RigTestWindow]::keybd_event(27,1,2,[UIntPtr]::Zero)}
  Start-Sleep -Milliseconds 100
 }
 if($LoadSave -and !$rigState.weapons){
  for($rigStep=0;$rigStep -lt 2;$rigStep++){
   if([RigTestWindow]::GetForegroundWindow() -ne $rigWindow){throw 'Focus lost'}
-  try{[RigTestWindow]::keybd_event(13,0,0,[UIntPtr]::Zero);Start-Sleep -Milliseconds 200}
-  finally{[RigTestWindow]::keybd_event(13,0,2,[UIntPtr]::Zero)}
+  try{[RigTestWindow]::keybd_event(13,28,0,[UIntPtr]::Zero);Start-Sleep -Milliseconds 200}
+  finally{[RigTestWindow]::keybd_event(13,28,2,[UIntPtr]::Zero)}
   $rigUntil=[DateTime]::UtcNow.AddMilliseconds($(if($rigStep -eq 0){600}else{10000}))
   do{Start-Sleep -Milliseconds 250;$rigRaw=& $rigDriver --status 2>$null;if($LASTEXITCODE -eq 0){$rigState=$rigRaw|ConvertFrom-Json}}while(!$rigState.weapons -and [DateTime]::UtcNow -lt $rigUntil)
   if($rigState.weapons){break}

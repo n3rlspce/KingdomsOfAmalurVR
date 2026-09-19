@@ -19,6 +19,7 @@ int main(int argc,char** argv){
     bool cameraSweep=argc>1&&!strcmp(argv[1],"--camera-sweep");
     bool turnSweep=argc>1&&!strcmp(argv[1],"--turn-sweep");
     bool interfaceCheck=argc>1&&!strcmp(argv[1],"--interface-check");
+    bool meleeCheck=argc>1&&!strcmp(argv[1],"--melee-check");
     bool mouseAttack=argc>1&&!strcmp(argv[1],"--mouse-attack");
     if(!observe&&!statusOnly&&bridgeRunning()){std::fprintf(stderr,"Stop the XR bridge before desktop replay.\n");return 2;}
     amalur::RigStatusChannel status;amalur::RigStatus state;
@@ -26,21 +27,22 @@ int main(int argc,char** argv){
     if(statusOnly){std::printf("{\"pid\":%u,\"frames\":%u,\"weapons\":%u,\"focused\":%u,\"tracked\":%u,\"hand\":%u,\"bone\":%u,\"paused\":%d}\n",state.pid,state.frames,state.weaponRemaps,state.focused,state.tracked,state.handFresh,state.sourceBone,state.paused);return 0;}
     if(!observe&&state.paused!=0){std::fprintf(stderr,"Gameplay is paused or its state is unknown.\n");return 7;}
     amalur::PoseChannel head,hand(L"Local\\AmalurVRRightHandV3",L"Local\\AmalurVRRightHandMutexV3");
+    amalur::PoseChannel leftHand(L"Local\\AmalurVRLeftHandV3",L"Local\\AmalurVRLeftHandMutexV3");
     amalur::MotionInputChannel input;
-    if(!observe&&(!state.focused||!state.weaponRemaps||!head.open(true)||!hand.open(true)||!input.open(true))){std::fprintf(stderr,"Load gameplay with the equipped weapon and focus the game first.\n");return 4;}
+    if(!observe&&(!state.focused||!state.weaponRemaps||!head.open(true)||!hand.open(true)||!leftHand.open(true)||!input.open(true))){std::fprintf(stderr,"Load gameplay with the equipped weapon and focus the game first.\n");return 4;}
     struct MouseRelease {bool down{};~MouseRelease(){if(down)mouse_event(MOUSEEVENTF_LEFTUP,0,0,0,0);}} mouse;
     auto start=GetTickCount64(),lastPrint=uint64_t{};auto initial=state.weaponRemaps;auto initialSlot=state.nativeWeaponSlot;bool drewWeapon=false;
     if(turnSweep)std::printf("{\"test\":\"turn-sweep-v1\",\"startTick\":%llu,\"durationMs\":18500}\n",start);
-    std::puts(cameraSweep?"{\"test\":\"camera-sweep-v1\",\"durationMs\":4000,\"maxAngleDegrees\":20}":"{\"test\":\"rig-replay-v1\",\"units\":\"game units\"}");
-    while(GetTickCount64()-start<(preview?600000:turnSweep?18500:interfaceCheck?9000:cameraSweep?4000:2500)){
+    std::puts(meleeCheck?"{\"test\":\"dagger-attachment-v1\",\"durationMs\":8000,\"attacks\":false}":cameraSweep?"{\"test\":\"camera-sweep-v1\",\"durationMs\":4000,\"maxAngleDegrees\":20}":"{\"test\":\"rig-replay-v1\",\"units\":\"game units\"}");
+    while(GetTickCount64()-start<(preview?600000:meleeCheck?8000:turnSweep?18500:interfaceCheck?9000:cameraSweep?4000:2500)){
         auto now=GetTickCount64();float t=static_cast<float>(now-start)/1000.f;
         if(!status.transfer(state,false)){Sleep(8);continue;}
         if(GetTickCount()-state.tick>1000||(!observe&&!preview&&!state.focused)){std::fprintf(stderr,"Stopped: game telemetry stale or focus lost.\n");return 5;}
         if((cameraSweep||turnSweep)&&state.paused!=0){std::fprintf(stderr,"Stopped: gameplay paused or state unavailable.\n");return 7;}
         if(initialSlot==8&&state.nativeWeaponSlot==5)drewWeapon=true;
-        const char* phase=preview?"preview":turnSweep?"turn_sweep":cameraSweep?"camera_sweep":t<.3f?"idle":t<.7f?"attack":t<2?"hand_sweep":"recover";
+        const char* phase=preview?"preview":meleeCheck?(t<2?"hands_static":t<6?"hands_sweep":"hands_return"):turnSweep?"turn_sweep":cameraSweep?"camera_sweep":t<.3f?"idle":t<.7f?"attack":t<2?"hand_sweep":"recover";
         if(!observe){
-            amalur::PosePacket p;p.valid=1;p.gameMode=preview?2:1;p.recenter=preview?1000:0;p.tick=now;p.position[1]=1.7f;
+            amalur::PosePacket p;p.valid=1;p.gameMode=(preview||meleeCheck)?2:1;p.recenter=(preview||meleeCheck)?1000:0;p.tick=now;p.position[1]=1.7f;
             if(interfaceCheck&&t>=3&&t<6)p.gameMode=3;
             if(cameraSweep){
                 p.recenter=1001;
@@ -60,11 +62,13 @@ int main(int argc,char** argv){
             }
             head.publish(p);p.position[0]=.25f;p.position[1]=1.3f;p.position[2]=-.35f;
             if(cameraSweep){p.orientation[0]=p.orientation[1]=p.orientation[2]=0;p.orientation[3]=1;}
-            if(preview){p.position[0]=.65f;p.position[1]=1.3f;p.position[2]=0;}
-            if(!preview&&!cameraSweep&&!turnSweep&&!interfaceCheck&&t>=.7f&&t<2){p.position[0]+=.15f*std::sin((t-.7f)*4);p.orientation[1]=std::sin(.4f*std::sin(t));p.orientation[3]=std::sqrt(1-p.orientation[1]*p.orientation[1]);}
+            if(preview||meleeCheck){p.position[0]=.65f;p.position[1]=1.3f;p.position[2]=0;}
+            if(meleeCheck&&t>=2&&t<6){p.position[1]+=.2f*std::sin((t-2)*3.14159265f);p.orientation[2]=std::sin(.45f*std::sin((t-2)*3.14159265f));p.orientation[3]=std::sqrt(1-p.orientation[2]*p.orientation[2]);}
+            if(!preview&&!meleeCheck&&!cameraSweep&&!turnSweep&&!interfaceCheck&&t>=.7f&&t<2){p.position[0]+=.15f*std::sin((t-.7f)*4);p.orientation[1]=std::sin(.4f*std::sin(t));p.orientation[3]=std::sqrt(1-p.orientation[1]*p.orientation[1]);}
             hand.publish(p);amalur::MotionInputPacket m;m.active=1;
+            if(preview||meleeCheck){p.position[0]=-.65f;p.position[1]=1.15f;p.orientation[2]=-p.orientation[2];leftHand.publish(p);}
             if(mouseAttack){bool down=t>=.3f&&t<.65f;if(down!=mouse.down){mouse_event(down?MOUSEEVENTF_LEFTDOWN:MOUSEEVENTF_LEFTUP,0,0,0,0);mouse.down=down;}}
-            else if(!preview&&!cameraSweep&&!turnSweep&&!interfaceCheck&&t>=.3f&&t<.65f)m.buttons=XINPUT_GAMEPAD_X;
+            else if(!preview&&!meleeCheck&&!cameraSweep&&!turnSweep&&!interfaceCheck&&t>=.3f&&t<.65f)m.buttons=XINPUT_GAMEPAD_X;
             if(turnSweep&&t>=6){const float phase=std::fmod(t-6,2.5f);if(phase>=.8f&&phase<1.5f)m.moveY=.65f;}
             input.publish(m);
         }
@@ -74,7 +78,7 @@ int main(int argc,char** argv){
         }
         Sleep(8);
     }
-    if(!observe){head.publish({});hand.publish({});input.publish({});}
+    if(!observe){head.publish({});hand.publish({});leftHand.publish({});input.publish({});}
     std::printf("{\"captureComplete\":true,\"nativeDrawObserved\":%s}\n",drewWeapon?"true":"false");
     return state.weaponRemaps>initial?0:6;
 }

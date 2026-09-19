@@ -9,6 +9,21 @@ inline void attachment(void* mapper,uintptr_t slot,uintptr_t source,uintptr_t ou
     __try {
         auto root=rig_probe::playerRoot();if(!root||source!=root+0x34||output<0x34||slot>=32)return;
         auto object=output-0x34;if(!weapon_control::isSinglePlayerWeapon(object))return;
+        // Bounded discovery of a newly equipped weapon's attachment maps.
+        // This observes the native table; it does not select an unverified slot.
+        static uintptr_t observedObject{};static uint32_t observedOwner{};
+        auto owner=player_rig::word(object+0xf8);
+        if(observedObject!=object||observedOwner!=owner){
+            observedObject=object;observedOwner=owner;
+            auto table=player_rig::word(reinterpret_cast<uintptr_t>(mapper));
+            log("Weapon attachment census bones=%u nativeSlot=%u\n",player_rig::word(output+4),unsigned(nativeSlot));
+            for(unsigned s=0;s<9;++s){
+                auto e=table+s*32,n=player_rig::word(e+4),p=player_rig::word(e);
+                if(n>8)continue;
+                for(unsigned j=0;j<n;++j)log("Weapon map slot=%u tuple=%u src=%u dst=%u flags=%u\n",s,j,
+                    player_rig::word(p+j*12),player_rig::word(p+j*12+4),player_rig::word(p+j*12+8));
+            }
+        }
         auto entry=player_rig::word(reinterpret_cast<uintptr_t>(mapper))+slot*32;
         auto mappings=player_rig::word(entry+4);if(!mappings||mappings>64)return;
         // Last mapping is the held grip for the one-weapon staff layout.

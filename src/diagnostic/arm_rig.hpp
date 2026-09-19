@@ -16,6 +16,7 @@ inline uintptr_t calibratedRoot{};inline uint32_t calibratedOwner{};inline unsig
 inline amalur::GripSettingsChannel gripSettings;
 inline float gripPitch{},gripYaw{},gripRoll{};
 inline amalur::ArmReference neutralArm{};
+inline amalur::ArmReference neutralLeftArm{};
 inline bool calibratedBodyAnchor{};
 inline bool solveUnsafe(uintptr_t root,Scratch& scratch,bool solveHand=true){
     if(interfaceView.load()||!headTracking.load()||!root||root!=rig_probe::playerRoot())return false;
@@ -32,11 +33,13 @@ inline bool solveUnsafe(uintptr_t root,Scratch& scratch,bool solveHand=true){
     if(!parentOffset||parentOffset>65536||!idOffset||idOffset>65536)return false;
     auto parents=reinterpret_cast<const int16_t*>(blob+0x1c+parentOffset);
     auto ids=reinterpret_cast<const uint32_t*>(blob+0x20+idOffset);
-    mgs5vr::Pose grip;uint64_t timestamp;unsigned center;float scale;
+    mgs5vr::Pose grip,leftGrip;uint64_t timestamp,leftTimestamp;unsigned center;float scale;
     AcquireSRWLockShared(&weapon_control::poseLock);
     grip=weapon_control::desired;timestamp=weapon_control::tick;center=weapon_control::generation;scale=weapon_control::worldScale;
+    leftGrip=weapon_control::desiredLeft;leftTimestamp=weapon_control::leftTick;
     ReleaseSRWLockShared(&weapon_control::poseLock);
     auto now=GetTickCount64();bool handValid=solveHand&&enabled.load()&&timestamp&&timestamp<=now&&now-timestamp<250&&mgs5vr::valid(grip);
+    bool leftValid=solveHand&&enabled.load()&&leftTimestamp&&leftTimestamp<=now&&now-leftTimestamp<250&&mgs5vr::valid(leftGrip);
     mgs5vr::Pose worldRoot;
     memcpy(&worldRoot.position,reinterpret_cast<void*>(root+0x124),12);
     memcpy(&worldRoot.orientation,reinterpret_cast<void*>(root+0x134),16);
@@ -53,7 +56,7 @@ inline bool solveUnsafe(uintptr_t root,Scratch& scratch,bool solveHand=true){
             memcpy(native,stable,count*sizeof(amalur::RigBone));bodyApplied=true;
         }
     }
-    if(!handValid){
+    if(!handValid&&!leftValid){
         if(!bodyApplied)return false;
         memcpy(scratch.bones,native,count*sizeof(amalur::RigBone));
         memcpy(scratch.descriptor,reinterpret_cast<void*>(source),sizeof(scratch.descriptor));
@@ -62,22 +65,33 @@ inline bool solveUnsafe(uintptr_t root,Scratch& scratch,bool solveHand=true){
     unsigned wrist=count;for(unsigned i=0;i<count;++i)if(ids[i]==0x0088d0eb)wrist=i;
     if(wrist==count||!mgs5vr::valid(amalur::bonePose(native[wrist])))return false;
     auto rootOwner=player_rig::word(root+0xf8);mgs5vr::Pose alignment;amalur::ArmReference reference;
-    amalur::ArmReference candidate;
+    amalur::ArmReference candidate,leftCandidate,leftReference;
     const bool lockArm=bodyApplied||weapon_control::desktopPose.load();
     if(lockArm)amalur::captureRightArmReference(native,count,parents,ids,localAnchor,candidate);
+    if(lockArm)amalur::captureLeftArmReference(native,count,parents,ids,localAnchor,leftCandidate);
     AcquireSRWLockExclusive(&calibrationLock);
     if(calibratedRoot!=root||calibratedOwner!=rootOwner||calibratedBodyAnchor!=bodyApplied){
         calibratedRoot=root;calibratedOwner=rootOwner;calibratedBodyAnchor=bodyApplied;
-        neutralArm={};
+        neutralArm={};neutralLeftArm={};
     }
     calibratedCenter=center;
     if(lockArm&&!neutralArm.ready)neutralArm=candidate;
+    if(lockArm&&!neutralLeftArm.ready)neutralLeftArm=leftCandidate;
     if(gripSettings.open(false))gripSettings.read(gripPitch,gripYaw,gripRoll);
     amalur::gripAngleTrim(gripPitch,gripYaw,gripRoll,alignment);
-    reference=neutralArm;ReleaseSRWLockExclusive(&calibrationLock);
+    reference=neutralArm;leftReference=neutralLeftArm;ReleaseSRWLockExclusive(&calibrationLock);
     auto target=mgs5vr::compose(mgs5vr::inverse(worldRoot),mgs5vr::compose(grip,alignment));
-    if(!amalur::solveRightArm(native,scratch.bones,count,parents,ids,target,scale,
+    memcpy(scratch.bones,native,count*sizeof(amalur::RigBone));
+    if(handValid&&!amalur::solveRightArm(native,scratch.bones,count,parents,ids,target,scale,
         lockArm&&reference.ready?&reference:nullptr,localAnchor))return false;
+    if(leftValid){
+        mgs5vr::Pose leftAlignment;amalur::gripAngleTrim(gripPitch,-gripYaw,-gripRoll,leftAlignment);
+        auto leftTarget=mgs5vr::compose(mgs5vr::inverse(worldRoot),mgs5vr::compose(leftGrip,leftAlignment));
+        amalur::RigBone both[64];
+        if(!amalur::solveLeftArm(scratch.bones,both,count,parents,ids,leftTarget,scale,
+            lockArm&&leftReference.ready?&leftReference:nullptr,localAnchor))return false;
+        memcpy(scratch.bones,both,count*sizeof(amalur::RigBone));
+    }
     // Remapper reads this private copy synchronously. Never edit the authoritative
     // root animation or feed last frame's solved bones back into the solver.
     memcpy(scratch.descriptor,reinterpret_cast<void*>(source),sizeof(scratch.descriptor));
@@ -106,22 +120,33 @@ inline bool prepare(uintptr_t source,uintptr_t output,Scratch& scratch){
 inline void resetCalibration(){AcquireSRWLockExclusive(&calibrationLock);calibratedRoot=0;ReleaseSRWLockExclusive(&calibrationLock);}
 inline uintptr_t trackedWeaponSlot(void* mapper,uintptr_t slot,uintptr_t output,bool solved){
     __try {
-        if(!solved||slot!=8||!firstPerson.load()||!enabled.load()||output<0x34
+        if(!solved||(slot!=8&&slot!=9)||!firstPerson.load()||!enabled.load()||output<0x34
             ||motion_controls::viewControls().selectedWeapon!=0)return slot;
         AcquireSRWLockShared(&weapon_control::poseLock);auto tick=weapon_control::tick;ReleaseSRWLockShared(&weapon_control::poseLock);
         auto now=GetTickCount64();if(!tick||tick>now||now-tick>=250)return slot;
-        auto object=output-0x34;if(!weapon_control::isSinglePlayerWeapon(object)||player_rig::word(output+4)!=4)return slot;
+        auto object=output-0x34;if(!weapon_control::isSinglePlayerWeapon(object))return slot;
+        auto count=player_rig::word(output+4);if(count!=4&&count!=7)return slot;
         auto manager=player_rig::word(gameBase+0x15fdf54),assetId=player_rig::word(object+0xf0);
         if(assetId<2||assetId>=100000)return slot;
         auto state=*reinterpret_cast<unsigned char*>(player_rig::word(manager+0x28)+assetId);
         if(!(state&4)||(state&0x10))return slot;
         auto asset=player_rig::word(player_rig::word(manager+0x18)+assetId*4),blob=player_rig::word(asset+0x1c);
-        if(player_rig::word(blob)!=0x45533033||player_rig::word(blob+0x10)!=4)return slot;
+        if(player_rig::word(blob)!=0x45533033||player_rig::word(blob+0x10)!=count)return slot;
         auto offset=player_rig::word(blob+0x20);if(!offset||offset>65536)return slot;
+        auto table=player_rig::word(reinterpret_cast<uintptr_t>(mapper));
+        // Scalding Daggers: one Fab, two blade branches. Native slot 7 maps
+        // left finger 36 to blade 1 and right finger 55 to blade 4.
+        constexpr uint32_t daggerIds[]{11436941,11992818,11092278,14407505,10760771,15110326,13087492};
+        if(count==7&&slot==9&&!memcmp(reinterpret_cast<void*>(blob+0x20+offset),daggerIds,sizeof(daggerIds))){
+            auto held=table+7*32;
+            constexpr uint32_t heldMap[]{62,0,0,36,1,0,55,4,0};
+            if(player_rig::word(held+4)==3&&!memcmp(reinterpret_cast<void*>(player_rig::word(held)),heldMap,sizeof(heldMap)))return 7;
+            return slot;
+        }
         // Verified four-bone staff layout. Other weapon types keep native slots.
+        if(count!=4||slot!=8)return slot;
         constexpr uint32_t staffIds[]{11436941,6711025,12316630,8749139};
         if(memcmp(reinterpret_cast<void*>(blob+0x20+offset),staffIds,sizeof(staffIds)))return slot;
-        auto table=player_rig::word(reinterpret_cast<uintptr_t>(mapper));
         auto stowed=table+8*32,held=table+5*32;
         if(player_rig::word(stowed+4)!=1||player_rig::word(held+4)!=2)return slot;
         constexpr uint32_t stowedMap[]{62,0,0},heldMap[]{62,0,0,55,1,0};
