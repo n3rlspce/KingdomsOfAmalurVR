@@ -1,0 +1,29 @@
+/build/
+/captures/
+/tools/python-deps/
+__pycache__/
+*.pyc
+.vs/
+.vscode/
+*.user
+*.suo
+*.log
+.env
+.env.*
+!.env.example
+
+# Local downloads, reverse-engineering dumps and reference checkouts.
+# Keep authored research notes; fetch external packages separately.
+/research/*
+!/research/*.md
+
+# Keep only the dependency source/provenance used by this project.
+/third_party/*
+!/third_party/minhook/
+!/third_party/mgs5vr/
+!/third_party/VRScreenCap/
+
+# Workstation-specific overrides must remain local.
+*.local.json
+*.local.ps1
+*.local.ini
