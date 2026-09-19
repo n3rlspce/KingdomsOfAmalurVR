@@ -46,10 +46,10 @@ inline void face(void* camera,mgs5vr::Vec3 forward){
         auto owner=static_cast<uint32_t>(word(p+0x1ec)),entity=resolve(owner);
         auto loc=part(entity,6,owner,0x1355cdc),motion=part(entity,42,owner,0x13561e4);
         if(!loc||!motion||!(word(loc+0x20)&1)||!(word(motion+0x20)&1))return;
-        // Native set_facing accepts integer degrees, clockwise from world +X.
+        // Native set_facing accepts integer degrees, counterclockwise in the camera basis from world +X.
         // PartLocation+b0 is an unsigned full-turn angle; PartMotion receives
         // the requested delta and performs the actual simulation rotation.
-        int degrees=static_cast<int>(std::lround(std::atan2(-forward.y,forward.x)*57.2957795131f));
+        int degrees=static_cast<int>(std::lround(std::atan2(forward.y,forward.x)*57.2957795131f));
         if(degrees<0)degrees+=360;
         float current=static_cast<float>(static_cast<double>(static_cast<uint32_t>(word(loc+0xb0)))*(360.0/4294967296.0));
         if(std::abs(std::remainder(static_cast<float>(degrees)-current,360.f))<1.5f)return;

@@ -8,16 +8,9 @@ struct Scratch {amalur::RigBone bones[64];uintptr_t descriptor[3];};
 inline SRWLOCK calibrationLock=SRWLOCK_INIT;
 inline uintptr_t calibratedRoot{};inline uint32_t calibratedOwner{};inline unsigned calibratedCenter{};
 inline mgs5vr::Pose trim{};
-inline bool prepareUnsafe(uintptr_t source,uintptr_t output,Scratch& scratch){
-    if(!enabled.load()||!headTracking.load())return false;
-    auto root=rig_probe::playerRoot();if(!root||source!=root+0x34||output<0x34)return false;
-    auto object=output-0x34;auto children=player_rig::word(root+0x24),childCount=player_rig::word(root+0x28);
-    if(childCount>32)return false;bool owned=false;
-    for(unsigned i=0;i<childCount;++i)if(weapon_control::fab(player_rig::word(children+i*4))==object){owned=true;break;}
-    if(!owned)return false;
-    // Only player armor meshes. Weapon attachment state remains native.
-    auto owner=player_rig::word(object+0xf8);
-    if(!player_rig::part(player_rig::resolve(owner),12,owner,0x13563e4))return false;
+inline bool solveUnsafe(uintptr_t root,Scratch& scratch){
+    if(!enabled.load()||!headTracking.load()||!root||root!=rig_probe::playerRoot())return false;
+    auto source=root+0x34;
     auto count=player_rig::word(source+4);if(count<3||count>64)return false;
     auto buffer=player_rig::word(source);if(!buffer)return false;
     auto manager=player_rig::word(gameBase+0x15fdf54),assetId=player_rig::word(root+0xf0);
@@ -56,6 +49,18 @@ inline bool prepareUnsafe(uintptr_t source,uintptr_t output,Scratch& scratch){
     memcpy(scratch.descriptor,reinterpret_cast<void*>(source),sizeof(scratch.descriptor));
     scratch.descriptor[0]=reinterpret_cast<uintptr_t>(scratch.bones);
     ++samples;return true;
+}
+inline bool prepareUnsafe(uintptr_t source,uintptr_t output,Scratch& scratch){
+    if(!enabled.load()||!headTracking.load())return false;
+    auto root=rig_probe::playerRoot();if(!root||source!=root+0x34||output<0x34)return false;
+    auto object=output-0x34;auto children=player_rig::word(root+0x24),childCount=player_rig::word(root+0x28);
+    if(childCount>32)return false;bool owned=false;
+    for(unsigned i=0;i<childCount;++i)if(weapon_control::fab(player_rig::word(children+i*4))==object){owned=true;break;}
+    if(!owned)return false;
+    // Only player armor meshes. Weapon attachment state remains native.
+    auto owner=player_rig::word(object+0xf8);
+    if(!player_rig::part(player_rig::resolve(owner),12,owner,0x13563e4))return false;
+    return solveUnsafe(root,scratch);
 }
 inline bool prepare(uintptr_t source,uintptr_t output,Scratch& scratch){
     __try{return prepareUnsafe(source,output,scratch);}__except(EXCEPTION_EXECUTE_HANDLER){return false;}

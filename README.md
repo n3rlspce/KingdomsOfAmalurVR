@@ -17,7 +17,7 @@ Experimental VR mod for **Kingdoms of Amalur: Re-Reckoning**, targeting
 - Right-controller arm IK was visibly tested with OpenXR Simulator; equipment and headset validation are ongoing.
 - Legacy single-weapon pose override (`F3`); disabled while arm IK is active.
 - Close the settings panel (`*`) to move. Hold the right controller naturally and press `F7` to recalibrate its orientation.
-- Wrist alignment, body clipping, equipment coverage and animation transitions need work. Arm IK shows the body; the staff is not attached to the solved hand yet.
+- Wrist alignment, body clipping, equipment coverage and animation transitions need work. Arm IK shows the body; a native wrist-socket override for held equipment is implemented but not visually verified yet. Auto-sheathing remains native.
 - Camera consistency correction passed an initial headset test (`F2` compares it). Drawn/stowed weapon tracking is not reliable yet.
 - Temporary first-person body/armor hiding (`F1`) is available to prevent jogging through the camera. This hides the visible body, not just the head; it defaults off to show tracked arms.
 

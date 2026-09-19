@@ -7,6 +7,30 @@ inline std::atomic<bool> enabled{false};
 inline std::atomic<unsigned> samples{0};
 using BoneEvaluate=void(__thiscall*)(void*,uintptr_t,uintptr_t,uintptr_t,uintptr_t,uintptr_t,uintptr_t);
 inline BoneEvaluate originalBones{};
+using BoneWorld=uintptr_t(__thiscall*)(void*,unsigned,amalur::RigBone*,uintptr_t);
+inline BoneWorld originalWorld{};
+inline void adjustSocket(uintptr_t root,unsigned index,amalur::RigBone* output){
+    __try {
+        if(!output||root!=playerRoot()||index>=player_rig::word(root+0x38))return;
+        arm_rig::Scratch scratch;if(!arm_rig::solveUnsafe(root,scratch))return;
+        auto native=reinterpret_cast<const amalur::RigBone*>(player_rig::word(root+0x34));
+        if(index>=64||!mgs5vr::valid(amalur::bonePose(native[index]))||!mgs5vr::valid(amalur::bonePose(*output)))return;
+        if(!memcmp(&native[index],&scratch.bones[index],sizeof(amalur::RigBone)))return;
+        mgs5vr::Pose world;memcpy(&world.position,reinterpret_cast<void*>(root+0x124),12);
+        memcpy(&world.orientation,reinterpret_cast<void*>(root+0x134),16);if(!mgs5vr::valid(world))return;
+        auto before=mgs5vr::compose(world,amalur::bonePose(native[index]));
+        auto after=mgs5vr::compose(world,amalur::bonePose(scratch.bones[index]));
+        auto delta=mgs5vr::compose(after,mgs5vr::inverse(before));
+        auto result=mgs5vr::compose(delta,amalur::bonePose(*output));if(!mgs5vr::valid(result))return;
+        output->position=result.position;output->orientation=result.orientation;
+        static unsigned logs=0;if(logs++<12)log("Tracked native socket bone=%u\n",index);
+    } __except(EXCEPTION_EXECUTE_HANDLER){}
+}
+inline uintptr_t __fastcall boneWorld(void* self,void*,unsigned index,amalur::RigBone* output,uintptr_t offset){
+    auto result=originalWorld(self,index,output,offset);
+    if(arm_rig::enabled.load()&&headTracking.load())adjustSocket(reinterpret_cast<uintptr_t>(self),index,output);
+    return result;
+}
 inline SRWLOCK lock=SRWLOCK_INIT;
 struct Position {float x,y,z;};
 inline uintptr_t savedObject{},savedBuffer{};
@@ -112,5 +136,11 @@ inline void install(){
     const unsigned char expected[]={0x81,0xec,0xf4,0,0,0,0xa1};
     if(memcmp(target,expected,sizeof(expected))||player_rig::word(reinterpret_cast<uintptr_t>(target)+7)!=gameBase+0x157713c)return;
     hook(target,reinterpret_cast<void*>(&evaluateBones),reinterpret_cast<void**>(&originalBones),"Player attachment pose remap probe");
+    auto world=reinterpret_cast<unsigned char*>(gameBase+0x8aefe0);
+    const unsigned char worldPrefix[]={0x83,0xec,0x64,0xa1};
+    const unsigned char worldTail[]={0x83,0xc4,0x64,0xc2,0x0c,0x00};
+    if(!memcmp(world,worldPrefix,sizeof(worldPrefix))&&player_rig::word(reinterpret_cast<uintptr_t>(world)+4)==gameBase+0x157713c
+        &&!memcmp(world+0x85,worldTail,sizeof(worldTail)))
+        hook(world,reinterpret_cast<void*>(&boneWorld),reinterpret_cast<void**>(&originalWorld),"Tracked player bone world sockets");
 }
 }
