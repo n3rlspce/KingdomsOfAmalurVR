@@ -33,7 +33,13 @@ int main(int argc,char** argv){
     auto heading=amalur::levelOrigin(origin);
     relative=mgs5vr::compose(mgs5vr::inverse(heading),origin);
     expect(amalur::trackedCamera(base,relative,100,out)&&closeEnough(out.target.y,220),"level recenter cancels heading");
-    if(argc==2&&std::strcmp(argv[1],"--math")==0){puts("PASS: camera axes, yaw, roll, level recenter and invalid pose");return 0;}
+    amalur::HeadingAnchor anchor; mgs5vr::Vec3 fixed;
+    expect(anchor.get({0,200,50},fixed)&&closeEnough(fixed.y,1)&&closeEnough(fixed.z,0),"anchor uses horizontal heading");
+    for(int frame=0;frame<500;++frame){
+        float angle=frame*.02f;expect(anchor.get({std::sin(angle),std::cos(angle),0},fixed)&&closeEnough(fixed.x,0)&&closeEnough(fixed.y,1),"native body/camera turns cannot accumulate in VR heading");
+    }
+    anchor.reset();expect(anchor.get({1,0,0},fixed)&&closeEnough(fixed.x,1),"recenter accepts new world heading");
+    if(argc==2&&std::strcmp(argv[1],"--math")==0){puts("PASS: camera axes, yaw, roll, level recenter, stable heading and invalid pose");return 0;}
     const wchar_t* map=L"Local\\AmalurVRTestPose";const wchar_t* mutex=L"Local\\AmalurVRTestMutex";
     amalur::PoseChannel writer(map,mutex),reader(map,mutex);expect(writer.open(true)&&reader.open(false),"pose channel opens");
     amalur::PosePacket p;p.valid=1;p.tick=GetTickCount64();p.position[0]=.125f;writer.publish(p);

@@ -14,12 +14,15 @@ Experimental VR mod for **Kingdoms of Amalur: Re-Reckoning**, targeting
 
 - First person, head tracking, Touch input and right-arm IK start enabled when the VR bridge supplies tracking. `F5` toggles first person; `F4` toggles arm IK.
 - Head yaw requests native character facing in first person; initial headset validation pending.
+- First-person heading stays independent of native chase-camera turning (circle-running fix confirmed in headset).
+- Experimental whole-body horizontal anchoring cancels animated head displacement with one shared mesh offset; gait stays intact, but foot sliding is possible. Foot IK is not implemented.
+- Head/face and headgear mesh hiding defaults on in first person; equipment coverage needs headset validation. Native hiding also affects those meshes' shadows.
 - Right-controller arm IK was visibly tested with OpenXR Simulator; equipment and headset validation are ongoing.
 - Legacy single-weapon pose override (`F3`); disabled while arm IK is active.
 - Close the settings panel (`*`) to move. Hold the right controller naturally and press `F7` to recalibrate its orientation.
 - Wrist alignment, body clipping, equipment coverage and animation transitions need work. Arm IK shows the body; a native wrist-socket override for held equipment is implemented but not visually verified yet. Auto-sheathing remains native.
 - Camera consistency correction passed an initial headset test (`F2` compares it). Drawn/stowed weapon tracking is not reliable yet.
-- Temporary first-person body/armor hiding (`F1`) is available to prevent jogging through the camera. This hides the visible body, not just the head; it defaults off to show tracked arms.
+- `F1` optionally hides the whole body/armor; it defaults off. Selective head hiding remains active in first person.
 
 ### Touch controls (experimental)
 

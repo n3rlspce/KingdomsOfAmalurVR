@@ -8,6 +8,16 @@ using mgs5vr::Pose;
 struct CameraPose { Vec3 eye,target,up; };
 inline Vec3 cross(Vec3 a,Vec3 b){return {a.y*b.z-a.z*b.y,a.z*b.x-a.x*b.z,a.x*b.y-a.y*b.x};}
 inline bool normalize(Vec3& v){float n=std::sqrt(mgs5vr::dot(v,v));if(!std::isfinite(n)||n<1e-5f)return false;v=v*(1.f/n);return true;}
+// The native chase camera follows body turns. Capture a world heading once,
+// rather than adding physical head yaw to that moving basis every frame.
+struct HeadingAnchor {
+    Vec3 heading{};bool valid{};
+    void reset(){valid=false;}
+    bool get(Vec3 native,Vec3& result){
+        if(!valid){native.z=0;if(!normalize(native))return false;heading=native;valid=true;}
+        result=heading;return true;
+    }
+};
 // Recenter position and heading only. Capturing initial pitch/roll would leave
 // a tilted horizon when the headset is subsequently held upright.
 inline Pose levelOrigin(Pose head) {

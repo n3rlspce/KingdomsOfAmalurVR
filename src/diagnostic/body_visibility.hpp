@@ -3,6 +3,25 @@
 // and armor attachments. The player rig and weapon attachment remain active.
 namespace body_visibility {
 inline std::atomic<bool> enabled{false};
+inline bool previousWholeBody{};
+// Head/face palettes contain the verified head bone but no hand or leg bones.
+// Classify the current mesh, not an equipment slot that changes with gear.
+inline bool headMesh(uintptr_t object){
+    auto count=player_rig::word(object+0x38);if(!count||count>128)return false;
+    auto manager=player_rig::word(gameBase+0x15fdf54),assetId=player_rig::word(object+0xf0);
+    if(!manager||assetId<2||assetId>=100000)return false;
+    auto flags=*reinterpret_cast<unsigned char*>(player_rig::word(manager+0x28)+assetId);
+    if(!(flags&4)||(flags&0x10))return false;
+    auto asset=player_rig::word(player_rig::word(manager+0x18)+assetId*4),blob=player_rig::word(asset+0x1c);
+    if(player_rig::word(blob)!=0x45533033||player_rig::word(blob+0x10)!=count)return false;
+    auto offset=player_rig::word(blob+0x20);if(!offset||offset>65536)return false;
+    bool head=false;
+    for(unsigned i=0;i<count;++i){auto id=player_rig::word(blob+0x20+offset+i*4);
+        if(id==0x5a2e4c)head=true;
+        if(id==0x88d0eb||id==0x87c3ed||id==0x91f42f||id==0x93012d)return false;
+    }
+    return head;
+}
 using Visibility=void(__thiscall*)(void*);
 inline Visibility hide{},show{};
 struct Entry {uint32_t index{},owner{};bool wasHidden{};};
@@ -29,7 +48,9 @@ inline void restore(){
 inline void update(){
     if(!hide||!show)return;
     __try {
-        bool active=enabled.load()&&firstPerson.load()&&headTracking.load()&&haveCameraForFrame;
+        bool active=firstPerson.load()&&headTracking.load()&&haveCameraForFrame;
+        bool wholeBody=enabled.load();
+        if(previousWholeBody!=wholeBody){if(savedCount)restore();previousWholeBody=wholeBody;}
         auto p=reinterpret_cast<uintptr_t>(player_rig::player.load());
         bool validPlayer=p&&(player_rig::word(p)==gameBase+0x1359f14||player_rig::word(p)==gameBase+0x1359e94);
         auto owner=validPlayer?player_rig::word(p+0x1ec):0;
@@ -49,10 +70,11 @@ inline void update(){
             auto childOwner=player_rig::word(child+0xf8);auto item=player_rig::resolve(childOwner);
             if(player_rig::part(item,11,childOwner,0x135745c))continue;
             if(!player_rig::part(item,12,childOwner,0x13563e4)&&!player_rig::part(item,40,childOwner,0x1356bec))continue;
+            if(!wholeBody&&!headMesh(child))continue;
             bool known=false;for(unsigned j=0;j<savedCount;++j)if(saved[j].index==player_rig::word(child+0x194)&&saved[j].owner==childOwner){known=true;break;}
             if(!known){unsigned previous=savedCount;if(!capture(child)){savedCount=previous;continue;}
                 if(rootCount<32)roots[rootCount++]={player_rig::word(child+0x194),childOwner,false};
-                log("First-person body attachment hidden: slot=%u owner=%08x\n",i,childOwner);}
+                log("First-person %s attachment hidden: slot=%u owner=%08x\n",wholeBody?"body":"head",i,childOwner);}
             currentOwner=owner;
             if(!(player_rig::word(child+0x1d0)&4))hide(reinterpret_cast<void*>(child));
         }
