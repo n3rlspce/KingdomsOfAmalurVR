@@ -13,9 +13,10 @@ Experimental VR mod for **Kingdoms of Amalur: Re-Reckoning**, targeting
 ## Experimental prototype — needs headset validation
 
 - `F5`: first-person camera and analog Touch left-stick movement (enables head tracking).
-- Right-controller pose override for a single equipped weapon; `F3` toggles it separately.
+- `F4`: right-controller arm IK, visibly tested with OpenXR Simulator; headset validation pending. Works in third person or alongside `F5`.
+- Legacy single-weapon pose override (`F3`); disabled while arm IK is active.
 - Close the settings panel (`*`) to move. Hold the right controller naturally and press `F7` to recalibrate its orientation.
-- Grip placement, body clipping and animation transitions still need testing. Dual weapons are skipped; there is no swing-based damage or arm IK yet.
+- Wrist alignment, body clipping, equipment coverage and animation transitions need work. Arm IK shows the body; the staff is not attached to the solved hand yet.
 - Camera consistency correction passed an initial headset test (`F2` compares it). Drawn/stowed weapon tracking is not reliable yet.
 - Temporary first-person body/armor hiding (`F1`) is being tested to prevent jogging through the camera. This hides the visible body, not just the head; head yaw currently turns the view only.
 
@@ -29,7 +30,7 @@ Experimental VR mod for **Kingdoms of Amalur: Re-Reckoning**, targeting
 
 ## Not implemented
 
-- Motion-controlled hands, swing-based combat and two-handed interactions.
+- Left-arm tracking, finger controls, swing-based combat and two-handed interactions.
 - Full-body VR interaction.
 
 **Controls:** `F10` toggles head tracking · `F7` recenters · `*` opens settings · `F12` stops VR.

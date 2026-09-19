@@ -7,6 +7,7 @@ inline SRWLOCK poseLock=SRWLOCK_INIT;
 inline mgs5vr::Pose desired{};
 inline uint64_t tick{};
 inline unsigned generation{};
+inline float worldScale{100.f};
 inline std::atomic<bool> enabled{true};
 inline amalur::PoseChannel hand{L"Local\\AmalurVRRightHandV3",L"Local\\AmalurVRRightHandMutexV3"};
 inline void sample(amalur::CameraPose rig,mgs5vr::Pose origin,float scale,unsigned recenter){
@@ -14,7 +15,7 @@ inline void sample(amalur::CameraPose rig,mgs5vr::Pose origin,float scale,unsign
     bool valid=hand.open(false)&&hand.read(p);
     if(valid){mgs5vr::Pose local{{p.orientation[0],p.orientation[1],p.orientation[2],p.orientation[3]},{p.position[0],p.position[1],p.position[2]}};
         valid=amalur::gripInGame(rig,mgs5vr::compose(mgs5vr::inverse(origin),local),scale,result);}
-    AcquireSRWLockExclusive(&poseLock);desired=result;tick=valid?p.tick:0;generation=recenter;ReleaseSRWLockExclusive(&poseLock);
+    AcquireSRWLockExclusive(&poseLock);desired=result;tick=valid?p.tick:0;generation=recenter;worldScale=scale;ReleaseSRWLockExclusive(&poseLock);
 }
 inline uintptr_t fab(uint32_t index){
     auto mgr=player_rig::word(gameBase+0x15fdf54);if(!mgr||index<2||index>=player_rig::word(mgr+0xc8))return 0;

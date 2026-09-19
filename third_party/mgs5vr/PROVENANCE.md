@@ -10,3 +10,10 @@ adapter. Additional upstream helpers compile but are not enabled as mod features
 
 No FOX-engine camera offsets or projection-sign assumptions are reused.
 
+
+`arm_ik.hpp` and `arm_ik.cpp` contain the upstream two-bone `solveArm`,
+its math helpers, `outsideArmSurface` and `nativeAffinePose` from the same pin.
+Unrelated controller/game-specific routines and declarations are omitted.
+The solver is used in metres; Amalur bone IDs, ownership and pose conversion
+are implemented separately. No MGSV finger axes or corrective coefficients
+are used.

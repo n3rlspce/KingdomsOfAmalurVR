@@ -1,4 +1,5 @@
 #pragma once
+#include "arm_rig.hpp"
 // Reversible discovery probe, not controller IK. Only the verified local-player
 // armor child is eligible; NPCs and opaque bone bytes are untouched.
 namespace rig_probe {
@@ -98,7 +99,9 @@ inline void __fastcall evaluateBones(void* mapper,void*,uintptr_t slot,uintptr_t
     uintptr_t output,uintptr_t skeleton,uintptr_t extra,uintptr_t flags){
     auto object=output>=0x34?output-0x34:0;
     beforeEvaluation(object);
-    originalBones(mapper,slot,source,output,skeleton,extra,flags);
+    arm_rig::Scratch scratch;
+    const auto input=arm_rig::prepare(source,output,scratch)?reinterpret_cast<uintptr_t>(scratch.descriptor):source;
+    originalBones(mapper,slot,input,output,skeleton,extra,flags);
     afterEvaluation(object);
 }
 inline void disable(){

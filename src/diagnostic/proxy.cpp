@@ -198,12 +198,14 @@ static void __fastcall onRebuildCamera(void* camera,void*) {
                 auto relative=mgs5vr::compose(mgs5vr::inverse(origin),head);
                 auto baseCamera=originalCamera;
                 mgs5vr::Vec3 playerPosition{};
-                if(firstPerson.load()&&player_rig::location(camera,playerPosition)){
+                if((firstPerson.load()||arm_rig::enabled.load())&&player_rig::location(camera,playerPosition)){
                     auto heading=originalCamera.target-originalCamera.eye;heading.z=0;
                     if(amalur::normalize(heading)){
-                        baseCamera.eye=playerPosition+mgs5vr::Vec3{0,0,170}+heading*15.f;
-                        baseCamera.target=baseCamera.eye+heading*200.f;baseCamera.up={0,0,1};
-                        weapon_control::sample(baseCamera,origin,packet.worldScale,centeredGeneration+bridgeCenter);
+                        auto handCamera=baseCamera;
+                        handCamera.eye=playerPosition+mgs5vr::Vec3{0,0,170}+heading*15.f;
+                        handCamera.target=handCamera.eye+heading*200.f;handCamera.up={0,0,1};
+                        weapon_control::sample(handCamera,origin,packet.worldScale,centeredGeneration+bridgeCenter);
+                        if(firstPerson.load())baseCamera=handCamera;
                     }
                 }
                 tracked=amalur::trackedCamera(baseCamera,relative,packet.worldScale,adjusted);
@@ -357,8 +359,15 @@ static HRESULT STDMETHODCALLTYPE onPresent(IDXGISwapChain* chain,UINT sync,UINT 
     static bool f1Down=false;bool f1=(GetAsyncKeyState(VK_F1)&0x8000)!=0;
     if(f1&&!f1Down&&motion_controls::gameFocused()){body_visibility::enabled.store(!body_visibility::enabled.load());log("F1: first-person body hiding %s\n",body_visibility::enabled.load()?"ON":"OFF");}f1Down=f1;
     body_visibility::update();
+    static bool f4Down=false,bodyBeforeArm=true,weaponBeforeArm=true;bool f4=(GetAsyncKeyState(VK_F4)&0x8000)!=0;
+    if(f4&&!f4Down&&motion_controls::gameFocused()){
+        if(arm_rig::enabled.exchange(!arm_rig::enabled.load())){body_visibility::enabled.store(bodyBeforeArm);weapon_control::enabled.store(weaponBeforeArm);}
+        else {rig_probe::disable();bodyBeforeArm=body_visibility::enabled.load();weaponBeforeArm=weapon_control::enabled.load();
+            body_visibility::enabled.store(false);weapon_control::enabled.store(false);headTracking.store(true);arm_rig::resetCalibration();}
+        log("F4: right arm IK %s (mesh updates=%u)\n",arm_rig::enabled.load()?"ON":"OFF",arm_rig::samples.load());
+    }f4Down=f4;
     static bool f6Down=false,bodyHideBeforeProbe=true;bool f6=(GetAsyncKeyState(VK_F6)&0x8000)!=0;
-    if(f6&&!f6Down&&motion_controls::gameFocused()){
+    if(f6&&!f6Down&&motion_controls::gameFocused()&&!arm_rig::enabled.load()){
         if(rig_probe::enabled.load()){rig_probe::disable();body_visibility::enabled.store(bodyHideBeforeProbe);}
         else {bodyHideBeforeProbe=body_visibility::enabled.load();body_visibility::enabled.store(false);rig_probe::enabled.store(true);}
         log("F6: player wrist discovery displacement %s (samples=%u)\n",rig_probe::enabled.load()?"ON":"OFF",rig_probe::samples.load());
