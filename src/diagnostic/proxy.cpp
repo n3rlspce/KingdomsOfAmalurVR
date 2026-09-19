@@ -151,6 +151,7 @@ static bool hook(void* target,void* detour,void** original,const char* name) {
 #include "motion_controls.hpp"
 #include "weapon_control.hpp"
 #include "body_visibility.hpp"
+#include "rig_probe.hpp"
 static bool isCameraCore(unsigned char* core) {
     // Core is embedded at BHG::Camera +8. Other embedded camera structures also
     // use the rebuild routine, so never infer ownership from its address alone.
@@ -263,6 +264,7 @@ static void installCameraProbe() {
     player_rig::install();
     weapon_control::install();
     body_visibility::install();
+    rig_probe::install();
     motion_controls::install();
     hook(target,reinterpret_cast<void*>(&onRebuildCamera),reinterpret_cast<void**>(&realRebuildCamera),"CameraRebuild (F9 FOV probe)");
 }
@@ -355,6 +357,12 @@ static HRESULT STDMETHODCALLTYPE onPresent(IDXGISwapChain* chain,UINT sync,UINT 
     static bool f1Down=false;bool f1=(GetAsyncKeyState(VK_F1)&0x8000)!=0;
     if(f1&&!f1Down&&motion_controls::gameFocused()){body_visibility::enabled.store(!body_visibility::enabled.load());log("F1: first-person body hiding %s\n",body_visibility::enabled.load()?"ON":"OFF");}f1Down=f1;
     body_visibility::update();
+    static bool f6Down=false,bodyHideBeforeProbe=true;bool f6=(GetAsyncKeyState(VK_F6)&0x8000)!=0;
+    if(f6&&!f6Down&&motion_controls::gameFocused()){
+        if(rig_probe::enabled.load()){rig_probe::disable();body_visibility::enabled.store(bodyHideBeforeProbe);}
+        else {bodyHideBeforeProbe=body_visibility::enabled.load();body_visibility::enabled.store(false);rig_probe::enabled.store(true);}
+        log("F6: player wrist discovery displacement %s (samples=%u)\n",rig_probe::enabled.load()?"ON":"OFF",rig_probe::samples.load());
+    }f6Down=f6;
     auto count=++presents;
     if(count<=3){log("Present #%lu chain=%p sync=%u flags=0x%x\n",count,chain,sync,flags);stack();}
     HRESULT result=realPresent(chain,sync,flags);
