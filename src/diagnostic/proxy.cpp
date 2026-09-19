@@ -66,6 +66,7 @@ static ComPtr<ID3D11Device> captureDevice;
 static amalur::PosePacket renderPose;
 static bool sampledRenderPose=false,haveCameraForFrame=false;
 static amalur::PosePacket cameraForFrame;
+#include "camera_status.hpp"
 
 static void log(const char* format,...) {
     char line[2048]; va_list args; va_start(args,format);
@@ -169,7 +170,8 @@ static void __fastcall onRebuildCamera(void* camera,void*) {
     if(cameraInputs.core==core)restoreCameraInputs();
     if(!isCameraCore(core)){realRebuildCamera(camera);return;}
     mgs5vr::Vec3 selectedPlayerPosition{};
-    if(firstPerson.load()&&player_rig::location(camera,selectedPlayerPosition))probeCamera.store(camera);
+    const bool selectedPlayerValid=firstPerson.load()&&player_rig::location(camera,selectedPlayerPosition);
+    if(selectedPlayerValid)probeCamera.store(camera);
     void* expected=nullptr;
     probeCamera.compare_exchange_strong(expected,camera);
     if(probeCamera.load()!=camera){realRebuildCamera(camera);return;}
@@ -179,6 +181,7 @@ static void __fastcall onRebuildCamera(void* camera,void*) {
     static bool haveOrigin=false;
     static unsigned centeredGeneration=0,bridgeCenter=0;
     static amalur::HeadingAnchor headingAnchor;
+    static amalur::SnapHeading snapHeading;
     static amalur::BodyHeading bodyHeading;
     static void* headingCamera{};
     static void* headingPlayer{};
@@ -203,16 +206,19 @@ static void __fastcall onRebuildCamera(void* camera,void*) {
             mgs5vr::Pose head{{packet.orientation[0],packet.orientation[1],packet.orientation[2],packet.orientation[3]},{packet.position[0],packet.position[1],packet.position[2]}};
             if(mgs5vr::valid(head)){
                 unsigned generation=recenterGeneration.load();
-                if(!haveOrigin||centeredGeneration!=generation||bridgeCenter!=packet.recenter){origin=amalur::levelOrigin(head);haveOrigin=true;centeredGeneration=generation;bridgeCenter=packet.recenter;headingAnchor.reset();bodyHeading.reset();log("Head tracking recentered (position and heading; horizon level)\n");}
+                if(!haveOrigin||centeredGeneration!=generation||bridgeCenter!=packet.recenter){origin=amalur::levelOrigin(head);haveOrigin=true;centeredGeneration=generation;bridgeCenter=packet.recenter;headingAnchor.reset();snapHeading.reset();bodyHeading.reset();log("Head tracking recentered (position and heading; horizon level)\n");}
                 auto relative=mgs5vr::compose(mgs5vr::inverse(origin),head);
                 auto baseCamera=originalCamera;
                 mgs5vr::Vec3 playerPosition{};
                 if((firstPerson.load()||arm_rig::enabled.load())&&player_rig::location(camera,playerPosition)){
                     auto heading=originalCamera.target-originalCamera.eye;heading.z=0;
                     auto owner=player_rig::player.load();
-                    if(headingCamera!=camera||headingPlayer!=owner){headingAnchor.reset();bodyHeading.reset();headingCamera=camera;headingPlayer=owner;}
-                    if(useFirstPerson)headingAnchor.get(heading,heading);
-                    else headingAnchor.reset();
+                    if(headingCamera!=camera||headingPlayer!=owner){headingAnchor.reset();snapHeading.reset();bodyHeading.reset();headingCamera=camera;headingPlayer=owner;}
+                    if(useFirstPerson){
+                        headingAnchor.get(heading,heading);
+                        const auto controls=motion_controls::viewControls();
+                        heading=snapHeading.apply(heading,controls.session,controls.turnYawDegrees);
+                    }else {headingAnchor.reset();snapHeading.reset();}
                     if(amalur::normalize(heading)){
                         auto handCamera=baseCamera;
                         handCamera.eye=playerPosition+mgs5vr::Vec3{0,0,185}+heading*15.f;
@@ -255,6 +261,7 @@ static void __fastcall onRebuildCamera(void* camera,void*) {
     if(tracked&&packet.gameMode&&dirty)*reinterpret_cast<float*>(core+0x2c)=packet.horizontalFov;
     else if(enabled&&dirty)*reinterpret_cast<float*>(core+0x2c)=original*.85f;
     realRebuildCamera(camera);
+    camera_status::publish(packet,tracked,selectedPlayerValid,selectedPlayerPosition,originalCamera,tracked?adjusted:originalCamera);
     haveCameraForFrame=false;
     if(tracked&&packet.gameMode){
         packet.projectionX=*reinterpret_cast<float*>(core+0xc4);

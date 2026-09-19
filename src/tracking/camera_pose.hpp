@@ -28,6 +28,21 @@ struct HeadingAnchor {
         result=heading;return true;
     }
 };
+// Cumulative controller turns are relative to a bridge session. A new bridge
+// preserves the current virtual turn; recenter explicitly rebases it to zero.
+struct SnapHeading {
+    unsigned session{};float baseline{},offset{},angle{};bool valid{};
+    void reset(){valid=false;offset=angle=0;}
+    Vec3 apply(Vec3 heading,unsigned currentSession,float cumulativeDegrees){
+        if(!std::isfinite(cumulativeDegrees))return heading;
+        if(!valid){session=currentSession;baseline=cumulativeDegrees;valid=true;}
+        else if(session!=currentSession){offset=angle;baseline=cumulativeDegrees;session=currentSession;}
+        angle=offset+cumulativeDegrees-baseline;
+        const float radians=std::remainder(angle,360.f)*.017453292519943295f;
+        const float c=std::cos(radians),s=std::sin(radians);
+        return {heading.x*c-heading.y*s,heading.x*s+heading.y*c,heading.z};
+    }
+};
 // Looking almost vertically makes projected head yaw ill-conditioned. Keep the
 // body's last reliable heading there; the headset camera remains unfiltered.
 struct BodyHeading {

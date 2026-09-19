@@ -46,6 +46,12 @@ int main(int argc,char** argv){
         float angle=frame*.02f;expect(anchor.get({std::sin(angle),std::cos(angle),0},fixed)&&closeEnough(fixed.x,0)&&closeEnough(fixed.y,1),"native body/camera turns cannot accumulate in VR heading");
     }
     anchor.reset();expect(anchor.get({1,0,0},fixed)&&closeEnough(fixed.x,1),"recenter accepts new world heading");
+    amalur::SnapHeading snap;
+    fixed=snap.apply({0,1,0},1,90);expect(closeEnough(fixed.y,1),"snap starts at current cumulative baseline");
+    fixed=snap.apply({0,1,0},1,180);expect(closeEnough(fixed.x,-1)&&closeEnough(fixed.y,0),"positive snap turns toward native screen-right");
+    fixed=snap.apply({0,1,0},2,0);expect(closeEnough(fixed.x,-1),"bridge restart preserves virtual heading");
+    fixed=snap.apply({0,1,0},2,-90);expect(closeEnough(fixed.y,1),"new session snap delta applies once");
+    snap.reset();fixed=snap.apply({1,0,0},2,-90);expect(closeEnough(fixed.x,1),"recenter does not double-apply cumulative turns");
     amalur::BodyHeading bodyHeading;
     expect(bodyHeading.get({0,200,0},fixed)&&closeEnough(fixed.y,1),"body heading starts level");
     for(float sign:{-1.f,1.f}){

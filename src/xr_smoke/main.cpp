@@ -20,6 +20,8 @@
 #include <vector>
 #include "../tracking/pose_channel.hpp"
 #include "../tracking/motion_input.hpp"
+#include "../tracking/rig_status.hpp"
+#include "../tracking/grip_settings.hpp"
 #include "stereo_source.hpp"
 #include "render_pose.hpp"
 using Microsoft::WRL::ComPtr;
@@ -79,11 +81,13 @@ int main(int argc,char** argv) {
     Resources r;
     VrSettings settings;
     amalur::HudSettingsChannel hudSettings;
+    amalur::GripSettingsChannel gripSettings;
     SettingsPanel panel;
     if(gameMode)settings.captureInput();
     amalur::PoseChannel poses;
     amalur::MotionInputChannel motionInput;
     amalur::TouchMapper touchMapper;
+    amalur::RigStatusChannel rigStatus;amalur::RigStatus latestRig;
     amalur::PoseChannel leftHand(L"Local\\AmalurVRLeftHandV3",L"Local\\AmalurVRLeftHandMutexV3");
     amalur::PoseChannel rightHand(L"Local\\AmalurVRRightHandV3",L"Local\\AmalurVRRightHandMutexV3");
     StereoSource stereoSource;
@@ -141,7 +145,9 @@ int main(int argc,char** argv) {
         XrAction squeeze=action("squeeze",XR_ACTION_TYPE_FLOAT_INPUT);
         XrAction primary=action("primary_button",XR_ACTION_TYPE_BOOLEAN_INPUT),secondary=action("secondary_button",XR_ACTION_TYPE_BOOLEAN_INPUT);
         XrAction stickClick=action("thumbstick_click",XR_ACTION_TYPE_BOOLEAN_INPUT),menuAction=action("menu",XR_ACTION_TYPE_BOOLEAN_INPUT);
+        XrAction thumbrest=action("thumbrest_touch",XR_ACTION_TYPE_BOOLEAN_INPUT);
         std::vector<XrActionSuggestedBinding> bindings;
+        bindings.push_back({thumbrest,path("/user/hand/right/input/thumbrest/touch")});
         bindings.push_back({menuAction,path("/user/hand/left/input/menu/click")});
         for(auto side:{"left","right"}) {
             std::string base=std::string("/user/hand/")+side;
@@ -198,7 +204,7 @@ int main(int argc,char** argv) {
         if(gameMode)std::cout<<"EXPERIMENTAL GAME STEREO: menu panel until F10 camera is active; waiting for geo-11 Katanga surface. Scale/eye convergence uncalibrated.\n";
         else if(trackingMode)std::cout<<"POSE BRIDGE: desktop camera diagnostic only. The headset still shows triangles, not Amalur.\n";
         while(!done && std::chrono::steady_clock::now()-start<std::chrono::seconds(duration) && !(GetAsyncKeyState(stopKey)&0x8000)) {
-            if(gameMode){settings.poll();if(hudSettings.open(true))hudSettings.publish(settings.hudSize);if(settings.renderScale!=activeRenderScale){createEyeChains();activeRenderScale=settings.renderScale;}}
+            if(gameMode){settings.poll();if(gripSettings.open(true))gripSettings.publish(settings.gripPitch,settings.gripYaw,settings.gripRoll);if(hudSettings.open(true))hudSettings.publish(settings.hudSize);if(settings.renderScale!=activeRenderScale){createEyeChains();activeRenderScale=settings.renderScale;}}
             XrEventDataBuffer event{XR_TYPE_EVENT_DATA_BUFFER};
             for(;;) {
                 auto result=xrPollEvent(instance,&event); if(result==XR_EVENT_UNAVAILABLE) break; xrcheck(result,"xrPollEvent");
@@ -238,7 +244,15 @@ int main(int argc,char** argv) {
                 touch.leftTrigger=scalar(trigger,0);touch.rightTrigger=scalar(trigger,1);touch.leftGrip=scalar(squeeze,0);touch.rightGrip=scalar(squeeze,1);
                 touch.x=button(primary,0);touch.y=button(secondary,0);touch.a=button(primary,1);touch.b=button(secondary,1);
                 touch.leftClick=button(stickClick,0);touch.rightClick=button(stickClick,1);touch.menu=button(menuAction,0);
-                motionInput.publish(touchMapper.map(touch,gameMode&&!settings.visible&&VrSettings::gameFocused()));
+                touch.rightThumbrest=button(thumbrest,1);
+                // Cache across nonblocking mutex misses; expiry still cancels gameplay.
+                amalur::RigStatus freshRig;
+                if(rigStatus.transfer(freshRig,false)&&freshRig.version==1)latestRig=freshRig;
+                const bool gameplay=latestRig.pid&&GetTickCount()-latestRig.tick<1000
+                    &&latestRig.weaponRemaps>0&&latestRig.paused==0;
+                auto mapped=touchMapper.map(touch,gameMode&&!settings.visible&&VrSettings::gameFocused(),gameplay);
+                settings.selectedWeapon=mapped.selectedWeapon;
+                motionInput.publish(mapped);
                 for(int i=0;i<2;++i){XrActionStateGetInfo get{XR_TYPE_ACTION_STATE_GET_INFO};get.action=trigger;get.subactionPath=handPaths[i];XrActionStateFloat value{XR_TYPE_ACTION_STATE_FLOAT};XR(xrGetActionStateFloat(r.session,&get,&value));
                     bool down=value.isActive&&value.currentState>.75f;
                     if(down&&!pressed[i]&&!gameMode){XrHapticActionInfo hi{XR_TYPE_HAPTIC_ACTION_INFO};hi.action=haptic;hi.subactionPath=handPaths[i];XrHapticVibration vibration{XR_TYPE_HAPTIC_VIBRATION};vibration.duration=50000000;vibration.amplitude=.25f;vibration.frequency=XR_FREQUENCY_UNSPECIFIED;XR(xrApplyHapticFeedback(r.session,&hi,reinterpret_cast<XrHapticBaseHeader*>(&vibration)));std::cout<<"Trigger/haptic hand="<<i<<"\n";} pressed[i]=down;

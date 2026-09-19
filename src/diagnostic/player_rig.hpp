@@ -1,4 +1,5 @@
 #pragma once
+#include "../tracking/dodge_facing.hpp"
 // Re-Reckoning build 10619381 only. Resolve generation-checked engine handles;
 // never retain part pointers across a load. Facing uses the native script service.
 namespace player_rig {
@@ -39,6 +40,8 @@ inline bool location(void* camera,mgs5vr::Vec3& position){
     } __except(EXCEPTION_EXECUTE_HANDLER){return false;}
 }
 inline void face(void* camera,mgs5vr::Vec3 forward){
+    const auto now=GetTickCount64();
+    if(amalur::dodgeFacing.suppress(now)||amalur::locomotionFacing.suppress(now))return;
     if(!nativeFacing||!std::isfinite(forward.x)||!std::isfinite(forward.y)||forward.x*forward.x+forward.y*forward.y<.01f)return;
     __try {
         mgs5vr::Vec3 position;if(!location(camera,position))return;

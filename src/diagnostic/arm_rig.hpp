@@ -1,5 +1,6 @@
 #pragma once
 #include "../tracking/body_pose.hpp"
+#include "../tracking/grip_settings.hpp"
 namespace rig_probe {inline uintptr_t playerRoot();}
 namespace arm_rig {
 inline std::atomic<bool> enabled{true};
@@ -12,8 +13,10 @@ inline void sampleBody(mgs5vr::Vec3 position,uint64_t tick){
 struct Scratch {amalur::RigBone bones[64];uintptr_t descriptor[3];};
 inline SRWLOCK calibrationLock=SRWLOCK_INIT;
 inline uintptr_t calibratedRoot{};inline uint32_t calibratedOwner{};inline unsigned calibratedCenter{};
-inline mgs5vr::Pose trim{};
+inline amalur::GripSettingsChannel gripSettings;
+inline float gripPitch{},gripYaw{},gripRoll{};
 inline amalur::ArmReference neutralArm{};
+inline bool calibratedBodyAnchor{};
 inline bool solveUnsafe(uintptr_t root,Scratch& scratch,bool solveHand=true){
     if(!headTracking.load()||!root||root!=rig_probe::playerRoot())return false;
     auto source=root+0x34;
@@ -63,13 +66,15 @@ inline bool solveUnsafe(uintptr_t root,Scratch& scratch,bool solveHand=true){
     const bool lockArm=bodyApplied||weapon_control::desktopPose.load();
     if(lockArm)amalur::captureRightArmReference(native,count,parents,ids,localAnchor,candidate);
     AcquireSRWLockExclusive(&calibrationLock);
-    if(calibratedRoot!=root||calibratedOwner!=rootOwner||calibratedCenter!=center){
-        trim=mgs5vr::compose(mgs5vr::inverse(grip),mgs5vr::compose(worldRoot,amalur::bonePose(native[wrist])));
-        trim.position={};calibratedRoot=root;calibratedOwner=rootOwner;calibratedCenter=center;
+    if(calibratedRoot!=root||calibratedOwner!=rootOwner||calibratedBodyAnchor!=bodyApplied){
+        calibratedRoot=root;calibratedOwner=rootOwner;calibratedBodyAnchor=bodyApplied;
         neutralArm={};
     }
+    calibratedCenter=center;
     if(lockArm&&!neutralArm.ready)neutralArm=candidate;
-    reference=neutralArm;alignment=trim;ReleaseSRWLockExclusive(&calibrationLock);
+    if(gripSettings.open(false))gripSettings.read(gripPitch,gripYaw,gripRoll);
+    amalur::gripAngleTrim(gripPitch,gripYaw,gripRoll,alignment);
+    reference=neutralArm;ReleaseSRWLockExclusive(&calibrationLock);
     auto target=mgs5vr::compose(mgs5vr::inverse(worldRoot),mgs5vr::compose(grip,alignment));
     if(!amalur::solveRightArm(native,scratch.bones,count,parents,ids,target,scale,
         lockArm&&reference.ready?&reference:nullptr,localAnchor))return false;
@@ -101,7 +106,8 @@ inline bool prepare(uintptr_t source,uintptr_t output,Scratch& scratch){
 inline void resetCalibration(){AcquireSRWLockExclusive(&calibrationLock);calibratedRoot=0;ReleaseSRWLockExclusive(&calibrationLock);}
 inline uintptr_t trackedWeaponSlot(void* mapper,uintptr_t slot,uintptr_t output,bool solved){
     __try {
-        if(!solved||slot!=8||!firstPerson.load()||!enabled.load()||output<0x34)return slot;
+        if(!solved||slot!=8||!firstPerson.load()||!enabled.load()||output<0x34
+            ||motion_controls::viewControls().selectedWeapon!=0)return slot;
         AcquireSRWLockShared(&weapon_control::poseLock);auto tick=weapon_control::tick;ReleaseSRWLockShared(&weapon_control::poseLock);
         auto now=GetTickCount64();if(!tick||tick>now||now-tick>=250)return slot;
         auto object=output-0x34;if(!weapon_control::isSinglePlayerWeapon(object)||player_rig::word(output+4)!=4)return slot;

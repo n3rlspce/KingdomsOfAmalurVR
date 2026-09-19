@@ -1,6 +1,7 @@
 #pragma once
 #include <Xinput.h>
 #include "../tracking/motion_input.hpp"
+#include "../tracking/dodge_facing.hpp"
 namespace motion_controls {
 using GetState=DWORD(WINAPI*)(DWORD,XINPUT_STATE*);
 inline GetState original{};
@@ -9,6 +10,20 @@ inline GetCapabilities originalCapabilities{};
 inline amalur::MotionInputChannel channel;
 inline SRWLOCK lock=SRWLOCK_INIT;
 inline DWORD packetNumber{};
+struct ViewControls {uint32_t selectedWeapon{},session{};float turnYawDegrees{};};
+inline ViewControls cachedViewControls;
+inline ViewControls viewControls(){
+    // Camera updates must not depend on the game's XInput polling cadence.
+    // Keep the last valid yaw/selection while focus, panel or tracking gating
+    // makes input inactive; resetting those fields would visibly undo a turn.
+    AcquireSRWLockExclusive(&lock);
+    amalur::MotionInputPacket motion;
+    if(channel.open(false)&&channel.read(motion))
+        cachedViewControls={motion.selectedWeapon,motion.session,motion.turnYawDegrees};
+    const auto result=cachedViewControls;
+    ReleaseSRWLockExclusive(&lock);
+    return result;
+}
 inline bool gameFocused(){DWORD pid{};GetWindowThreadProcessId(GetForegroundWindow(),&pid);return pid==GetCurrentProcessId();}
 inline DWORD WINAPI getState(DWORD index,XINPUT_STATE* state){
     DWORD result=original(index,state);
@@ -22,6 +37,13 @@ inline DWORD WINAPI getState(DWORD index,XINPUT_STATE* state){
     bool active=gameFocused()&&channel.read(motion);
     if(result!=ERROR_SUCCESS)*state={};
     if(active)amalur::mergeMotion(state->Gamepad,motion);
+    amalur::locomotionFacing.observe(gameFocused(),state->Gamepad.sThumbLX,
+        state->Gamepad.sThumbLY,GetTickCount64());
+    // Observe the final merged pad so a physical controller gets the same dodge
+    // protection. RT+A is an ability, not a dodge; don't seize native facing.
+    amalur::dodgeFacing.observe(gameFocused(),
+        (state->Gamepad.wButtons&XINPUT_GAMEPAD_A)!=0,
+        state->Gamepad.bRightTrigger>XINPUT_GAMEPAD_TRIGGER_THRESHOLD,GetTickCount64());
     static DWORD lastInput=~0u;
     DWORD current=static_cast<DWORD>(state->Gamepad.wButtons)|(static_cast<DWORD>(state->Gamepad.bLeftTrigger)<<16)|(static_cast<DWORD>(state->Gamepad.bRightTrigger)<<24);
     if(current!=lastInput){log("Touch XInput active=%d buttons=%04x LT=%u RT=%u\n",active,state->Gamepad.wButtons,state->Gamepad.bLeftTrigger,state->Gamepad.bRightTrigger);lastInput=current;}

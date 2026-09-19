@@ -29,6 +29,8 @@ target_compile_features(hud_check PRIVATE cxx_std_17)
 target_link_libraries(hud_check PRIVATE d3d11 dxgi user32)
 add_executable(motion_check src/tracking/motion_check.cpp)
 target_link_libraries(motion_check PRIVATE mgs5vr_core)
+add_executable(dodge_check src/tracking/dodge_check.cpp)
+target_compile_features(dodge_check PRIVATE cxx_std_17)
 
 add_executable(arm_check src/tracking/arm_check.cpp)
 target_link_libraries(arm_check PRIVATE mgs5vr_core)

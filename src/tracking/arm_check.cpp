@@ -6,6 +6,17 @@ using namespace mgs5vr;
 void check(bool ok,const char* message){if(!ok){std::fprintf(stderr,"FAIL: %s\n",message);std::exit(1);}}
 float distance(Vec3 a,Vec3 b){auto d=a-b;return std::sqrt(dot(d,d));}
 int main(){
+    Pose trim;
+    check(amalur::gripAngleTrim(0,0,0,trim)&&distance(rotate(trim.orientation,{0,1,0}),{0,1,0})<.001f,"neutral grip trim is deterministic identity");
+    check(amalur::gripAngleTrim(90,0,0,trim)&&distance(rotate(trim.orientation,{0,1,0}),{0,0,1})<.001f,"grip pitch rotates forward upward");
+    check(amalur::gripAngleTrim(0,90,0,trim)&&distance(rotate(trim.orientation,{0,1,0}),{-1,0,0})<.001f,"grip yaw rotates in local horizontal plane");
+    check(amalur::gripAngleTrim(0,0,90,trim)&&distance(rotate(trim.orientation,{0,0,1}),{1,0,0})<.001f,"grip roll rotates around forward axis");
+    check(!amalur::gripAngleTrim(NAN,0,0,trim)&&!amalur::gripAngleTrim(0,181,0,trim),"invalid grip angles rejected");
+    check(amalur::gripAngleTrim(30,-45,20,trim),"combined trim valid");
+    Pose grip{{0,0,.70710678f,.70710678f},{12,34,56}};
+    const auto adjusted=compose(grip,trim);
+    check(distance(adjusted.position,grip.position)<.001f,"trim changes wrist angle without moving controller anchor");
+    check(distance(rotate(adjusted.orientation,{0,1,0}),rotate(grip.orientation,rotate(trim.orientation,{0,1,0})))<.001f,"trim is controller-local independent of world heading");
     amalur::RigBone bones[6]{},out[6]{};
     int16_t parents[]{-1,0,1,2,3,0};uint32_t ids[]{1,0xf21468,0xd1f75e,0x88d0eb,2,3};
     bones[1].position={0,20,155};bones[2].position={0,30,125};bones[3].position={0,40,100};
@@ -32,12 +43,15 @@ int main(){
     // Model a spell animation which pulls the shoulder forward and sweeps the
     // whole arm upward. It must not change the controller-driven visual arm.
     for(unsigned i=1;i<=4;++i){attack[i].position=attack[i].position+Vec3{28,-15,20};attack[i].orientation={0,0,.70710678f,.70710678f};}
+    attack[4].position=attack[4].position+Vec3{10,5,-8}; // Animated finger/socket moves independently.
     std::memcpy(attackOriginal,attack,sizeof(attack));
     check(amalur::solveRightArm(attack,out,6,parents,ids,target,100,&reference,anchor),"cast pose solved against neutral reference");
     for(unsigned i=1;i<=3;++i){
         check(distance(out[i].position,stable[i].position)<.001f,"cast animation cannot move controlled arm joints");
         check(distance(rotate(amalur::bonePose(out[i]).orientation,{1,0,0}),rotate(amalur::bonePose(stable[i]).orientation,{1,0,0}))<.001f,"cast animation cannot rotate controlled arm joints");
     }
+    check(distance(out[4].position,stable[4].position)<.001f,"cast finger animation cannot move weapon socket");
+    check(distance(rotate(amalur::bonePose(out[4]).orientation,{0,1,0}),rotate(amalur::bonePose(stable[4]).orientation,{0,1,0}))<.001f,"cast finger animation cannot rotate weapon socket");
     check(!std::memcmp(attack,attackOriginal,sizeof(attack)),"native attack pose remains untouched");
     check(!std::memcmp(out+5,attack+5,sizeof(attack[5])),"reference leaves other limbs animated");
     const Vec3 movedAnchor=anchor+Vec3{12,-23,7};auto movedTarget=target;movedTarget.position=movedTarget.position+(movedAnchor-anchor);

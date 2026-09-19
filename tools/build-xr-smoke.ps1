@@ -1,8 +1,8 @@
-param([string]$OpenXrSdk = $env:OPENXR_SDK_DIR)
+param([string]$OpenXrSdk = $env:OPENXR_SDK_DIR, [string]$OutputDirectory)
 $ErrorActionPreference = 'Stop'
 if (-not $OpenXrSdk) { throw 'Pass -OpenXrSdk or set OPENXR_SDK_DIR to the OpenXR.Loader package directory.' }
 $projectRoot = Split-Path -Parent $PSScriptRoot
-$output = Join-Path $projectRoot 'build\xr-smoke-x86'
+$output = if ($OutputDirectory) { [IO.Path]::GetFullPath($OutputDirectory) } else { Join-Path $projectRoot 'build\xr-smoke-x86' }
 $vswhere = 'C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe'
 $vs = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
 if (-not $vs) { throw 'MSVC x86 tools not found' }

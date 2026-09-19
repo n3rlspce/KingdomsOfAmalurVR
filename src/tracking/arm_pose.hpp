@@ -2,6 +2,7 @@
 #include <mgs5vr/arm_ik.hpp>
 #include <cmath>
 #include <cstring>
+#include <initializer_list>
 namespace amalur {
 // Native model-space record. Preserve W and the opaque tail byte-for-byte.
 struct RigBone {mgs5vr::Vec3 position;float positionW;mgs5vr::Quat orientation;unsigned char opaque[16];};
@@ -11,7 +12,21 @@ static_assert(sizeof(RigBone)==48);
 inline mgs5vr::Quat nativeQuaternion(mgs5vr::Quat q){return {-q.x,-q.y,-q.z,q.w};}
 inline mgs5vr::Pose nativePose(mgs5vr::Pose p){p.orientation=nativeQuaternion(p.orientation);return p;}
 inline mgs5vr::Pose bonePose(const RigBone& b){return {nativeQuaternion(b.orientation),b.position};}
-struct ArmReference {mgs5vr::ArmPose relative;bool ready{};};
+// Controller-local axes use +Y forward, +Z up. Apply roll about Y, then
+// pitch about X, then yaw about Z. This offset never samples an animation pose.
+inline bool gripAngleTrim(float pitch,float yaw,float roll,mgs5vr::Pose& out){
+    for(float value:{pitch,yaw,roll})if(!std::isfinite(value)||std::abs(value)>180.f)return false;
+    const float radians=.008726646259971648f;
+    mgs5vr::Pose p{{std::sin(pitch*radians),0,0,std::cos(pitch*radians)},{}},
+        y{{0,0,std::sin(yaw*radians),std::cos(yaw*radians)},{}},
+        r{{0,std::sin(roll*radians),0,std::cos(roll*radians)}, {}};
+    out=mgs5vr::compose(y,mgs5vr::compose(p,r));return mgs5vr::valid(out);
+}
+struct ArmReference {
+    mgs5vr::ArmPose relative;
+    mgs5vr::Pose handRelative[64]{};uint32_t handIds[64]{};bool handBone[64]{};
+    unsigned count{};bool ready{};
+};
 inline bool rightArmIndices(unsigned count,const int16_t* parents,const uint32_t* ids,
     unsigned& shoulder,unsigned& elbow,unsigned& wrist){
     if(!parents||!ids||count<3||count>64)return false;
@@ -36,7 +51,15 @@ inline bool captureRightArmReference(const RigBone* native,unsigned count,const 
     if(!mgs5vr::valid(arm.shoulder)||!mgs5vr::valid(arm.elbow)||!mgs5vr::valid(arm.wrist))return false;
     arm.shoulder.position=arm.shoulder.position-anchor;
     arm.elbow.position=arm.elbow.position-anchor;arm.wrist.position=arm.wrist.position-anchor;
-    reference={arm,true};return true;
+    ArmReference result;result.relative=arm;result.count=count;
+    const auto inverseWrist=mgs5vr::inverse(bonePose(native[wrist]));
+    for(unsigned i=wrist+1;i<count;++i){
+        if(parents[i]!=static_cast<int>(wrist)&&(parents[i]<0||!result.handBone[parents[i]]))continue;
+        if(!mgs5vr::valid(bonePose(native[i])))return false;
+        result.handBone[i]=true;result.handIds[i]=ids[i];
+        result.handRelative[i]=mgs5vr::compose(inverseWrist,bonePose(native[i]));
+    }
+    result.ready=true;reference=result;return true;
 }
 inline bool solveRightArm(const RigBone* native,RigBone* output,unsigned count,
     const int16_t* parents,const uint32_t* ids,mgs5vr::Pose target,float unitsPerMeter,
@@ -48,7 +71,7 @@ inline bool solveRightArm(const RigBone* native,RigBone* output,unsigned count,
     mgs5vr::ArmPose arm{bonePose(native[shoulder]),bonePose(native[elbow]),bonePose(native[wrist])};
     if(!mgs5vr::valid(arm.shoulder)||!mgs5vr::valid(arm.elbow)||!mgs5vr::valid(arm.wrist))return false;
     if(reference){
-        if(!reference->ready||!mgs5vr::valid(mgs5vr::Pose{{},referenceAnchor}))return false;
+        if(!reference->ready||reference->count!=count||!mgs5vr::valid(mgs5vr::Pose{{},referenceAnchor}))return false;
         arm=reference->relative;
         arm.shoulder.position=arm.shoulder.position+referenceAnchor;
         arm.elbow.position=arm.elbow.position+referenceAnchor;arm.wrist.position=arm.wrist.position+referenceAnchor;
@@ -72,7 +95,12 @@ inline bool solveRightArm(const RigBone* native,RigBone* output,unsigned count,
             if(parents[i]<0||!affected[parents[i]])continue;
             if(!mgs5vr::valid(bonePose(native[i])))return false;
             delta[i]=delta[parents[i]];affected[i]=true;
-            result=mgs5vr::compose(delta[i],bonePose(native[i]));
+            if(reference&&reference->handBone[i]){
+                if(reference->handIds[i]!=ids[i])return false;
+                // The staff's held socket is a finger descendant. Preserve its
+                // calibrated wrist-relative pose instead of replaying cast sway.
+                result=mgs5vr::compose(pose.wrist,reference->handRelative[i]);
+            }else result=mgs5vr::compose(delta[i],bonePose(native[i]));
         }
         if(!mgs5vr::valid(result))return false;
         if(i==shoulder||i==elbow||i==wrist){delta[i]=mgs5vr::compose(result,mgs5vr::inverse(bonePose(native[i])));affected[i]=true;}
