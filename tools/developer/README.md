@@ -10,6 +10,15 @@ game's own `continue_last_save` once. Save compatibility checks and asynchronous
 load completion remain in the original game code. No sleeps or key presses are
 used. No save leaves the ordinary menu available; failed loads are not retried.
 
+The active startup scripts are embedded in `134230570_klua.batch`. Version 2 of
+this tool patches that batch as well as the loose assets; the first package
+changed only loose assets and did not activate the direct-save path in testing.
+The batch writer updates entry sizes and verifies every unrelated script remains
+byte-identical. Run `check_fast_start.py <original klua.batch>` to exercise the
+actual emitted menu tail and verify batch preservation. To rebuild while version
+1 is installed, pass its original archive backup as `-BaseArchive`. Restore the
+old installation with its own manifest and `-Undo` before installing the new one.
+
 `install-fast-start.ps1 -GameDirectory <game> -PackageDirectory <staged folder>`
 installs only while the game is closed. It backs up the original archive and
 renames the two publisher-logo videos so they are not opened at startup. Run the

@@ -12,6 +12,7 @@ HASHES = {
     '13493.lua_bxml': '661b3f507fab09e74af81e0f3e75f0848b8fba158e626c8c73ae61dad3955305',
     '1645799.lua_bxml': 'e60c520d25d267b26ec9e6bec779b0d61c4476fd09c9eed4116c95156a8b565a',
 }
+BATCH_MENU_HASH = 'c7d6afebb94fcc8b601ceae122f9379e91b8fcac8d6fe24ef040235a53fdf97e'
 
 
 def word(n):
@@ -127,9 +128,10 @@ class Tail:
                           abx(0x1c, 0, 65536), abc(9, 0, 1)])
 
 
-def patch_menu(chunk):
-    f = chunk.root[3][57]  # on_update_event, audited by whole-file hash
-    assert len(f[1]) == 149 and f[1][-1] == abc(9, 0, 1)
+def patch_menu(chunk, bundled=False):
+    # The installed patch inserts another function before on_update_event.
+    f = chunk.root[3][58 if bundled else 57]
+    assert len(f[1]) == (152 if bundled else 149) and f[1][-1] == abc(9, 0, 1)
     t = Tail(f)
     t.global_(2, 'amalur_fast_start_attempted')
     t.return_if(2, True)
@@ -186,9 +188,63 @@ def stage(source, output):
     print('Staged direct startup scripts; live game validation still required.')
 
 
+def batch_entries(data):
+    count = struct.unpack_from('<I', data)[0]
+    if count > 100000 or 4 + count * 8 > len(data):
+        raise ValueError('Invalid script batch directory')
+    pos = 4 + count * 8
+    entries = []
+    for i in range(count):
+        ident, size = struct.unpack_from('<II', data, 4 + i * 8)
+        if pos + size > len(data):
+            raise ValueError('Truncated script batch')
+        entries.append((ident, data[pos:pos + size]))
+        pos += size
+    if pos != len(data):
+        raise ValueError('Unexpected script batch trailer')
+    return entries
+
+
+def patch_batch(data):
+    entries = batch_entries(data)
+    changed = set()
+    patched = []
+    for ident, payload in entries:
+        if ident in (13493, 1645799):
+            expected = BATCH_MENU_HASH if ident == 13493 else HASHES['1645799.lua_bxml']
+            if ident in changed or hashlib.sha256(payload).hexdigest() != expected:
+                raise ValueError('Unsupported or duplicate active script: ' + str(ident))
+            chunk = Chunk(payload)
+            assert chunk.bytes() == payload
+            if ident == 13493:
+                patch_menu(chunk, bundled=True)
+            else:
+                patch_splash(chunk)
+            payload = chunk.bytes()
+            assert Chunk(payload).bytes() == payload
+            changed.add(ident)
+        patched.append((ident, payload))
+    if changed != {13493, 1645799}:
+        raise ValueError('Active batch does not contain both startup scripts')
+    result = (struct.pack('<I', len(patched)) +
+              b''.join(struct.pack('<II', ident, len(payload)) for ident, payload in patched) +
+              b''.join(payload for _, payload in patched))
+    rebuilt = batch_entries(result)
+    assert rebuilt == patched
+    assert all(before == after for before, after in zip(entries, rebuilt) if before[0] not in changed)
+    return result
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('source', type=Path)
     parser.add_argument('output', type=Path)
+    parser.add_argument('--batch', action='store_true', help='Patch the active klua.batch archive entry')
     args = parser.parse_args()
-    stage(args.source, args.output)
+    if args.batch:
+        patched = patch_batch(args.source.read_bytes())
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        args.output.write_bytes(patched)
+        print('Patched active script batch; all other embedded scripts preserved byte-for-byte.')
+    else:
+        stage(args.source, args.output)

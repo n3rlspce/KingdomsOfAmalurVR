@@ -1,6 +1,8 @@
 """Exercise the emitted startup tail with a small offline instruction interpreter."""
 import struct
-from fast_start import patch_menu, abc
+import sys
+from pathlib import Path
+from fast_start import patch_menu, patch_batch, batch_entries, Chunk, abc
 
 
 def truth(value):
@@ -10,7 +12,12 @@ def truth(value):
 def execute(code, constants, globals_):
     values = []
     for raw in constants:
-        values.append(raw[5:-1].decode() if raw[0] == 4 else struct.unpack('>i', raw[1:])[0])
+        if raw[0] == 0:
+            values.append(None)
+        elif raw[0] == 1:
+            values.append(bool(raw[1]))
+        else:
+            values.append(raw[5:-1].decode() if raw[0] == 4 else struct.unpack('>i', raw[1:])[0])
     registers = {}
     pc = 0
     while pc < len(code):
@@ -73,6 +80,29 @@ def main():
         raise AssertionError('Expected simulated failure')
     execute(tail.code, f[2], env)
     print('PASS: startup visibility, save availability, slot zero, one attempt, failed-load no retry.')
+    if len(sys.argv) > 1:
+        original = Path(sys.argv[1]).read_bytes()
+        before = batch_entries(original)
+        result = patch_batch(original)
+        after = batch_entries(result)
+        changed = [ident for (ident, old), (new_id, new) in zip(before, after) if (ident, old) != (new_id, new)]
+        assert changed == [13493, 1645799], changed
+        f = Chunk(dict(after)[13493]).root[3][58]
+        calls = []
+        env = {'WINDOW': {'is_visible': lambda _: True}, 'm_window': 42,
+               'SAVE_RESTORE': {'is_saving_disabled_for_user': lambda: False,
+                                'get_most_recent_save_slot': lambda: 0},
+               'continue_last_save': lambda: calls.append('continue')}
+        execute(f[1][151:], f[2], env)
+        execute(f[1][151:], f[2], env)
+        assert calls == ['continue']
+        try:
+            patch_batch(result)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError('Already patched batch was accepted')
+        print(f'PASS: actual bundled menu tail, two changed scripts, {len(after)-2} untouched scripts, repeated patch rejected.')
 
 
 if __name__ == '__main__':
