@@ -82,8 +82,9 @@ requirement override did not bypass the native gate and has been removed.
 
 Helper-only actions 60/61 prepare level 40 and verify the last equipped item.
 Action 62 enables invincibility using `ACTOR.set_unkillable(get_player(), true)`,
-matching the extracted game's cheat script. It is staged for live testing;
-offline tests do not verify damage prevention. These actions require the same
+matching the extracted game's cheat script. The live dispatcher acknowledged
+this setter in restarted process 49908, and level 40 was verified again.
+Damage prevention still needs observation in combat. These actions require the same
 unpaused dispatcher session and do not grant items or run at module load.
 
 Run `check.py` and `check_dispatch.py` with Python and Lupa. The C++ build runs the
