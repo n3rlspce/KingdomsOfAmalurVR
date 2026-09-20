@@ -121,13 +121,19 @@ int main(int argc,char** argv){
             ComPtr<ID3D11Texture2D> stereoTexture;ComPtr<ID3D11ShaderResourceView> stereoView;
             hr(device->CreateTexture2D(&stereoDesc,nullptr,&stereoTexture));hr(device->CreateShaderResourceView(stereoTexture.Get(),nullptr,&stereoView));
             auto sv=stereoView.Get();context->VSSetShaderResources(125,1,&sv);
+            auto rawBuffer=buffer(16,D3D11_BIND_SHADER_RESOURCE,nullptr);
+            D3D11_SHADER_RESOURCE_VIEW_DESC rawDesc{};rawDesc.Format=DXGI_FORMAT_R32G32B32A32_FLOAT;rawDesc.ViewDimension=D3D11_SRV_DIMENSION_BUFFER;rawDesc.Buffer.NumElements=1;
+            ComPtr<ID3D11ShaderResourceView> rawView;hr(device->CreateShaderResourceView(rawBuffer.Get(),&rawDesc,&rawView));auto raw=rawView.Get();context->VSSetShaderResources(118,1,&raw);
             for(float eye:{-1.f,1.f}){
-                const float stereo[]{.02f,100,0,eye};context->UpdateSubresource(stereoTexture.Get(),0,nullptr,stereo,sizeof(stereo),0);
+                const float stereo[]{.02f,100,0,eye};context->UpdateSubresource(rawBuffer.Get(),0,nullptr,stereo,sizeof(stereo),0);
+                // geo-11 remaps legacy W; it must not be used as eye sign.
+                const float legacy[]{.02f,100,0,37};context->UpdateSubresource(stereoTexture.Get(),0,nullptr,legacy,sizeof(legacy),0);
                 const auto shifted=run(.8f,false,false,false,true,.4f);
                 const float convertedX=shifted[0]+(shifted[3]!=1?(shifted[3]-stereo[1])*stereo[0]*stereo[3]:0);
                 check(std::abs(convertedX-neutral[0])<1e-5f,"both eyes cancel verified geo-11 automatic W stereo shift");
             }
             sv=nullptr;context->VSSetShaderResources(125,1,&sv);
+            context->VSSetShaderResources(118,1,&sv);
         }
     }
     context->ClearState();

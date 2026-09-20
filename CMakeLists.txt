@@ -95,3 +95,6 @@ target_link_libraries(melee_owned_calls_check PRIVATE minhook)
 
 add_executable(melee_hit_identity_check src/tracking/melee_hit_identity_check.cpp)
 target_compile_features(melee_hit_identity_check PRIVATE cxx_std_17)
+
+add_executable(melee_debug_check src/tracking/melee_debug_check.cpp)
+target_link_libraries(melee_debug_check PRIVATE mgs5vr_core d3d11 dxgi d3dcompiler)

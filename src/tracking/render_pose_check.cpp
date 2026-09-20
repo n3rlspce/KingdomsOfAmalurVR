@@ -52,7 +52,9 @@ static void draw(ID3D11DeviceContext* context,ID3D11Buffer* buffer){
     context->Draw(3,0);
 }
 static void expectPresent(uint64_t expected,const char* message){
-    const auto pose=render_pose::beginPresent();
+    Matrix vp{};
+    const auto pose=render_pose::beginPresent(vp.data());
+    check(vp==render_pose::drawnVP,"overlay receives matched draw matrix");
     check(pose.valid==1&&pose.tick==expected&&pose.position[0]==float(expected),message);
 }
 int main(){
@@ -93,7 +95,9 @@ int main(){
     expectPresent(200,"fresh upload restores correct newer camera attribution");
     // A candidate uploaded but not bound at the verified b4 slot is insufficient.
     upload(context.Get(),worldBuffer.Get(),oldConstants);draw(context.Get(),otherBuffer.Get());
-    check(!render_pose::beginPresent().valid,"unbound upload never labels a draw");
+    Matrix absent;absent.fill(1);
+    check(!render_pose::beginPresent(absent.data()).valid,"unbound upload never labels a draw");
+    check(absent==Matrix{},"missing draw clears overlay projection");
     context->ClearState();context->Flush();
     std::puts("PASS: WARP draw pose attribution, cached reuse, post-acceptance invalidation, fresh recovery and 1000 skipped GPU reads");
 }

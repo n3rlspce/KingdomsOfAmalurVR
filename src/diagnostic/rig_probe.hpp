@@ -152,6 +152,7 @@ inline void traceRemap(uintptr_t object,uintptr_t output,uintptr_t slot,bool sol
         }
     } __except(EXCEPTION_EXECUTE_HANDLER){trace.flags|=64u;}
     arm_trace::publish(trace);
+    skin_trace::remap(trace);
 }
 inline void __fastcall evaluateBones(void* mapper,void*,uintptr_t slot,uintptr_t source,
     uintptr_t output,uintptr_t skeleton,uintptr_t extra,uintptr_t flags){

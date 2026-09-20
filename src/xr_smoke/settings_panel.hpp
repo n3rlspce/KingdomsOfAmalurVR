@@ -25,19 +25,19 @@ public:
         auto text=[&](int x,int y,const std::wstring& value){TextOutW(dc,x,y,value.c_str(),static_cast<int>(value.size()));};
         if(s.developerVisible&&developer){
             text(42,28,L"AMALUR VR  /  DEVELOPER");SelectObject(dc,font);
-            SetTextColor(dc,RGB(116,194,217));text(42,95,L"F11 / Esc: close    Up / Down: select    Enter: run once");
+            SetTextColor(dc,RGB(116,194,217));text(42,95,L"F11 / Esc: close    Up / Down: select    Enter: activate / toggle");
             SetTextColor(dc,RGB(220,228,237));
             text(42,150,L"Use disposable saves. Actions can affect autosaves.");
-            for(int i=0;i<amalur::developer::rows;++i){
-                int y=220+i*49;
+            for(int i=0;i<VrSettings::developerPanelRows;++i){
+                int y=220+i*43;
                 if(i==s.developerRow){RECT row{24,y-5,width-24,y+37};HBRUSH h=CreateSolidBrush(RGB(34,67,88));FillRect(dc,&row,h);DeleteObject(h);}
-                SetTextColor(dc,developer->busy()?RGB(130,143,156):RGB(227,235,244));
-                std::wstring label=i==0?L"Connect / check game dispatcher":i==1?L"Spawn one wolf":std::wstring(amalur::developer::weapons[i-2].label);
+                SetTextColor(dc,(developer->busy()&&i!=amalur::developer::rows)?RGB(130,143,156):RGB(227,235,244));
+                std::wstring label=i==amalur::developer::rows?(VrSettings::meleeDebug.enabled()?L"Dagger collision overlay: ON":L"Dagger collision overlay: OFF"):i==0?L"Connect / check game dispatcher":i==1?L"Spawn one wolf":std::wstring(amalur::developer::weapons[i-2].label);
                 text(44,y,label);
             }
             SetTextColor(dc,RGB(159,177,195));
             const wchar_t* destinations[]={L"Give to inventory",L"Give + equip primary",L"Give + equip secondary",L"Equip existing primary",L"Equip existing secondary"};
-            text(42,810,std::wstring(L"Left / Right: ")+destinations[s.developerDestination]);
+            text(42,810,s.developerRow==amalur::developer::rows?L"Enter / Left / Right: toggle collision overlay":std::wstring(L"Left / Right: ")+destinations[s.developerDestination]);
             text(42,855,L"Independent left / right weapons are not available yet.");
             SetTextColor(dc,RGB(116,194,217));
             RECT statusRect{42,925,width-42,1080};

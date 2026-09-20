@@ -18,6 +18,7 @@ static void poll(){if(channel.open(false))channel.read(requested);if(menuChannel
 class Binding {
     ID3D11DeviceContext* context{};
     ComPtr<ID3D11ShaderResourceView> previous;
+    ComPtr<ID3D11ShaderResourceView> previousRaw;
 public:
     Binding(ID3D11DeviceContext* c,bool usesControl,bool flat=false,bool dialogue=false,bool menu=false){
         if(!usesControl)return;
@@ -40,8 +41,14 @@ public:
             uploaded=size;log("HUD size uploaded: %.0f%%\n",uploaded*100);
         }
         context=c;c->VSGetShaderResources(119,1,&previous);
+        c->VSGetShaderResources(118,1,&previousRaw);
+        ComPtr<ID3D11ShaderResourceView> stereo;c->VSGetShaderResources(125,1,&stereo);
+        // Only alias the actual geo-11 buffer, never a legacy texture resource.
+        D3D11_SHADER_RESOURCE_VIEW_DESC rawDesc{};if(stereo)stereo->GetDesc(&rawDesc);
+        auto raw=rawDesc.ViewDimension==D3D11_SRV_DIMENSION_BUFFER?stereo.Get():nullptr;
+        c->VSSetShaderResources(118,1,&raw);
         auto resource=view.Get();c->VSSetShaderResources(119,1,&resource);
     }
-    ~Binding(){if(context){auto resource=previous.Get();context->VSSetShaderResources(119,1,&resource);}}
+    ~Binding(){if(context){auto resource=previous.Get();context->VSSetShaderResources(119,1,&resource);auto raw=previousRaw.Get();context->VSSetShaderResources(118,1,&raw);}}
 };
 }

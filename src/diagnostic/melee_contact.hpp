@@ -5,11 +5,14 @@
 #include "../tracking/melee_owned_backend.hpp"
 #include "../tracking/melee_hit_identity.hpp"
 #include "game_pause.hpp"
+#include "melee_debug.hpp"
 namespace melee_contact {
 using Update=void(__thiscall*)(void*);
 inline Update originalUpdate{};
 inline std::atomic<DWORD> updateThread{0};
 inline std::atomic<bool> faulted{false};
+inline bool querySuspended{};
+inline uint32_t lastArmingKey{},suspendedArmingKey{};
 inline thread_local bool inContact=false;
 inline melee_owned_source::Lease source;
 inline uint32_t nextPrivateKey=0xf0000000;
@@ -61,7 +64,7 @@ inline uint32_t daggerOwner(){
     return result;
 }
 inline bool eligible(uintptr_t physics){
-    return !faulted.load()&&motion_controls::contactEnabled.load()&&melee_probe::local(physics)
+    return !faulted.load()&&!querySuspended&&motion_controls::contactEnabled.load()&&melee_probe::local(physics)
         &&headTracking.load()&&firstPerson.load()&&!interfaceView.load()&&arm_rig::enabled.load()
         &&motion_controls::gameFocused()&&motion_controls::viewControls().selectedWeapon==0;
 }
@@ -89,7 +92,12 @@ inline void capture(uintptr_t physics,uintptr_t event){
             auto definition=melee_owned_source::resident(player_rig::word(gameBase+0x15f4dfc),199);
             bool wasReady=source.current(owner,weapon);
             if(source.acquire(owner,weapon,199,definition,player_rig::word(e+0x14))){
-                motion_controls::meleeContextReady.store(true);
+                lastArmingKey=key;
+                if(querySuspended&&key!=suspendedArmingKey){
+                    querySuspended=false;
+                    log("VR owned melee query rearmed by fresh native attack owner=%08x key=%08x\n",owner,key);
+                }
+                motion_controls::meleeContextReady.store(!querySuspended);
                 if(!wasReady)log("VR owned melee source ready owner=%08x weapon=%08x asset=199 flags=%08x epoch=%llu\n",owner,weapon,source.flags,source.epoch);
             }
             break;
@@ -164,7 +172,7 @@ inline unsigned runOperation(Operation* op,uintptr_t physics,HandState& hand,mel
 }
 inline unsigned contactOperation(uintptr_t physics,HandState& hand,melee_native::HitArray& hits,const float* from,const float* to){
     ++progress.sweeps;
-    if(!melee_native::gather(physics,source.owner,from,to,4.f,hits))return 0;
+    if(!melee_native::gather(physics,source.owner,from,to,melee_debug::radius,hits))return 0;
     progress.queryHits+=hits.count;
     if(!hits.data||hits.count>hits.capacity||hits.count>4096){fault("invalid query hit array");return 0;}
     bool actorContact=false;
@@ -189,15 +197,32 @@ inline unsigned contactOperation(uintptr_t physics,HandState& hand,melee_native:
         hand.serial,hits.count,accepted,player_rig::word(physics+0x2e4),contextsCreated,contextsClosed,faulted.load());
     return accepted;
 }
-inline void clearHits(melee_native::HitArray& hits){
+inline bool clearHits(melee_native::HitArray& hits){
     checkpoint("hit-vector-cleanup-enter");
-    __try{hits.clear();}__except(EXCEPTION_EXECUTE_HANDLER){fault("hit vector cleanup exception");}
+    __try{hits.clear();}__except(EXCEPTION_EXECUTE_HANDLER){fault("hit vector cleanup exception");return false;}
     checkpoint("hit-vector-cleanup-return");
+    return true;
+}
+inline int queryException(EXCEPTION_POINTERS* error,bool* recoverable){
+    // Only pre-context failures can be rearmed. Any ambiguous ownership or
+    // cleanup failure remains a hard fault requiring restart.
+    *recoverable=traceContact==0&&contextsCreated==contextsClosed&&!faulted.load();
+    log("VR owned melee query exception code=%08x address=%p preContext=%d owner=%08x armingKey=%08x\n",
+        unsigned(error->ExceptionRecord->ExceptionCode),error->ExceptionRecord->ExceptionAddress,*recoverable,source.owner,lastArmingKey);
+    if(!*recoverable)fault("query exception after context entry");
+    return EXCEPTION_EXECUTE_HANDLER;
 }
 inline unsigned guardedContact(uintptr_t physics,HandState& hand,melee_native::HitArray& hits,const float* from,const float* to){
-    unsigned result=0;
-    __try{__try{result=contactOperation(physics,hand,hits,from,to);}__except(EXCEPTION_EXECUTE_HANDLER){fault("query exception");}}
-    __finally{clearHits(hits);checkpoint("contact-return");traceContact=0;}
+    unsigned result=0;bool recoverable=false;
+    __try{__try{result=contactOperation(physics,hand,hits,from,to);}
+        __except(queryException(GetExceptionInformation(),&recoverable)){}
+    }__finally{
+        bool clean=clearHits(hits);checkpoint("contact-return");traceContact=0;
+        if(recoverable&&clean&&!faulted.load()){
+            querySuspended=true;suspendedArmingKey=lastArmingKey;motion_controls::meleeContextReady.store(false);
+            log("VR owned melee query suspended with no owned context; make a fresh normal dagger attack after gameplay resumes to rearm\n");
+        }
+    }
     return result;
 }
 inline unsigned contact(uintptr_t physics,HandState& hand,const float* from,const float* to){
@@ -246,9 +271,10 @@ inline void contacts(uintptr_t physics){
         auto travel=poses[i].position-h.previous.position;
         if(continuous&&mgs5vr::dot(travel,travel)<2500.f&&!h.consumed){
             ++progress.fast[i];
-            for(unsigned s=0;s<4&&!h.consumed&&h.attempts<4&&!faulted.load();++s){mgs5vr::Vec3 offset{0,0,float(s)*10.f};
+            for(unsigned s=0;s<4&&!h.consumed&&h.attempts<4&&!faulted.load()&&!querySuspended;++s){auto offset=melee_debug::offset(s);
                 auto from=mgs5vr::compose(h.previous,mgs5vr::Pose{{},offset}).position;
                 auto to=mgs5vr::compose(poses[i],mgs5vr::Pose{{},offset}).position;
+                melee_debug::record(i,s,from,to);
                 if(contact(physics,h,&from.x,&to.x))h.consumed=true;
             }
         }

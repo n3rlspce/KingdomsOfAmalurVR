@@ -29,9 +29,16 @@ int main(){
     ComPtr<ID3D11Texture1D> original;ComPtr<ID3D11ShaderResourceView> originalView;
     check(SUCCEEDED(device->CreateTexture1D(&d,nullptr,&original))&&SUCCEEDED(device->CreateShaderResourceView(original.Get(),nullptr,&originalView)),"original slot contents");
     auto ptr=originalView.Get();context->VSSetShaderResources(119,1,&ptr);
+    context->VSSetShaderResources(118,1,&ptr);
+    D3D11_BUFFER_DESC bd{};bd.ByteWidth=16;bd.BindFlags=D3D11_BIND_SHADER_RESOURCE;
+    ComPtr<ID3D11Buffer> rawBuffer;check(SUCCEEDED(device->CreateBuffer(&bd,nullptr,&rawBuffer)),"raw stereo buffer");
+    D3D11_SHADER_RESOURCE_VIEW_DESC rawDesc{};rawDesc.Format=DXGI_FORMAT_R32G32B32A32_FLOAT;rawDesc.ViewDimension=D3D11_SRV_DIMENSION_BUFFER;rawDesc.Buffer.NumElements=1;
+    ComPtr<ID3D11ShaderResourceView> rawView;check(SUCCEEDED(device->CreateShaderResourceView(rawBuffer.Get(),&rawDesc,&rawView)),"raw stereo view");
+    auto raw=rawView.Get();context->VSSetShaderResources(125,1,&raw);
     for(float size:{.4f,.8f,1.2f})for(bool flat:{false,true})for(bool dialogue:{false,true})for(bool menu:{false,true}){
         hud_size::requested=size;hud_size::requestedMenu=.6f;
         {hud_size::Binding binding(context.Get(),true,flat,dialogue,menu);ComPtr<ID3D11ShaderResourceView> current;context->VSGetShaderResources(119,1,&current);
+            ComPtr<ID3D11ShaderResourceView> alias;context->VSGetShaderResources(118,1,&alias);check(alias.Get()==rawView.Get(),"raw stereo buffer aliases t118 without changing t125");
             check(current&&current.Get()!=originalView.Get(),"HUD binding installed");
             ComPtr<ID3D11Resource> resource;current->GetResource(&resource);
             d.Usage=D3D11_USAGE_STAGING;d.BindFlags=0;d.CPUAccessFlags=D3D11_CPU_ACCESS_READ;
@@ -42,6 +49,7 @@ int main(){
             context->Unmap(staging.Get(),0);
         }
         ComPtr<ID3D11ShaderResourceView> restored;context->VSGetShaderResources(119,1,&restored);check(restored.Get()==originalView.Get(),"caller slot restored");
+        context->VSGetShaderResources(118,1,&restored);check(restored.Get()==originalView.Get(),"raw alias slot restored");
     }
     {hud_size::Binding binding(context.Get(),false);ComPtr<ID3D11ShaderResourceView> current;context->VSGetShaderResources(119,1,&current);check(current.Get()==originalView.Get(),"ordinary draws unchanged");}
     puts("PASS: HUD IPC, input/persistence, GPU size/dialogue/flat transitions and binding restoration");

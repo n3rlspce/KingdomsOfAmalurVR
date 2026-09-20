@@ -51,7 +51,10 @@ if (hudControl.z < 0.5 && (vrHudGate.x > 0.5 || dialogueHud || menuHud) && vrHud
         o0.w = anchored.z * oldW;
         // Verified geo-11 converted VS epilogue adds this shift for W != 1.
         // Cancel it here: this is a UI plane, not native world geometry.
-        if (o0.w != 1.0) o0.x -= (o0.w - stereo.y) * stereo.x * stereo.w;
+        // t125's legacy StereoParams.w is rewritten by geo-11 to buffer[1].z,
+        // not the eye sign. t118 aliases the raw buffer without that rewrite.
+        float4 rawStereo = AmalurRawStereo.Load(0);
+        if (o0.w != 1.0) o0.x -= (o0.w - rawStereo.y) * rawStereo.x * rawStereo.w;
     }
 } else {
     o0.x += stereo.x * hud;
@@ -60,6 +63,7 @@ if (hudControl.z < 0.5 && (vrHudGate.x > 0.5 || dialogueHud || menuHud) && vrHud
 foreach($hash in @('887f6506d28f9ff1','bd9cebc4f7e1ed36','cc7258d9790a0bbd','bf098be2e4587ca5')){
     $name="$hash-vs_replace.txt"
     $text=Get-Content -LiteralPath (Join-Path $donor $name) -Raw
+    $text='Buffer<float4> AmalurRawStereo : register(t118);'+[Environment]::NewLine+$text
     $text=$text.Replace('Texture1D<float4> IniParams', 'Texture1D<float4> AmalurHudSettings : register(t119);'+[Environment]::NewLine+'Texture1D<float4> IniParams')
     $needle='o0.x += stereo.x*hud;'
     if(-not $text.Contains($needle)){throw "Expected donor HUD adjustment missing: $name"}

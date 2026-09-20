@@ -101,6 +101,40 @@ void weaponTranslationChecks(){
 }
 int main(){
     {
+        amalur::GripFilter filter;Pose input{},out{};
+        filter.sample(input,1000,1,true,out,1.0);
+        input.position.x=.02f;
+        filter.sample(input,1000,1,true,out,1.01);
+        check(out.position.x>0,"different pose sharing a coarse timestamp is not discarded");
+        const float accepted=out.position.x;
+        filter.sample(input,1000,1,true,out,1.01);
+        check(out.position.x==accepted,"same game-frame callback is idempotent");
+        filter.sample(input,1000,1,true,out,1.02);
+        check(out.position.x>accepted&&out.position.x<input.position.x,"visual hand advances on game frame without another controller packet");
+        for(unsigned i=0;i<100;++i)filter.sample(input,1000,1,true,out,1.03+i*.01);
+        check(out.position.x<=input.position.x&&std::abs(out.position.x-input.position.x)<.00001f,"held packet converges without extrapolation or overshoot");
+        // Replay the measured mismatch: ~45 controller updates into75 game
+        // frames/s, with16ms source timestamp quantization.
+        amalur::GripFilter cadence;Pose result{};float lastRaw=0,lastVisual=0,rawError=0,visualError=0;
+        unsigned rawUpdates=0,visualUpdates=0;
+        for(unsigned frame=0;frame<300;++frame){
+            const double now=2.0+frame/75.;const double source=std::floor((now-2.0)*45.0)/45.0;
+            Pose raw{{},{static_cast<float>(source),0,0}};
+            const uint64_t stamp=2000+static_cast<uint64_t>(std::floor(source/.016)*16);
+            cadence.sample(raw,stamp,1,true,result,now);
+            if(frame>30){
+                rawError+=std::abs((raw.position.x-lastRaw)-1.f/75.f);
+                visualError+=std::abs((result.position.x-lastVisual)-1.f/75.f);
+                rawUpdates+=raw.position.x!=lastRaw;visualUpdates+=result.position.x!=lastVisual;
+            }
+            lastRaw=raw.position.x;lastVisual=result.position.x;
+        }
+        check(visualUpdates>rawUpdates,"visual cadence is not limited to controller packet cadence");
+        check(visualError<rawError*.75f,"45-to75Hz replay reduces uneven per-frame hand steps");
+        check(std::abs(lastRaw-lastVisual)<.025f,"cadence reconstruction retains bounded motion lag");
+        puts("PASS: timestamp collisions, game-frame reconstruction, duplicate callbacks, no extrapolation and45-to75Hz replay");
+    }
+    {
         amalur::GripFilter filter;Pose raw{},out{};uint64_t tick=1000;
         check(filter.sample(raw,tick,1,true,out),"visual grip filter initializes");
         float maximumNoise=0;

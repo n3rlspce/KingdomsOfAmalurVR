@@ -26,6 +26,7 @@ inline amalur::PoseChannel leftHand{L"Local\\AmalurVRLeftHandV3",L"Local\\Amalur
 inline amalur::MeleeSwing rightSwing,leftSwing;
 inline amalur::PosePacket frameRight{},frameLeft{};
 inline bool frameRightValid{},frameLeftValid{};
+inline double frameSeconds{};
 inline amalur::GripFilter rightFilter,leftFilter;
 // Latch hands alongside the headset once per game Present. Camera callbacks
 // can run repeatedly while armor and weapon remaps consume their targets.
@@ -34,16 +35,20 @@ inline void sampleHands(){
     amalur::PosePacket right{},left{};
     const bool rightValid=hand.open(false)&&hand.read(right);
     const bool leftValid=leftHand.open(false)&&leftHand.read(left);
+    LARGE_INTEGER counter{},frequency{};QueryPerformanceCounter(&counter);QueryPerformanceFrequency(&frequency);
+    const double seconds=double(counter.QuadPart)/double(frequency.QuadPart);
     AcquireSRWLockExclusive(&poseLock);
     frameRight=right;frameLeft=left;frameRightValid=rightValid;frameLeftValid=leftValid;
+    frameSeconds=seconds;
     ReleaseSRWLockExclusive(&poseLock);
 }
 inline void sample(amalur::CameraPose rig,mgs5vr::Pose origin,float scale,unsigned recenter,mgs5vr::Vec3 headLocal){
     float pitch,yaw,roll;mgs5vr::Vec3 offset;
     bool offsetValid=positionSettings.open(false)&&positionSettings.read(pitch,yaw,roll,offset.x,offset.y,offset.z);
-    amalur::PosePacket p,l;bool valid,leftValid;
+    amalur::PosePacket p,l;bool valid,leftValid;double visualTime;
     AcquireSRWLockShared(&poseLock);
     p=frameRight;l=frameLeft;valid=frameRightValid;leftValid=frameLeftValid;
+    visualTime=frameSeconds;
     ReleaseSRWLockShared(&poseLock);
     const auto sampleNow=GetTickCount64();
     valid=valid&&p.tick<=sampleNow&&sampleNow-p.tick<250;
@@ -51,8 +56,8 @@ inline void sample(amalur::CameraPose rig,mgs5vr::Pose origin,float scale,unsign
     mgs5vr::Pose rightLocal{{p.orientation[0],p.orientation[1],p.orientation[2],p.orientation[3]},{p.position[0],p.position[1],p.position[2]}},
         leftLocal{{l.orientation[0],l.orientation[1],l.orientation[2],l.orientation[3]},{l.position[0],l.position[1],l.position[2]}};
     AcquireSRWLockExclusive(&poseLock);
-    valid=rightFilter.sample(rightLocal,p.tick,recenter,valid,rightLocal);
-    leftValid=leftFilter.sample(leftLocal,l.tick,recenter,leftValid,leftLocal);
+    valid=rightFilter.sample(rightLocal,p.tick,recenter,valid,rightLocal,visualTime);
+    leftValid=leftFilter.sample(leftLocal,l.tick,recenter,leftValid,leftLocal,visualTime);
     ReleaseSRWLockExclusive(&poseLock);
     mgs5vr::Pose result{};
     if(valid)valid=amalur::gripInGame(rig,mgs5vr::compose(mgs5vr::inverse(origin),rightLocal),scale,result);

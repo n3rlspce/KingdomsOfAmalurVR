@@ -73,6 +73,7 @@ static std::atomic<bool> trackedCameraAvailable{false};
 #include "camera_status.hpp"
 #include "camera_audit.hpp"
 #include "render_pose.hpp"
+#include "skin_trace.hpp"
 
 static void log(const char* format,...) {
     char line[2048]; va_list args; va_start(args,format);
@@ -96,7 +97,7 @@ static void stack() {
 }
 static HRESULT STDMETHODCALLTYPE onMap(ID3D11DeviceContext* context,ID3D11Resource* resource,UINT subresource,D3D11_MAP type,UINT flags,D3D11_MAPPED_SUBRESOURCE* mapped) {
     HRESULT result=realMap(context,resource,subresource,type,flags,mapped);
-    if(SUCCEEDED(result)&&mapped){camera_audit::map(context,resource,subresource,mapped->pData);render_pose::map(context,resource,subresource,mapped->pData);}
+    if(SUCCEEDED(result)&&mapped){camera_audit::map(context,resource,subresource,mapped->pData);render_pose::map(context,resource,subresource,mapped->pData);skin_trace::map(context,resource,subresource,mapped->pData);}
     if(SUCCEEDED(result)&&mapped&&mapped->pData&&samples.load()<8) {
         ComPtr<ID3D11Buffer> buffer;
         if(SUCCEEDED(resource->QueryInterface(IID_PPV_ARGS(&buffer)))){
@@ -110,6 +111,7 @@ static HRESULT STDMETHODCALLTYPE onMap(ID3D11DeviceContext* context,ID3D11Resour
     return result;
 }
 static void STDMETHODCALLTYPE onUnmap(ID3D11DeviceContext* context,ID3D11Resource* resource,UINT subresource) {
+    skin_trace::unmap(context,resource,subresource);
     camera_audit::unmap(context,resource,subresource);
     render_pose::unmap(context,resource,subresource);
     if(pending.context==context&&pending.resource==resource&&pending.subresource==subresource){
@@ -125,6 +127,7 @@ static void STDMETHODCALLTYPE onUnmap(ID3D11DeviceContext* context,ID3D11Resourc
     realUnmap(context,resource,subresource);
 }
 static void STDMETHODCALLTYPE onUpdate(ID3D11DeviceContext* context,ID3D11Resource* resource,UINT subresource,const D3D11_BOX* box,const void* data,UINT rowPitch,UINT depthPitch) {
+    if(!box)skin_trace::update(resource,data);
     if(!box)camera_audit::update(resource,data);
     if(!box)render_pose::update(context,resource,data);
     if(data&&!box&&samples.load()<8){
@@ -208,7 +211,6 @@ static void __fastcall onRebuildCamera(void* camera,void*) {
     static bool hadTrackedCamera=false;
     amalur::PosePacket packet;
     bool tracked=false;
-    mgs5vr::Vec3 bodyFacing{};bool bodyFacingValid=false;
     amalur::CameraPose originalCamera{},adjusted{};
     memcpy(&originalCamera.eye,core+4,sizeof(mgs5vr::Vec3));
     memcpy(&originalCamera.target,core+0x14,sizeof(mgs5vr::Vec3));
@@ -246,10 +248,6 @@ static void __fastcall onRebuildCamera(void* camera,void*) {
                         heading=snapHeading.apply(heading,controls.session,controls.turnYawDegrees);
                     }else {headingAnchor.reset();snapHeading.reset();}
                     if(amalur::normalize(heading)){
-                        // Native facing is quantized and updates the skeleton
-                        // on the simulation cadence. Do not drive it with HMD
-                        // yaw: looking around must not step the whole body.
-                        bodyFacing=heading;bodyFacingValid=true;
                         auto handCamera=baseCamera;
                         handCamera.eye=playerPosition+mgs5vr::Vec3{0,0,195}+heading*25.f;
                         handCamera.target=handCamera.eye+heading*200.f;handCamera.up={0,0,1};
@@ -270,11 +268,11 @@ static void __fastcall onRebuildCamera(void* camera,void*) {
     motion_controls::sampleMovementBasis(adjusted.target-adjusted.eye,bodyForward,
         tracked&&firstPerson.load()&&bodyHeadingValid&&packet.gameMode==1&&game_pause::sample(true)==0,GetTickCount64());
     // Keep the collar/shoulders behind the eyes without moving the camera with gait.
-    auto anchor=adjusted.eye-(bodyFacingValid?bodyFacing:bodyForward)*18.f;
+    auto anchor=adjusted.eye-bodyForward*18.f;
     arm_rig::sampleBody(anchor,bodyHeadingValid&&packet.gameMode?packet.tick:0);
     if(tracked){
-        if(firstPerson.load()&&bodyFacingValid&&packet.gameMode&&motion_controls::gameFocused())
-            player_rig::face(camera,bodyFacing);
+        if(firstPerson.load()&&bodyHeadingValid&&packet.gameMode&&motion_controls::gameFocused())
+            player_rig::face(camera,bodyForward);
         memcpy(core+4,&adjusted.eye,sizeof(mgs5vr::Vec3));
         memcpy(core+0x14,&adjusted.target,sizeof(mgs5vr::Vec3));
         memcpy(core+0x1c0,&adjusted.up,sizeof(mgs5vr::Vec3));
@@ -415,7 +413,8 @@ static void publishStereoFrame(const amalur::PosePacket& metadata){
 static HRESULT STDMETHODCALLTYPE onPresent(IDXGISwapChain* chain,UINT sync,UINT flags) {
     // Take the completed draw's attribution before Present permits recording
     // the next image. Keep this local packet through geo-11's stereo copy.
-    auto presentedPose=(flags&DXGI_PRESENT_TEST)?amalur::PosePacket{}:render_pose::beginPresent();
+    float meleeVP[16]{};
+    auto presentedPose=(flags&DXGI_PRESENT_TEST)?amalur::PosePacket{}:render_pose::beginPresent(meleeVP);
     if(!(flags&DXGI_PRESENT_TEST)){
         const bool menu=amalur::fullscreenMenu(game_pause::sample(true),motion_controls::dialogueActive.load());
         fullscreenMenuView.store(menu&&presentedPose.valid&&headTracking.load()&&!interfaceView.load());
@@ -456,6 +455,7 @@ static HRESULT STDMETHODCALLTYPE onPresent(IDXGISwapChain* chain,UINT sync,UINT 
     auto count=++presents;
     rig_status::publish();
     if(count<=3){log("Present #%lu chain=%p sync=%u flags=0x%x\n",count,chain,sync,flags);stack();}
+    if(!(flags&DXGI_PRESENT_TEST))melee_debug::draw(chain,meleeVP,presentedPose.valid!=0);
     HRESULT result=realPresent(chain,sync,flags);
     if(SUCCEEDED(result)&&!(flags&DXGI_PRESENT_TEST))publishStereoFrame(presentedPose);
     camera_audit::present(presentedPose);

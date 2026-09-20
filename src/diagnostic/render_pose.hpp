@@ -19,6 +19,7 @@ static std::array<Camera,128> history;
 static uint64_t cameraCount{};
 static amalur::PosePacket drawn;
 static bool haveDrawn{};
+static std::array<float,16> drawnVP{};
 static std::atomic<uint32_t> epoch{1};
 struct Upload {
     ID3D11DeviceContext* context{};ID3D11Resource* resource{};
@@ -81,15 +82,16 @@ static void draw(ID3D11DeviceContext* context){
         const double error=amalur::cameraMatrixResidual(w,wvp,c.vp.data());
         if(error<best){best=error;match=&c;}
     }
-    if(match&&epoch.load()==current){drawn=match->pose;haveDrawn=true;acceptedEpoch=current;++matches;}
+    if(match&&epoch.load()==current){drawn=match->pose;drawnVP=match->vp;haveDrawn=true;acceptedEpoch=current;++matches;}
     ReleaseSRWLockExclusive(&lock);
 }
 static amalur::PosePacket currentDrawn(){
     AcquireSRWLockShared(&lock);auto pose=haveDrawn?drawn:amalur::PosePacket{};ReleaseSRWLockShared(&lock);return pose;
 }
-static amalur::PosePacket beginPresent(){
+static amalur::PosePacket beginPresent(float* vp=nullptr){
     AcquireSRWLockExclusive(&lock);
     auto pose=haveDrawn?drawn:amalur::PosePacket{};
+    if(vp){if(haveDrawn)memcpy(vp,drawnVP.data(),64);else memset(vp,0,64);}
     haveDrawn=false;epoch.fetch_add(1);
     ReleaseSRWLockExclusive(&lock);return pose;
 }

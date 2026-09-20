@@ -6,6 +6,7 @@
 #include <string>
 #include <stdexcept>
 #include "../tracking/developer_commands.hpp"
+#include "../tracking/melee_debug_settings.hpp"
 
 struct VrSettings {
     float hudSize=.8f,interfaceScale=1.f;
@@ -16,6 +17,8 @@ struct VrSettings {
     float depth=20,convergence=100,alignment=26.5f/2560.f,scale=100,fov=130,renderScale=1,sharpness=.25f;
     bool swap=true,visible=false;int selected=0;unsigned recenter=0;
     bool developerVisible=false,developerTogglePending=false;
+    inline static amalur::MeleeDebugSettings meleeDebug;
+    static constexpr int developerPanelRows=amalur::developer::rows+1;
     int developerRow=0,developerAction=-1,developerDestination=0;
     bool previous[256]{},held[256]{},consumed[256]{};std::wstring path;
     HHOOK keyboard{};bool togglePending{};inline static VrSettings* input{};
@@ -66,8 +69,9 @@ struct VrSettings {
         bool enter=edge(VK_RETURN),escape=edge(VK_ESCAPE);
         if(developerVisible){
             if(escape){developerVisible=false;return;}
-            if(up)developerRow=(developerRow+amalur::developer::rows-1)%amalur::developer::rows;
-            if(down)developerRow=(developerRow+1)%amalur::developer::rows;
+            if(up)developerRow=(developerRow+developerPanelRows-1)%developerPanelRows;
+            if(down)developerRow=(developerRow+1)%developerPanelRows;
+            if(developerRow==amalur::developer::rows){if(enter||left||right)meleeDebug.toggle();return;}
             if(left)developerDestination=(developerDestination+amalur::developer::destinations-1)%amalur::developer::destinations;
             if(right)developerDestination=(developerDestination+1)%amalur::developer::destinations;
             if(enter)developerAction=developerRow+(developerRow>=2?developerDestination*amalur::developer::rows:0);
