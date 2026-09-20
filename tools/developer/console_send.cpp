@@ -26,7 +26,7 @@ static std::string script(int row,const std::string& nonce,const std::wstring& s
 static bool gameplay(DWORD pid){
     amalur::RigStatusChannel channel;amalur::RigStatus status;
     return channel.transfer(status,false)&&status.version==1&&status.pid==pid&&
-        DWORD(GetTickCount()-status.tick)<500&&status.paused==0&&status.tracked!=0;
+        DWORD(GetTickCount()-status.tick)<500&&status.paused==0&&status.weaponRemaps!=0;
 }
 static std::wstring output(HANDLE handle){
     CONSOLE_SCREEN_BUFFER_INFO info{};
@@ -124,7 +124,12 @@ int wmain(int argc,wchar_t** argv){
         auto text=output(screen);auto at=text.find(marker);
         if(at!=std::wstring::npos){
             auto result=text.substr(at+marker.size());
-            if(result.rfind(L"OK|",0)==0){close();return finish(row==0?L"Connected. Ready for explicit commands.":L"Command submitted to Lua; verify the result in game.",0);}
+            if(result.rfind(L"OK|",0)==0){
+                auto endAt=result.find(L"|END");
+                auto message=result.substr(3,endAt==std::wstring::npos?160:endAt-3);
+                while(message.find(L"  ")!=std::wstring::npos)message.erase(message.find(L"  "),1);
+                close();return finish(row==0?L"Connected. Ready for explicit commands.":message,0);
+            }
             if(result.rfind(L"ERROR|",0)==0){auto endAt=result.find(L"|END");close();return finish(L"Lua rejected command: "+result.substr(6,endAt==std::wstring::npos?512:endAt-6),4);}
         }
         Sleep(50);

@@ -16,12 +16,18 @@ lua.execute(r'''
     get_player = function() return 42 end
     SIMTYPE_ID = function() return 100 end
     PROTO = {create_actor = function() table.insert(mutations, 'spawn') end}
-    ACTOR = {get_angle = function() return 0 end,
+    ACTOR = {get_level_requirement = function() return 12 end,
+             get_angle = function() return 0 end,
              get_point_near_object = function() return {500,0,0} end}
-    PLAYER = {cheat_add_item = function() table.insert(mutations, 'grant') end,
+    equipped = {}
+    PLAYER = {get_equipped_object_from_equip_type_and_slot = function(kind,slot)
+                  assert(kind == 'Weapon'); return equipped[slot]
+              end,
+              cheat_add_item = function() table.insert(mutations, 'grant') end,
               get_item_index = function() return 73 end,
               equip = function(item,slot)
                   assert(item == 73 and slot == 0)
+                  equipped[slot] = item
                   table.insert(mutations, 'equip')
               end}
     loadfile = function(path)

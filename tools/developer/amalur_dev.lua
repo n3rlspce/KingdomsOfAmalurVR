@@ -16,6 +16,43 @@ local function require_dispatch()
     if not (_G.amalur_dispatch_state and _G.amalur_dispatch_state.executing == true) then
         fail('use the game update dispatcher; direct console mutations are disabled')
     end
+    -- Discard the earlier experimental Lua requirement overrides on hot reload.
+    if _G.amalur_dispatch_state.levelOverrides then
+        _G.amalur_dispatch_state.levelOverrides = {}
+    end
+end
+
+-- Same native setter and arguments as the game's Enable Invincibility cheat.
+function dev.enable_invincibility()
+    require_dispatch()
+    local set = require_function(ACTOR and ACTOR.set_unkillable, 'ACTOR.set_unkillable')
+    local player = require_function(get_player, 'get_player')()
+    if player == nil or player == false or player == 0 then fail('load a game first') end
+    set(player, true)
+    return 'invincibility setter applied to player'
+end
+
+local function equip_verified(item, slot)
+    local equip = require_function(PLAYER and PLAYER.equip, 'PLAYER.equip')
+    local current = require_function(PLAYER and PLAYER.get_equipped_object_from_equip_type_and_slot,
+                                    'PLAYER.get_equipped_object_from_equip_type_and_slot')
+    _G.amalur_dispatch_state.lastEquip = {item = item, slot = slot}
+    equip(item, slot)
+    local observed = current('Weapon', slot)
+    if observed ~= item then
+        fail('weapon not confirmed: requested ' .. tostring(item) .. ' (' .. type(item) ..
+             '), observed ' .. tostring(observed) .. ' (' .. type(observed) .. '); no repeat grant')
+    end
+end
+
+function dev.verify_last_equip()
+    require_dispatch()
+    local last = _G.amalur_dispatch_state.lastEquip
+    if not last then fail('no equipment request in this session') end
+    local current = require_function(PLAYER and PLAYER.get_equipped_object_from_equip_type_and_slot,
+                                    'PLAYER.get_equipped_object_from_equip_type_and_slot')
+    if current('Weapon', last.slot) ~= last.item then fail('requested weapon is not in the target slot') end
+    return 'verified weapon in slot ' .. last.slot .. ': ' .. tostring(last.item)
 end
 
 local function integer(value, low, high, name)
@@ -52,6 +89,19 @@ function dev.probe()
     return 'developer APIs present; gameplay operations untested'
 end
 
+-- Explicit dev-save setup. Uses the same setter as the game's equipment cheats.
+function dev.prepare_test_character()
+    require_dispatch()
+    local get_level = require_function(PLAYER and PLAYER.get_level, 'PLAYER.get_level')
+    local set_level = require_function(PLAYER and PLAYER.set_level, 'PLAYER.set_level')
+    local before = get_level()
+    if type(before) ~= 'number' then fail('player level unavailable') end
+    if before < 40 then set_level(40) end
+    local after = get_level()
+    if type(after) ~= 'number' or after < 40 then fail('developer level change did not apply') end
+    return 'developer character level: ' .. tostring(after)
+end
+
 -- One actor per call. Distance is in game units, not meters.
 function dev.spawn(name, distance)
     require_dispatch()
@@ -68,7 +118,7 @@ function dev.spawn(name, distance)
     if type(pos) ~= 'table' then fail('no spawn position returned') end
     for i = 1, 3 do
         local n = pos[i]
-        if type(n) ~= 'number' or n ~= n or n == math.huge or n == -math.huge then
+        if type(n) ~= 'number' or n ~= n or (n - n) ~= 0 then
             fail('invalid spawn position')
         end
     end
@@ -110,8 +160,8 @@ function dev.equip_existing(name, slot)
     if item == nil or item == false or item == -1 then
         fail('item is not in inventory; nothing granted or equipped')
     end
-    equip(item, slot)
-    return 'equip submitted: ' .. name .. ' slot ' .. slot
+    equip_verified(item, slot)
+    return 'equipped: ' .. name .. ' slot ' .. slot
 end
 
 function dev.give_and_equip(name, slot)
@@ -125,6 +175,6 @@ function dev.give_and_equip(name, slot)
     if item == nil or item == false or item == -1 then
         fail('item granted but not available to equip; do not repeat the grant')
     end
-    equip(item, slot)
-    return 'grant/equip submitted: ' .. name .. ' slot ' .. slot
+    equip_verified(item, slot)
+    return 'granted and equipped: ' .. name .. ' slot ' .. slot
 end

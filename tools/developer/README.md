@@ -62,7 +62,7 @@ The module checks API presence without invoking UI notifications. Engine calls
 are made only inside the owned dispatch callback. `equip_existing(name, slot)`
 never grants an item. `give_and_equip` reports a failed inventory lookup after a
 grant without repeating it. Slot 0 is primary; slot 1 is secondary. Distances are
-100–2000 game units and quantities are 1–20.
+100â€“2000 game units and quantities are 1â€“20.
 
 ## Validation and known failures
 
@@ -70,8 +70,21 @@ The old console transport caused native errors: its notification probe failed in
 `WINDOW.create_window`, and a unique-greatsword grant while inventory was open
 left the session frozen. A common longsword grant returned an acknowledgement.
 Those results did not establish reliable mutation safety. The replacement moves
-execution into the game update callback and adds pause checks. Live validation
-of the replacement is required; offline tests cannot prove engine compatibility.
+execution into the game update callback and adds pause checks.
+
+Live validation on the dev save succeeded: level 40 read back after the native
+level setter, all nine weapon types were granted and individually verified in the
+primary slot, and the unique greatsword/longbow were verified in primary/secondary.
+The wolf spawn was acknowledged and the user confirmed gameplay, then died.
+No new native runtime errors were observed during this dispatcher session.
+The earlier level-2 character could not equip the unique sword; a Lua-only
+requirement override did not bypass the native gate and has been removed.
+
+Helper-only actions 60/61 prepare level 40 and verify the last equipped item.
+Action 62 enables invincibility using `ACTOR.set_unkillable(get_player(), true)`,
+matching the extracted game's cheat script. It is staged for live testing;
+offline tests do not verify damage prevention. These actions require the same
+unpaused dispatcher session and do not grant items or run at module load.
 
 Run `check.py` and `check_dispatch.py` with Python and Lupa. The C++ build runs the
 helper and F11 input tests. Dispatcher tests cover session isolation, consuming

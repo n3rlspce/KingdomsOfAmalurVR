@@ -19,9 +19,15 @@ inline constexpr std::array<Weapon,10> weapons{{
 }};
 inline constexpr int rows=2+static_cast<int>(weapons.size());
 inline constexpr int destinations=5; // give; give/equip primary/secondary; equip existing primary/secondary
-inline constexpr int actions=rows*destinations;
+inline constexpr int prepareCharacterAction=rows*destinations;
+inline constexpr int verifyEquipAction=prepareCharacterAction+1;
+inline constexpr int invincibilityAction=verifyEquipAction+1;
+inline constexpr int actions=invincibilityAction+1;
 inline std::string command(int row) {
     if(row<0||row>=actions)return {};
+    if(row==prepareCharacterAction)return "amalur_dev.prepare_test_character()";
+    if(row==verifyEquipAction)return "amalur_dev.verify_last_equip()";
+    if(row==invincibilityAction)return "amalur_dev.enable_invincibility()";
     int destination=row/rows;row%=rows;
     if(destination&&row<2)return {};
     if(row==0)return "amalur_dev.probe()";
