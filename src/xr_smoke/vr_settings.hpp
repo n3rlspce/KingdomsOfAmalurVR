@@ -7,6 +7,7 @@
 #include <stdexcept>
 #include "../tracking/developer_commands.hpp"
 #include "../tracking/melee_debug_settings.hpp"
+#include "../tracking/developer_panel_input.hpp"
 
 struct VrSettings {
     float hudSize=.8f,interfaceScale=1.f;
@@ -18,8 +19,21 @@ struct VrSettings {
     bool swap=true,visible=false;int selected=0;unsigned recenter=0;
     bool developerVisible=false,developerTogglePending=false;
     inline static amalur::MeleeDebugSettings meleeDebug;
-    static constexpr int developerPanelRows=amalur::developer::rows+1;
+    static constexpr int developerPanelRows=amalur::developer::panelRows+1;
     int developerRow=0,developerAction=-1,developerDestination=0;
+    amalur::DeveloperPanelInput developerControllers;
+    bool pollDeveloperControllers(const amalur::TouchInput& touch,bool active,bool busy,uint64_t now=GetTickCount64()){
+        const auto event=developerControllers.update(touch,active,developerVisible,busy&&developerRow!=amalur::developer::panelRows,now);
+        if(event.toggle){developerVisible=!developerVisible;visible=false;}
+        if(event.close)developerVisible=false;
+        if(developerVisible){
+            developerRow=(developerRow+event.row+developerPanelRows)%developerPanelRows;
+            developerDestination=(developerDestination+event.destination+amalur::developer::destinations)%amalur::developer::destinations;
+            if(developerRow==amalur::developer::panelRows){if(event.activate||event.destination)meleeDebug.toggle();}
+            else if(event.activate)developerAction=amalur::developer::panelAction(developerRow,developerDestination);
+        }
+        return event.capture;
+    }
     bool previous[256]{},held[256]{},consumed[256]{};std::wstring path;
     HHOOK keyboard{};bool togglePending{};inline static VrSettings* input{};
     static bool starKey(DWORD key){
@@ -71,10 +85,10 @@ struct VrSettings {
             if(escape){developerVisible=false;return;}
             if(up)developerRow=(developerRow+developerPanelRows-1)%developerPanelRows;
             if(down)developerRow=(developerRow+1)%developerPanelRows;
-            if(developerRow==amalur::developer::rows){if(enter||left||right)meleeDebug.toggle();return;}
+            if(developerRow==amalur::developer::panelRows){if(enter||left||right)meleeDebug.toggle();return;}
             if(left)developerDestination=(developerDestination+amalur::developer::destinations-1)%amalur::developer::destinations;
             if(right)developerDestination=(developerDestination+1)%amalur::developer::destinations;
-            if(enter)developerAction=developerRow+(developerRow>=2?developerDestination*amalur::developer::rows:0);
+            if(enter)developerAction=amalur::developer::panelAction(developerRow,developerDestination);
             return;
         }
         if(!visible)return;

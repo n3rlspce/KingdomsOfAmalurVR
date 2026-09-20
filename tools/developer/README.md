@@ -43,11 +43,28 @@ to install the three owned mod files. This does not activate the framework DLLs.
 The dispatcher uses the framework's `minimap_win` script trigger to wrap the
 original `on_update_event`, preserving its arguments and running requests after it.
 
-F11 opens the headset panel. Up/Down selects Connect, one wolf, any of the nine
-weapon types, or a unique greatsword. Left/Right selects Give to inventory,
+Hold both thumbstick clicks with both sticks centered for 0.65 seconds to open
+or close the headset panel. Release the controls after opening. Flick the left
+stick up/down to select a row and left/right to choose the weapon destination.
+A or the right trigger runs the selected action once; B closes the panel.
+The panel connects automatically once fresh telemetry reports loaded, unpaused
+gameplay. The passive connection retries at most every five seconds until it
+succeeds. No grants, equips, spawns or other mutations are retried automatically.
+Reconnect remains the first row, followed by one wolf, nine weapon types, the
+unique greatsword, dev character level 40, and invincibility. Close game inventory/
+pause menus before sending actions.
+
+F11 and the keyboard remain available. Up/Down selects rows; Left/Right selects Give to inventory,
 Give + equip primary/secondary, or Equip existing primary/secondary. Enter sends
 one action. Escape/F11 closes. Native primary/secondary slots are independent of
 future VR hand assignment. `reserve-f11.ps1` moves conflicting geo-11 bindings.
+
+Panel input consumes motion controls and suppresses hand pose publication to
+gameplay while interacting. Closing or changing focus requires neutral controls
+before gameplay resumes. Held confirm controls never repeat actions, and presses
+while the helper is busy are discarded. The existing deflected two-stick D-pad
+chord remains available outside the panel. Opening the panel does not pause the
+world; enable invincibility on the dev save for uninterrupted testing.
 
 The helper checks fresh telemetry for loaded, unpaused gameplay, atomically
 publishes `mods/amalur_request.lua`, and reads the nonce acknowledgement from the
@@ -80,8 +97,8 @@ No new native runtime errors were observed during this dispatcher session.
 The earlier level-2 character could not equip the unique sword; a Lua-only
 requirement override did not bypass the native gate and has been removed.
 
-Helper-only actions 60/61 prepare level 40 and verify the last equipped item.
-Action 62 enables invincibility using `ACTOR.set_unkillable(get_player(), true)`,
+Actions 60/61 prepare level 40 and verify the last equipped item (61 is helper-only).
+Panel action 62 enables invincibility using `ACTOR.set_unkillable(get_player(), true)`,
 matching the extracted game's cheat script. The live dispatcher acknowledged
 this setter in restarted process 49908, and level 40 was verified again.
 Damage prevention still needs observation in combat. These actions require the same

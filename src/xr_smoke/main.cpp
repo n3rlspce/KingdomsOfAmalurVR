@@ -237,7 +237,7 @@ int main(int argc,char** argv) {
                 std::cout<<"Game process exited; closing VR bridge.\n";
                 break;
             }
-            if(gameMode){settings.poll();DWORD developerPid=GetTickCount()-latestRig.tick<1000?latestRig.pid:0;developer.poll(developerPid);if(settings.developerAction>=0){developer.submit(settings.developerAction,developerPid);settings.developerAction=-1;}if(gripSettings.open(true))gripSettings.publish(settings.gripPitch,settings.gripYaw,settings.gripRoll,settings.weaponX,settings.weaponY,settings.weaponZ);if(hudSettings.open(true))hudSettings.publish(settings.hudSize);if(menuSettings.open(true))menuSettings.publish(amalur::menuScale(settings.interfaceScale)*.8f);if(settings.renderScale!=activeRenderScale){createEyeChains();activeRenderScale=settings.renderScale;}}
+            if(gameMode){settings.poll();DWORD developerPid=GetTickCount()-latestRig.tick<1000?latestRig.pid:0;developer.poll(developerPid,developerPid&&latestRig.paused==0&&latestRig.weaponRemaps>0);if(settings.developerAction>=0){developer.submit(settings.developerAction,developerPid);settings.developerAction=-1;}if(gripSettings.open(true))gripSettings.publish(settings.gripPitch,settings.gripYaw,settings.gripRoll,settings.weaponX,settings.weaponY,settings.weaponZ);if(hudSettings.open(true))hudSettings.publish(settings.hudSize);if(menuSettings.open(true))menuSettings.publish(amalur::menuScale(settings.interfaceScale)*.8f);if(settings.renderScale!=activeRenderScale){createEyeChains();activeRenderScale=settings.renderScale;}}
             XrEventDataBuffer event{XR_TYPE_EVENT_DATA_BUFFER};
             for(;;) {
                 auto result=xrPollEvent(instance,&event); if(result==XR_EVENT_UNAVAILABLE) break; xrcheck(result,"xrPollEvent");
@@ -283,7 +283,8 @@ int main(int argc,char** argv) {
                 if(rigStatus.transfer(freshRig,false)&&freshRig.version==1)latestRig=freshRig;
                 const bool gameplay=!settings.interfaceView&&latestRig.pid&&GetTickCount()-latestRig.tick<1000
                     &&latestRig.weaponRemaps>0&&latestRig.paused==0;
-                auto mapped=touchMapper.map(touch,gameMode&&!settings.visible&&!settings.developerVisible&&VrSettings::gameFocused(),gameplay);
+                const bool panelCapture=settings.pollDeveloperControllers(touch,gameMode&&VrSettings::gameFocused(),developer.busy());
+                auto mapped=touchMapper.map(touch,gameMode&&!panelCapture&&!settings.visible&&!settings.developerVisible&&VrSettings::gameFocused(),gameplay);
                 settings.selectedWeapon=mapped.selectedWeapon;
                 motionInput.publish(mapped);
                 for(int i=0;i<2;++i){XrActionStateGetInfo get{XR_TYPE_ACTION_STATE_GET_INFO};get.action=trigger;get.subactionPath=handPaths[i];XrActionStateFloat value{XR_TYPE_ACTION_STATE_FLOAT};XR(xrGetActionStateFloat(r.session,&get,&value));
@@ -295,7 +296,7 @@ int main(int argc,char** argv) {
                         XrActionStatePose grip{XR_TYPE_ACTION_STATE_POSE};XR(xrGetActionStatePose(r.session,&gripInfo,&grip));
                         amalur::PosePacket packet;packet.tick=GetTickCount64();packet.gameMode=gameMode?(settings.interfaceView?3u:1u):0u;
                         constexpr XrSpaceLocationFlags required=XR_SPACE_LOCATION_ORIENTATION_VALID_BIT|XR_SPACE_LOCATION_POSITION_VALID_BIT|XR_SPACE_LOCATION_ORIENTATION_TRACKED_BIT|XR_SPACE_LOCATION_POSITION_TRACKED_BIT;
-                        packet.valid=grip.isActive&&(hand.locationFlags&required)==required;
+                        packet.valid=!panelCapture&&!settings.developerVisible&&grip.isActive&&(hand.locationFlags&required)==required;
                         packet.orientation[0]=hand.pose.orientation.x;packet.orientation[1]=hand.pose.orientation.y;packet.orientation[2]=hand.pose.orientation.z;packet.orientation[3]=hand.pose.orientation.w;
                         packet.position[0]=hand.pose.position.x;packet.position[1]=hand.pose.position.y;packet.position[2]=hand.pose.position.z;
                         packet.worldScale=settings.scale;packet.recenter=settings.recenter;
@@ -303,7 +304,7 @@ int main(int argc,char** argv) {
                     }
                     if(frames%90==0)std::cout<<"Hand="<<i<<" flags="<<hand.locationFlags<<" xyz="<<hand.pose.position.x<<','<<hand.pose.position.y<<','<<hand.pose.position.z<<"\n";
                 }
-            } else {pressed={};motionInput.publish(touchMapper.map({},false));if(trackingMode){amalur::PosePacket invalid;leftHand.publish(invalid);rightHand.publish(invalid);}}
+            } else {pressed={};settings.pollDeveloperControllers({},false,developer.busy());motionInput.publish(touchMapper.map({},false));if(trackingMode){amalur::PosePacket invalid;leftHand.publish(invalid);rightHand.publish(invalid);}}
             std::array<XrCompositionLayerProjectionView,2> projectionViews{};
             bool render=fs.shouldRender&&count==2&&(state.viewStateFlags&XR_VIEW_STATE_POSITION_VALID_BIT)&&(state.viewStateFlags&XR_VIEW_STATE_ORIENTATION_VALID_BIT);
             amalur::PosePacket gameFrame;
