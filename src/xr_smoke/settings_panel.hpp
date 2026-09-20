@@ -1,6 +1,7 @@
 #pragma once
 #include "vr_settings.hpp"
 #include <vector>
+#include "developer_tools.hpp"
 
 // An OpenXR quad keeps text readable independently of game render resolution.
 // GDI supplies the font rasterizer; no input injection or game HUD patch needed.
@@ -19,9 +20,29 @@ public:
         font=CreateFontW(-29,0,0,0,FW_NORMAL,FALSE,FALSE,FALSE,DEFAULT_CHARSET,OUT_DEFAULT_PRECIS,CLIP_DEFAULT_PRECIS,ANTIALIASED_QUALITY,DEFAULT_PITCH,L"Segoe UI");
         title=CreateFontW(-43,0,0,0,FW_SEMIBOLD,FALSE,FALSE,FALSE,DEFAULT_CHARSET,OUT_DEFAULT_PRECIS,CLIP_DEFAULT_PRECIS,ANTIALIASED_QUALITY,DEFAULT_PITCH,L"Segoe UI");pixels.resize(width*height*4);
     }
-    XrCompositionLayerQuad draw(ID3D11DeviceContext* context,XrSpace view,const VrSettings& s,float ipd,unsigned eyeWidth,unsigned eyeHeight,unsigned sourceWidth,unsigned sourceHeight,bool tracking,int stereoStatus){
+    XrCompositionLayerQuad draw(ID3D11DeviceContext* context,XrSpace view,const VrSettings& s,float ipd,unsigned eyeWidth,unsigned eyeHeight,unsigned sourceWidth,unsigned sourceHeight,bool tracking,int stereoStatus,const DeveloperTools* developer=nullptr){
         RECT all{0,0,width,height};HBRUSH background=CreateSolidBrush(RGB(14,21,31));FillRect(dc,&all,background);DeleteObject(background);SetBkMode(dc,TRANSPARENT);SelectObject(dc,title);SetTextColor(dc,RGB(237,242,250));
         auto text=[&](int x,int y,const std::wstring& value){TextOutW(dc,x,y,value.c_str(),static_cast<int>(value.size()));};
+        if(s.developerVisible&&developer){
+            text(42,28,L"AMALUR VR  /  DEVELOPER");SelectObject(dc,font);
+            SetTextColor(dc,RGB(116,194,217));text(42,95,L"F11 / Esc: close    Up / Down: select    Enter: run once");
+            SetTextColor(dc,RGB(220,228,237));
+            text(42,150,L"Use disposable saves. Actions can affect autosaves.");
+            for(int i=0;i<amalur::developer::rows;++i){
+                int y=220+i*49;
+                if(i==s.developerRow){RECT row{24,y-5,width-24,y+37};HBRUSH h=CreateSolidBrush(RGB(34,67,88));FillRect(dc,&row,h);DeleteObject(h);}
+                SetTextColor(dc,developer->busy()?RGB(130,143,156):RGB(227,235,244));
+                std::wstring label=i==0?L"Connect / check Lua framework":i==1?L"Spawn one wolf":std::wstring(L"Give ")+amalur::developer::weapons[i-2].label;
+                text(44,y,label);
+            }
+            SetTextColor(dc,RGB(159,177,195));
+            const wchar_t* destinations[]={L"Inventory",L"Primary weapon",L"Secondary weapon"};
+            text(42,810,std::wstring(L"Left / Right: give to ")+destinations[s.developerDestination]);
+            text(42,855,L"Independent left / right weapons are not available yet.");
+            SetTextColor(dc,RGB(116,194,217));
+            RECT statusRect{42,925,width-42,1080};
+            DrawTextW(dc,developer->status.c_str(),-1,&statusRect,DT_LEFT|DT_WORDBREAK|DT_NOPREFIX);
+        }else{
         text(42,28,L"AMALUR VR  /  SETTINGS");SelectObject(dc,font);text(810,42,s.selectedWeapon?L"SECONDARY":L"PRIMARY");SetTextColor(dc,RGB(116,194,217));text(42,90,L"*: open / close    Arrows: select / adjust (panel only)");
         text(42,130,L"Ctrl + Home: reset row    Ctrl + R: recenter    Auto-saved");
         wchar_t line[256];swprintf_s(line,L"Headset IPD: %.1f mm (runtime)   |   %s",ipd,s.interfaceView?L"Interface View":(tracking?L"6DoF active":L"Menu view - F10 enables tracking"));SetTextColor(dc,RGB(200,208,220));text(42,195,line);
@@ -37,6 +58,7 @@ public:
         SetTextColor(dc,RGB(159,177,195));text(42,932,L"Depth strength is not calibrated IPD. Hardware IPD uses Quest's dial.");
         swprintf_s(line,L"Stereo control: %s   |   F7 recenter   F10 tracking   F12 exit",stereoStatus==0?L"connected":L"waiting / unavailable");text(42,973,line);
         text(42,1014,L"XR scale changes output only. Source resolution requires game restart.");
+        }
         GdiFlush();auto in=static_cast<unsigned char*>(bits);bool bgra=format==DXGI_FORMAT_B8G8R8A8_UNORM||format==DXGI_FORMAT_B8G8R8A8_UNORM_SRGB;
         for(size_t j=0;j<pixels.size();j+=4){pixels[j]=in[j+(bgra?0:2)];pixels[j+1]=in[j+1];pixels[j+2]=in[j+(bgra?2:0)];pixels[j+3]=200;}
         uint32_t index{};XrSwapchainImageAcquireInfo a{XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO};XR(xrAcquireSwapchainImage(chain,&a,&index));XrSwapchainImageWaitInfo wait{XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO};wait.timeout=XR_INFINITE_DURATION;XR(xrWaitSwapchainImage(chain,&wait));context->UpdateSubresource(images[index].texture,0,nullptr,pixels.data(),width*4,0);XrSwapchainImageReleaseInfo release{XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO};XR(xrReleaseSwapchainImage(chain,&release));

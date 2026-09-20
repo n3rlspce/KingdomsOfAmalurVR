@@ -68,7 +68,7 @@ function dev.wolf(distance)
     return dev.spawn('wolf_forest', distance)
 end
 
--- Any resolvable item simtype; weapon example below. Equip using the inventory UI.
+-- Any resolvable item simtype; weapon example below.
 function dev.give(name, quantity)
     if quantity == nil then quantity = 1 end
     quantity = integer(quantity, 1, 20, 'quantity')
@@ -82,4 +82,19 @@ end
 
 function dev.sword()
     return dev.give('sword2h_unique12f', 1)
+end
+
+-- Native inventory slots: 0 primary, 1 secondary. These are not VR hands.
+function dev.give_and_equip(name, slot)
+    slot = integer(slot, 0, 1, 'weapon slot')
+    local find = require_function(PLAYER and PLAYER.get_item_index, 'PLAYER.get_item_index')
+    local equip = require_function(PLAYER and PLAYER.equip, 'PLAYER.equip')
+    local id = simtype(name)
+    dev.give(name, 1)
+    local item = find(id)
+    if item == nil or item == false or item == -1 then
+        fail('item granted but not available to equip; do not repeat the grant')
+    end
+    equip(item, slot)
+    return 'grant/equip submitted: ' .. name .. ' slot ' .. slot
 end

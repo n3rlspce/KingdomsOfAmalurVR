@@ -1,5 +1,42 @@
 # Developer commands
 
+## Direct startup (independent of the Lua framework)
+
+`build-fast-start.ps1 -GameDirectory <game> -Python <python>` stages a rebuilt
+`patch_0.pak`, preserving the installed patch's other assets. The patch bypasses
+the splash input/debounce gates through the existing profile-acquisition path.
+Once the main menu is initialized and visible with a latest save, it calls the
+game's own `continue_last_save` once. Save compatibility checks and asynchronous
+load completion remain in the original game code. No sleeps or key presses are
+used. No save leaves the ordinary menu available; failed loads are not retried.
+
+`install-fast-start.ps1 -GameDirectory <game> -PackageDirectory <staged folder>`
+installs only while the game is closed. It backs up the original archive and
+renames the two publisher-logo videos so they are not opened at startup. Run the
+same command with `-Undo` to restore all three original files. Hash checks refuse
+unexpected revisions or overwriting subsequent archive changes. A live startup
+test is still required; offline checks cannot establish engine loading behavior.
+Do not publish the generated archive or extracted game assets.
+
+`python tools/developer/check_fast_start.py` tests the emitted startup logic.
+The builder also verifies lossless asset parsing and archive round trips.
+
+## F11 panel
+
+Build `tools/developer/build.ps1`, then build the XR bridge into the same output
+directory. F11 opens the headset panel; Up/Down selects one wolf or one of nine
+weapon types. Left/Right chooses inventory, primary weapon, or secondary weapon.
+Enter submits one action; Escape/F11 closes. The two native weapon slots are
+independent of future left/right VR hand support.
+
+The panel/transport still requires the external Lua framework console and live
+validation. Select Connect before sending commands. Missing dependencies produce
+an error without sending anything. Do not assume the installed game has this
+framework. `reserve-f11.ps1` stages an INI with conflicting F11 bindings moved to
+modified key combinations; `install-stereo.ps1` applies the same reservation.
+
+## Lua commands
+
 Standalone Lua commands for the **Re-Reckoning Mod framework and F2 Console**.
 These dependencies are not bundled or installed by this tool. Engine integration
 is pending live validation; offline tests validate command dispatch and guards.
@@ -16,16 +53,19 @@ amalur_dev.sword()
 
 Run one command at a time. Loading the file defines commands only. `wolf()` requests
 one `wolf_forest` 500 game units ahead; `sword()` requests one `sword2h_unique12f`.
-Use the normal inventory menu to equip it. For chosen internal names:
+For chosen internal names:
 
 ```lua
 amalur_dev.spawn('wolf_forest', 500)
 amalur_dev.give('sword2h_unique12f', 1)
+amalur_dev.give_and_equip('sword2h_unique12f', 0) -- primary (1 = secondary)
 ```
 
 The engine resolves names through `SIMTYPE_ID`. Resolution alone does not prove
 that a type is a creature, a weapon, loaded, or safe for the current area. There is
-no universal valid-asset catalog or automatic equip support yet. The commands
+no universal valid-asset catalog. Equip uses the native inventory's item-index
+lookup and two-argument slot assignment. If lookup fails after a grant, the tool
+reports that partial outcome instead of granting again. The commands
 report submission, not verified in-game success. Distance is limited to 100–2000
 game units; grants to 1–20 items. There is no retry loop or automatic action.
 

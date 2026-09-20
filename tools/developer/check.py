@@ -67,6 +67,23 @@ def main():
         ok = result[0] if isinstance(result, tuple) else result
         assert not ok, f'Unexpectedly accepted: {call}'
         lua.execute('assert(#mutations == 0)')
+    lua.execute('''
+        PLAYER.get_item_index = function(id) assert(id == 202); return 73 end
+        PLAYER.equip = function(...) record('equip', ...) end
+        for slot = 0, 1 do
+            amalur_dev.give_and_equip('sword2h_unique12f', slot)
+            assert(#mutations == 2 and mutations[1][1] == 'grant')
+            assert(mutations[2][1] == 'equip' and mutations[2][2] == 73)
+            assert(mutations[2][3] == slot)
+            mutations = {}
+        end
+        assert(not pcall(amalur_dev.give_and_equip, 'sword2h_unique12f', 2))
+        assert(#mutations == 0)
+        PLAYER.get_item_index = function() return -1 end
+        assert(not pcall(amalur_dev.give_and_equip, 'sword2h_unique12f', 0))
+        assert(#mutations == 1 and mutations[1][1] == 'grant')
+        mutations = {}
+    ''')
     for setup, call in [
         ('get_player = function() return nil end', 'amalur_dev.wolf()'),
         ('get_player = function() return nil end', 'amalur_dev.sword()'),
