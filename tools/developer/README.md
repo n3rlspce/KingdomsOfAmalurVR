@@ -2,6 +2,11 @@
 
 ## Direct startup (independent of the Lua framework)
 
+**Runtime failure: disabled.** A menu crash with `function expected instead of
+table` occurred with version 2 and Mod Framework installed together. Both were
+rolled back; the cause has not been isolated. Do not reinstall either startup
+package as a working fix. Offline emitter tests did not establish engine validity.
+
 `build-fast-start.ps1 -GameDirectory <game> -Python <python>` stages a rebuilt
 `patch_0.pak`, preserving the installed patch's other assets. The patch bypasses
 the splash input/debounce gates through the existing profile-acquisition path.
