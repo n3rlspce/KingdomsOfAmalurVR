@@ -109,6 +109,7 @@ int main(int argc,char** argv) {
     amalur::HudSettingsChannel menuSettings{L"Local\\AmalurMenuSettingsV1",L"Local\\AmalurMenuSettingsMutexV1"};
     amalur::GripSettingsChannel gripSettings;
     SettingsPanel panel;
+    DeveloperTools developer;
     if(gameMode)settings.captureInput();
     amalur::PoseChannel poses;
     amalur::MotionInputChannel motionInput;
@@ -236,7 +237,7 @@ int main(int argc,char** argv) {
                 std::cout<<"Game process exited; closing VR bridge.\n";
                 break;
             }
-            if(gameMode){settings.poll();if(gripSettings.open(true))gripSettings.publish(settings.gripPitch,settings.gripYaw,settings.gripRoll,settings.weaponX,settings.weaponY,settings.weaponZ);if(hudSettings.open(true))hudSettings.publish(settings.hudSize);if(menuSettings.open(true))menuSettings.publish(amalur::menuScale(settings.interfaceScale)*.8f);if(settings.renderScale!=activeRenderScale){createEyeChains();activeRenderScale=settings.renderScale;}}
+            if(gameMode){settings.poll();DWORD developerPid=GetTickCount()-latestRig.tick<1000?latestRig.pid:0;developer.poll(developerPid);if(settings.developerAction>=0){developer.submit(settings.developerAction,developerPid);settings.developerAction=-1;}if(gripSettings.open(true))gripSettings.publish(settings.gripPitch,settings.gripYaw,settings.gripRoll,settings.weaponX,settings.weaponY,settings.weaponZ);if(hudSettings.open(true))hudSettings.publish(settings.hudSize);if(menuSettings.open(true))menuSettings.publish(amalur::menuScale(settings.interfaceScale)*.8f);if(settings.renderScale!=activeRenderScale){createEyeChains();activeRenderScale=settings.renderScale;}}
             XrEventDataBuffer event{XR_TYPE_EVENT_DATA_BUFFER};
             for(;;) {
                 auto result=xrPollEvent(instance,&event); if(result==XR_EVENT_UNAVAILABLE) break; xrcheck(result,"xrPollEvent");
@@ -282,7 +283,7 @@ int main(int argc,char** argv) {
                 if(rigStatus.transfer(freshRig,false)&&freshRig.version==1)latestRig=freshRig;
                 const bool gameplay=!settings.interfaceView&&latestRig.pid&&GetTickCount()-latestRig.tick<1000
                     &&latestRig.weaponRemaps>0&&latestRig.paused==0;
-                auto mapped=touchMapper.map(touch,gameMode&&!settings.visible&&VrSettings::gameFocused(),gameplay);
+                auto mapped=touchMapper.map(touch,gameMode&&!settings.visible&&!settings.developerVisible&&VrSettings::gameFocused(),gameplay);
                 settings.selectedWeapon=mapped.selectedWeapon;
                 motionInput.publish(mapped);
                 for(int i=0;i<2;++i){XrActionStateGetInfo get{XR_TYPE_ACTION_STATE_GET_INFO};get.action=trigger;get.subactionPath=handPaths[i];XrActionStateFloat value{XR_TYPE_ACTION_STATE_FLOAT};XR(xrGetActionStateFloat(r.session,&get,&value));
@@ -359,10 +360,10 @@ int main(int argc,char** argv) {
             std::vector<const XrCompositionLayerBaseHeader*> submitted;
             if(render){if(gameMode&&!trackedGame){submitted.push_back(menuLayers[0]);submitted.push_back(menuLayers[1]);}else submitted.push_back(layers[0]);}
             XrCompositionLayerQuad settingsLayer{};
-            if(gameMode&&settings.visible&&fs.shouldRender){
+            if(gameMode&&(settings.visible||settings.developerVisible)&&fs.shouldRender){
                 auto a=views[0].pose.position,b=views[1].pose.position;
                 float ipd=count==2?1000.f*std::sqrt((a.x-b.x)*(a.x-b.x)+(a.y-b.y)*(a.y-b.y)+(a.z-b.z)*(a.z-b.z)):0.f;
-                settingsLayer=panel.draw(context.Get(),r.view,settings,ipd,outputWidth,outputHeight,stereoSource.sourceWidth(),stereoSource.sourceHeight(),trackedGame,gameFrame.stereoStatus);
+                settingsLayer=panel.draw(context.Get(),r.view,settings,ipd,outputWidth,outputHeight,stereoSource.sourceWidth(),stereoSource.sourceHeight(),trackedGame,gameFrame.stereoStatus,&developer);
                 submitted.push_back(reinterpret_cast<XrCompositionLayerBaseHeader*>(&settingsLayer));
             }
             XrFrameEndInfo end{XR_TYPE_FRAME_END_INFO};end.displayTime=fs.predictedDisplayTime;end.environmentBlendMode=XR_ENVIRONMENT_BLEND_MODE_OPAQUE;end.layerCount=static_cast<uint32_t>(submitted.size());end.layers=submitted.data();XR(xrEndFrame(r.session,&end));if(render)++frames;

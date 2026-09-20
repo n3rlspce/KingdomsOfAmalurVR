@@ -5,6 +5,7 @@
 #include <cstdio>
 #include <string>
 #include <stdexcept>
+#include "../tracking/developer_commands.hpp"
 
 struct VrSettings {
     float hudSize=.8f,interfaceScale=1.f;
@@ -14,6 +15,8 @@ struct VrSettings {
     static constexpr int rowCount=17;
     float depth=20,convergence=100,alignment=26.5f/2560.f,scale=100,fov=130,renderScale=1,sharpness=.25f;
     bool swap=true,visible=false;int selected=0;unsigned recenter=0;
+    bool developerVisible=false,developerTogglePending=false;
+    int developerRow=0,developerAction=-1,developerDestination=0;
     bool previous[256]{},held[256]{},consumed[256]{};std::wstring path;
     HHOOK keyboard{};bool togglePending{};inline static VrSettings* input{};
     static bool starKey(DWORD key){
@@ -30,10 +33,11 @@ struct VrSettings {
             bool down=event==WM_KEYDOWN||event==WM_SYSKEYDOWN;
             bool arrow=key==VK_UP||key==VK_DOWN||key==VK_LEFT||key==VK_RIGHT;
             bool toggle=starKey(key);
+            bool developerToggle=key==VK_F11&&!(GetAsyncKeyState(VK_CONTROL)&0x8000)&&!(GetAsyncKeyState(VK_MENU)&0x8000)&&!(GetAsyncKeyState(VK_SHIFT)&0x8000);
             bool interfaceToggle=key=='I'&&(GetAsyncKeyState(VK_CONTROL)&0x8000);
-            bool take=gameFocused()&&(arrow||toggle||interfaceToggle||(input->visible&&(key==VK_HOME||key=='R')&&(GetAsyncKeyState(VK_CONTROL)&0x8000)));
+            bool take=gameFocused()&&(arrow||toggle||developerToggle||interfaceToggle||(input->developerVisible&&(key==VK_RETURN||key==VK_ESCAPE))||(input->visible&&(key==VK_HOME||key=='R')&&(GetAsyncKeyState(VK_CONTROL)&0x8000)));
             if(!down&&input->consumed[key])take=true;
-            if(take){if(down&&interfaceToggle&&!input->consumed[key])input->interfacePending=!input->interfacePending;if(down&&toggle&&!input->consumed[key])input->togglePending=!input->togglePending;input->held[key]=down;input->consumed[key]=down;return 1;}
+            if(take){if(down&&developerToggle&&!input->consumed[key])input->developerTogglePending=!input->developerTogglePending;if(down&&interfaceToggle&&!input->consumed[key])input->interfacePending=!input->interfacePending;if(down&&toggle&&!input->consumed[key])input->togglePending=!input->togglePending;input->held[key]=down;input->consumed[key]=down;return 1;}
         }}return CallNextHookEx(nullptr,code,event,data);
     }
     void captureInput(){input=this;keyboard=SetWindowsHookExW(WH_KEYBOARD_LL,hook,GetModuleHandleW(nullptr),0);if(!keyboard)throw std::runtime_error("Panel keyboard capture failed");}
@@ -56,8 +60,19 @@ struct VrSettings {
     void poll(){
         MSG message;while(PeekMessageW(&message,nullptr,0,0,PM_REMOVE)){TranslateMessage(&message);DispatchMessageW(&message);}
         if(interfacePending){interfaceView=!interfaceView;interfacePending=false;}
-        if(togglePending){visible=!visible;togglePending=false;}
+        if(togglePending){visible=!visible;developerVisible=false;togglePending=false;}
+        if(developerTogglePending){developerVisible=!developerVisible;visible=false;developerTogglePending=false;}
         bool up=edge(VK_UP),down=edge(VK_DOWN),left=edge(VK_LEFT),right=edge(VK_RIGHT),home=edge(VK_HOME),r=edge('R');
+        bool enter=edge(VK_RETURN),escape=edge(VK_ESCAPE);
+        if(developerVisible){
+            if(escape){developerVisible=false;return;}
+            if(up)developerRow=(developerRow+amalur::developer::rows-1)%amalur::developer::rows;
+            if(down)developerRow=(developerRow+1)%amalur::developer::rows;
+            if(left)developerDestination=(developerDestination+amalur::developer::destinations-1)%amalur::developer::destinations;
+            if(right)developerDestination=(developerDestination+1)%amalur::developer::destinations;
+            if(enter)developerAction=developerRow+(developerRow>=2?developerDestination*amalur::developer::rows:0);
+            return;
+        }
         if(!visible)return;
         if(r)++recenter;
         if(up)selected=(selected+rowCount-1)%rowCount;if(down)selected=(selected+1)%rowCount;

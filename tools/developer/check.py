@@ -8,6 +8,8 @@ def main():
     lua = LuaRuntime(unpack_returned_tuples=True)
     lua.execute('''
         mutations = {}
+        math.floor = nil -- The game's math table does not expose standard floor.
+        amalur_dispatch_state = {executing = true}
         function record(kind, ...)
             table.insert(mutations, {kind, ...})
         end
@@ -17,6 +19,7 @@ def main():
             if name == 'sword2h_unique12f' then return 202 end
         end
         ACTOR = {
+            get_level_requirement = function() return 12 end,
             get_angle = function(player) assert(player == 42); return 90 end,
             get_point_near_object = function(player, angle, distance)
                 assert(player == 42 and angle == 90)
@@ -24,15 +27,64 @@ def main():
             end
         }
         PROTO = {create_actor = function(...) record('spawn', ...) end}
-        PLAYER = {cheat_add_item = function(...) record('grant', ...) end}
+        equipped = {}
+        PLAYER = {
+            get_equipped_object_from_equip_type_and_slot = function(kind, slot)
+                assert(kind == 'Weapon'); return equipped[slot]
+            end,
+            cheat_add_item = function(...) record('grant', ...) end,
+            get_item_index = function(...) record('find', ...) end,
+            equip = function(...) record('equip', ...) end
+        }
         interfaceLibrary = {ftp_notify = function(...) record('notify', ...) end}
     ''')
     source = Path(__file__).with_name('amalur_dev.lua').read_text(encoding='utf-8')
     lua.execute(source)
     lua.execute('assert(#mutations == 0)')
     lua.execute('''
-        amalur_dev.probe()
-        assert(#mutations == 1 and mutations[1][1] == 'notify')
+        ACTOR.set_unkillable = function(...) record('unkillable', ...) end
+        amalur_dispatch_state.executing = false
+        assert(not pcall(amalur_dev.enable_invincibility))
+        assert(#mutations == 0)
+        amalur_dispatch_state.executing = true
+        amalur_dev.enable_invincibility()
+        assert(#mutations == 1 and mutations[1][1] == 'unkillable')
+        assert(mutations[1][2] == 42 and mutations[1][3] == true)
+        mutations = {}
+        ACTOR.set_unkillable = nil
+        assert(not pcall(amalur_dev.enable_invincibility))
+        assert(#mutations == 0)
+    ''')
+    lua.execute('''
+        local level = 2
+        PLAYER.get_level = function() return level end
+        PLAYER.set_level = function(value) level = value; record('level', value) end
+        assert(amalur_dev.prepare_test_character() == 'developer character level: 40')
+        assert(#mutations == 1 and mutations[1][1] == 'level')
+        amalur_dev.prepare_test_character()
+        assert(#mutations == 1)
+        mutations = {}
+    ''')
+    lua.execute('''
+        amalur_dispatch_state.executing = false
+        assert(not pcall(amalur_dev.wolf))
+        assert(not pcall(amalur_dev.sword))
+        assert(not pcall(amalur_dev.equip_existing, 'sword2h_unique12f', 0))
+        assert(not pcall(amalur_dev.give_and_equip, 'sword2h_unique12f', 0))
+        assert(#mutations == 0)
+        amalur_dispatch_state.executing = true
+    ''')
+    lua.execute('''
+        local original_player = get_player
+        get_player = function() error('probe must not call engine functions') end
+        assert(amalur_dev.probe() == 'developer APIs present; gameplay operations untested')
+        assert(#mutations == 0)
+        get_player = original_player
+        local original_equip = PLAYER.equip
+        PLAYER.equip = nil
+        assert(not pcall(amalur_dev.probe))
+        assert(#mutations == 0)
+        PLAYER.equip = original_equip
         mutations = {}
         amalur_dev.wolf()
         local call = mutations[1]
@@ -67,6 +119,39 @@ def main():
         ok = result[0] if isinstance(result, tuple) else result
         assert not ok, f'Unexpectedly accepted: {call}'
         lua.execute('assert(#mutations == 0)')
+    lua.execute('''
+        PLAYER.get_item_index = function(id) assert(id == 202); return 73 end
+        PLAYER.equip = function(item,slot) record('equip',item,slot); equipped[slot]=item end
+        for slot = 0, 1 do
+            amalur_dev.equip_existing('sword2h_unique12f', slot)
+            assert(#mutations == 1 and mutations[1][1] == 'equip')
+            assert(mutations[1][2] == 73 and mutations[1][3] == slot)
+            mutations = {}
+        end
+        local working_equip = PLAYER.equip
+        PLAYER.equip = function() end
+        equipped[0] = nil
+        assert(not pcall(amalur_dev.equip_existing, 'sword2h_unique12f', 0))
+        assert(#mutations == 0)
+        PLAYER.equip = working_equip
+        assert(not pcall(amalur_dev.equip_existing, 'sword2h_unique12f', 2))
+        assert(#mutations == 0)
+        for slot = 0, 1 do
+            amalur_dev.give_and_equip('sword2h_unique12f', slot)
+            assert(#mutations == 2 and mutations[1][1] == 'grant')
+            assert(mutations[2][1] == 'equip' and mutations[2][2] == 73)
+            assert(mutations[2][3] == slot)
+            mutations = {}
+        end
+        assert(not pcall(amalur_dev.give_and_equip, 'sword2h_unique12f', 2))
+        assert(#mutations == 0)
+        PLAYER.get_item_index = function() return -1 end
+        assert(not pcall(amalur_dev.equip_existing, 'sword2h_unique12f', 0))
+        assert(#mutations == 0)
+        assert(not pcall(amalur_dev.give_and_equip, 'sword2h_unique12f', 0))
+        assert(#mutations == 1 and mutations[1][1] == 'grant')
+        mutations = {}
+    ''')
     for setup, call in [
         ('get_player = function() return nil end', 'amalur_dev.wolf()'),
         ('get_player = function() return nil end', 'amalur_dev.sword()'),
@@ -94,6 +179,12 @@ def main():
         lua.execute('assert(#mutations == 0)')
     lua.execute(source)
     lua.execute('assert(#mutations == 0)')
+    lua.execute('''
+        math.huge = nil
+        ACTOR.get_point_near_object = function() return {500,0,0} end
+        amalur_dev.wolf()
+        assert(#mutations == 1 and mutations[1][1] == 'spawn')
+    ''')
     print('PASS: load/reload inert; exact spawn/grant dispatch; bounds, invalid IDs, '
           'missing engine/player and invalid positions reject without mutation.')
 

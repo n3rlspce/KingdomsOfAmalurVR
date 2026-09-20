@@ -1,0 +1,5 @@
+{
+  "scripts": [
+    {"trigger": "minimap_win", "path": ".\\mods\\amalur_dispatch.lua"}
+  ]
+}

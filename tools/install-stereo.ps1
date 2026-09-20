@@ -43,8 +43,9 @@ $ini = $ini -replace '(?m)^;proxy_d3d11=.*$', 'proxy_d3d11=amalur_camera.dll'
 $ini = $ini -replace '(?m)^load_library_redirect\s*=.*$', 'load_library_redirect=0'
 $ini = $ini -replace '(?m)^;width=1280.*$', 'width=3840'
 $ini = $ini -replace '(?m)^;height=720.*$', 'height=2160'
-$ini = $ini -replace '(?m)^reload_config\s*=.*$', 'reload_config = no_modifiers VK_F11'
-$ini = $ini -replace '(?m)^reload_fixes\s*=.*$', 'reload_fixes = no_modifiers VK_F11'
+$ini = $ini -replace '(?m)^reload_config\s*=.*$', 'reload_config = CTRL SHIFT VK_F11'
+$ini = $ini -replace '(?m)^reload_fixes\s*=.*$', 'reload_fixes = CTRL SHIFT VK_F11'
+$ini = $ini -replace '(?mi)^(key\s*=\s*)no_modifiers\s+(VK_)?F11\s*$', '${1}CTRL ALT VK_F11'
 $ini = $ini -replace '(?m)^\[Constants\]', "[Constants]`r`nx2 = 0.67`r`ny2 = 0.70`r`nz2 = 0.60`r`nw2 = 0.25`r`nx3 = 0"
 $ini += @'
 
