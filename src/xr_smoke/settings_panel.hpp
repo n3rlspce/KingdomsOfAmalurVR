@@ -33,7 +33,7 @@ public:
                 int y=220+i*40;
                 if(i==s.developerRow){RECT row{24,y-5,width-24,y+37};HBRUSH h=CreateSolidBrush(RGB(34,67,88));FillRect(dc,&row,h);DeleteObject(h);}
                 SetTextColor(dc,developer->busy()?RGB(130,143,156):RGB(227,235,244));
-                std::wstring label=i==0?L"Connect / check game dispatcher":i==1?L"Spawn one wolf":i==amalur::developer::rows?L"Dev character: level 40":i==amalur::developer::rows+1?L"Enable invincibility":std::wstring(amalur::developer::weapons[i-2].label);
+                std::wstring label=i==0?L"Reconnect (connection is automatic)":i==1?L"Spawn one wolf":i==amalur::developer::rows?L"Dev character: level 40":i==amalur::developer::rows+1?L"Enable invincibility":std::wstring(amalur::developer::weapons[i-2].label);
                 text(44,y,label);
             }
             SetTextColor(dc,RGB(159,177,195));

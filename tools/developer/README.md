@@ -47,9 +47,12 @@ Hold both thumbstick clicks with both sticks centered for 0.65 seconds to open
 or close the headset panel. Release the controls after opening. Flick the left
 stick up/down to select a row and left/right to choose the weapon destination.
 A or the right trigger runs the selected action once; B closes the panel.
-Connect is the first row, followed by one wolf, nine weapon types, the unique
-greatsword, dev character level 40, and invincibility. Connect first in each game
-session. Close game inventory/pause menus before sending actions.
+The panel connects automatically once fresh telemetry reports loaded, unpaused
+gameplay. The passive connection retries at most every five seconds until it
+succeeds. No grants, equips, spawns or other mutations are retried automatically.
+Reconnect remains the first row, followed by one wolf, nine weapon types, the
+unique greatsword, dev character level 40, and invincibility. Close game inventory/
+pause menus before sending actions.
 
 F11 and the keyboard remain available. Up/Down selects rows; Left/Right selects Give to inventory,
 Give + equip primary/secondary, or Equip existing primary/secondary. Enter sends

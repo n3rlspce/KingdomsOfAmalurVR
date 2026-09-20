@@ -1,5 +1,6 @@
 #pragma once
 #include "../tracking/developer_commands.hpp"
+#include "../tracking/developer_connection.hpp"
 #include <fstream>
 
 // Console transport is a separate process: attaching must not steal the XR
@@ -7,8 +8,9 @@
 class DeveloperTools {
     PROCESS_INFORMATION child{};
     std::wstring receipt;
+    amalur::DeveloperConnection automaticConnection;
 public:
-    std::wstring status=L"Connect to the Lua framework before spawning or granting.";
+    std::wstring status=L"Waiting for gameplay; the developer panel connects automatically.";
     bool connected=false;
     DWORD connectedPid{};
     ~DeveloperTools(){if(child.hThread)CloseHandle(child.hThread);if(child.hProcess)CloseHandle(child.hProcess);}
@@ -16,7 +18,7 @@ public:
     void submit(int row,DWORD gamePid){
         if(busy())return;
         if(!gamePid){status=L"No loaded game detected.";connected=false;return;}
-        if(row!=0&&(!connected||connectedPid!=gamePid)){status=L"Select Connect first.";connected=false;return;}
+        if(row!=0&&(!connected||connectedPid!=gamePid)){status=L"Waiting for automatic connection. Try the action once connected.";connected=false;return;}
         if(amalur::developer::command(row).empty())return;
         wchar_t exe[MAX_PATH]{};GetModuleFileNameW(nullptr,exe,MAX_PATH);
         std::wstring folder=exe;folder=folder.substr(0,folder.find_last_of(L"\\/")+1);
@@ -31,9 +33,12 @@ public:
         connectedPid=gamePid;
         status=row==0?L"Connecting...":L"Request pending; do not repeat.";
     }
-    void poll(DWORD gamePid){
+    void poll(DWORD gamePid,bool gameplayReady=false){
         if(connectedPid&&gamePid!=connectedPid)connected=false;
-        if(!busy())return;
+        if(!busy()){
+            if(automaticConnection.due(gamePid,gameplayReady,false,connected,GetTickCount64()))submit(0,gamePid);
+            return;
+        }
         if(WaitForSingleObject(child.hProcess,0)!=WAIT_OBJECT_0)return;
         DWORD code=1;GetExitCodeProcess(child.hProcess,&code);
         std::wifstream file(receipt);std::wstring result;std::getline(file,result);

@@ -1,6 +1,7 @@
 #define NOMINMAX
 #include "../../src/xr_smoke/vr_settings.hpp"
 #include "../../src/tracking/developer_commands.hpp"
+#include "../../src/tracking/developer_connection.hpp"
 #include <cstdio>
 
 int main(){
@@ -72,6 +73,15 @@ int main(){
     amalur::TouchMapper mapper;mapper.map({},true);t={};t.rightTrigger=1;
     auto blocked=mapper.map(t,false);if(blocked.active||blocked.buttons)return 38;
     auto held=mapper.map(t,true);if(held.buttons)return 39;
-    puts("PASS: keyboard and controller panel; hold/open, navigation, slots, one-shot actions, busy/focus/release guards and gameplay suppression.");
+    amalur::DeveloperConnection connection;
+    if(connection.due(0,true,false,false,0)||connection.due(42,false,false,false,0))return 40;
+    if(connection.due(42,true,true,false,0))return 41;
+    if(!connection.due(42,true,false,false,0))return 42;
+    if(connection.due(42,true,false,false,4999))return 43;
+    if(!connection.due(42,true,false,false,5000))return 44;
+    if(connection.due(42,true,false,true,10000))return 45;
+    if(!connection.due(43,true,false,false,5001))return 46;
+    if(connection.due(0,true,false,false,5002)||connection.due(43,true,false,false,5003))return 47;
+    puts("PASS: panel controller guards and gameplay suppression; automatic Connect waits for gameplay, throttles retries, stops on success and resets for a new process.");
     return 0;
 }
