@@ -14,7 +14,7 @@ end
 
 local function integer(value, low, high, name)
     if type(value) ~= 'number' or value ~= value or
-       value < low or value > high or value ~= math.floor(value) then
+       value < low or value > high or value % 1 ~= 0 then
         fail(name .. ' must be an integer from ' .. low .. ' to ' .. high)
     end
     return value

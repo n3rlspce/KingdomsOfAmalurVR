@@ -8,6 +8,7 @@ def main():
     lua = LuaRuntime(unpack_returned_tuples=True)
     lua.execute('''
         mutations = {}
+        math.floor = nil -- The game's math table does not expose standard floor.
         function record(kind, ...)
             table.insert(mutations, {kind, ...})
         end

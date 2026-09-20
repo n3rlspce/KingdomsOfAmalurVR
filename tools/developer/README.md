@@ -56,6 +56,13 @@ engine, display a notification, or establish that gameplay operations are safe.
 The earlier notification probe triggered a native `WINDOW.create_window` error
 even though the framework returned a successful Lua acknowledgement.
 
+Live retest: the passive probe and one `sword1h_common01a` grant returned Lua
+acknowledgements without a new runtime error. Inventory confirmation remains
+pending. A subsequent `sword2h_unique12f` grant produced a native runtime error,
+no acknowledgement, and stale telemetry. Its outcome is unknown; do not repeat
+that grant. This does not yet distinguish an asset problem from an unsafe call
+context. Spawning and automatic equip remain unvalidated.
+
 Standalone Lua commands for the **Re-Reckoning Mod framework and F2 Console**.
 These dependencies are not bundled or installed by this tool. Engine integration
 is pending live validation; offline tests validate command dispatch and guards.
