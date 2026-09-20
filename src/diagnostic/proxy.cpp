@@ -14,6 +14,7 @@
 #include "../tracking/pose_channel.hpp"
 #include "../tracking/camera_pose.hpp"
 #include "../tracking/camera_inputs.hpp"
+#include "../tracking/menu_view.hpp"
 #include "../tracking/stereo_frame.hpp"
 using Microsoft::WRL::ComPtr;
 
@@ -54,6 +55,7 @@ static std::atomic<unsigned> cameraLogs{0};
 static std::atomic<bool> headTracking{true};
 static std::atomic<bool> firstPerson{true};
 static std::atomic<bool> interfaceView{false};
+static std::atomic<bool> fullscreenMenuView{false};
 static std::atomic<bool> coherentCamera{true};
 static amalur::CameraInputs cameraInputs;
 static void restoreCameraInputs(){
@@ -160,9 +162,13 @@ static bool hook(void* target,void* detour,void** original,const char* name) {
 #include "player_rig.hpp"
 #include "motion_controls.hpp"
 #include "game_pause.hpp"
+#include "near_clip.hpp"
 #include "weapon_control.hpp"
 #include "body_visibility.hpp"
 #include "rig_probe.hpp"
+#include "melee_probe.hpp"
+#include "melee_contact.hpp"
+#include "dialogue_camera.hpp"
 static bool isCameraCore(unsigned char* core) {
     // Core is embedded at BHG::Camera +8. Other embedded camera structures also
     // use the rebuild routine, so never infer ownership from its address alone.
@@ -175,9 +181,11 @@ static bool isCameraCore(unsigned char* core) {
 }
 static void __fastcall onRebuildCamera(void* camera,void*) {
     auto core=static_cast<unsigned char*>(camera);
+    near_clip::restore(core);
     // Rebuild may be requested several times in one frame. Do not feed our
     // previous offset back into the engine rig on a subsequent request.
     if(cameraInputs.core==core)restoreCameraInputs();
+    if(dialogue_camera::rebuild(camera))return;
     if(!isCameraCore(core)){realRebuildCamera(camera);return;}
     mgs5vr::Vec3 selectedPlayerPosition{};
     const bool selectedPlayerValid=firstPerson.load()&&player_rig::location(camera,selectedPlayerPosition);
@@ -200,6 +208,7 @@ static void __fastcall onRebuildCamera(void* camera,void*) {
     static bool hadTrackedCamera=false;
     amalur::PosePacket packet;
     bool tracked=false;
+    mgs5vr::Vec3 bodyFacing{};bool bodyFacingValid=false;
     amalur::CameraPose originalCamera{},adjusted{};
     memcpy(&originalCamera.eye,core+4,sizeof(mgs5vr::Vec3));
     memcpy(&originalCamera.target,core+0x14,sizeof(mgs5vr::Vec3));
@@ -208,7 +217,7 @@ static void __fastcall onRebuildCamera(void* camera,void*) {
         auto now=GetTickCount64();
         if(now-lastOpenAttempt>1000){poseChannel.open(false);lastOpenAttempt=now;}
         const auto currentPresent=presents.load();
-        if(sampledPresent!=currentPresent){renderPose={};poseChannel.read(renderPose);sampledPresent=currentPresent;}
+        if(sampledPresent!=currentPresent){renderPose={};poseChannel.read(renderPose);weapon_control::sampleHands();sampledPresent=currentPresent;}
         packet=renderPose;
         const bool objectInterface=packet.valid&&packet.tick<=now&&now-packet.tick<250&&packet.gameMode==3;
         interfaceView.store(objectInterface);
@@ -230,14 +239,22 @@ static void __fastcall onRebuildCamera(void* camera,void*) {
                     if(useFirstPerson){
                         headingAnchor.get(heading,heading);
                         const auto controls=motion_controls::viewControls();
+                        if(dialogue_camera::resumeGameplay){
+                            snapHeading.rebase(controls.session,controls.turnYawDegrees);
+                            dialogue_camera::resumeGameplay=false;
+                        }
                         heading=snapHeading.apply(heading,controls.session,controls.turnYawDegrees);
                     }else {headingAnchor.reset();snapHeading.reset();}
                     if(amalur::normalize(heading)){
+                        // Native facing is quantized and updates the skeleton
+                        // on the simulation cadence. Do not drive it with HMD
+                        // yaw: looking around must not step the whole body.
+                        bodyFacing=heading;bodyFacingValid=true;
                         auto handCamera=baseCamera;
-                        handCamera.eye=playerPosition+mgs5vr::Vec3{0,0,185}+heading*15.f;
+                        handCamera.eye=playerPosition+mgs5vr::Vec3{0,0,195}+heading*25.f;
                         handCamera.target=handCamera.eye+heading*200.f;handCamera.up={0,0,1};
                         if(!bodyHeading.valid){mgs5vr::Vec3 seed;bodyHeading.get(heading,seed);}
-                        weapon_control::sample(handCamera,origin,packet.worldScale,centeredGeneration+bridgeCenter);
+                        weapon_control::sample(handCamera,origin,packet.worldScale,centeredGeneration+bridgeCenter,{packet.position[0],packet.position[1],packet.position[2]});
                         if(useFirstPerson)baseCamera=handCamera;
                     }
                 }
@@ -253,11 +270,11 @@ static void __fastcall onRebuildCamera(void* camera,void*) {
     motion_controls::sampleMovementBasis(adjusted.target-adjusted.eye,bodyForward,
         tracked&&firstPerson.load()&&bodyHeadingValid&&packet.gameMode==1&&game_pause::sample(true)==0,GetTickCount64());
     // Keep the collar/shoulders behind the eyes without moving the camera with gait.
-    auto anchor=adjusted.eye-bodyForward*18.f;
+    auto anchor=adjusted.eye-(bodyFacingValid?bodyFacing:bodyForward)*18.f;
     arm_rig::sampleBody(anchor,bodyHeadingValid&&packet.gameMode?packet.tick:0);
     if(tracked){
-        if(firstPerson.load()&&bodyHeadingValid&&packet.gameMode&&motion_controls::gameFocused())
-            player_rig::face(camera,bodyForward);
+        if(firstPerson.load()&&bodyFacingValid&&packet.gameMode&&motion_controls::gameFocused())
+            player_rig::face(camera,bodyFacing);
         memcpy(core+4,&adjusted.eye,sizeof(mgs5vr::Vec3));
         memcpy(core+0x14,&adjusted.target,sizeof(mgs5vr::Vec3));
         memcpy(core+0x1c0,&adjusted.up,sizeof(mgs5vr::Vec3));
@@ -278,7 +295,8 @@ static void __fastcall onRebuildCamera(void* camera,void*) {
     // A wide symmetric image is cropped to each runtime eye's asymmetric FOV.
     if(tracked&&packet.gameMode&&dirty)*reinterpret_cast<float*>(core+0x2c)=packet.horizontalFov;
     else if(enabled&&dirty)*reinterpret_cast<float*>(core+0x2c)=original*.85f;
-    realRebuildCamera(camera);
+    {near_clip::Scope near(camera,tracked&&selectedPlayerValid&&firstPerson.load()&&!interfaceView.load()&&packet.gameMode==1);
+    realRebuildCamera(camera);}
     camera_status::publish(packet,tracked,selectedPlayerValid,selectedPlayerPosition,originalCamera,tracked?adjusted:originalCamera,core);
     camera_audit::camera(core,packet);
     if(tracked&&packet.gameMode){
@@ -316,9 +334,12 @@ static void installCameraProbe() {
     const unsigned char expected[]={0x83,0xec,0x40,0x53,0x8b,0xd9,0xf6,0x83,0x5e,0x03,0,0,1};
     if(memcmp(target,expected,sizeof(expected))!=0){log("Camera signature mismatch; native hook skipped\n");return;}
     player_rig::install();
+    near_clip::install();
     weapon_control::install();
     body_visibility::install();
     rig_probe::install();
+    melee_probe::install();
+    melee_contact::install();
     motion_controls::install();
     hook(target,reinterpret_cast<void*>(&onRebuildCamera),reinterpret_cast<void**>(&realRebuildCamera),"CameraRebuild (F9 FOV probe)");
 }
@@ -394,7 +415,12 @@ static void publishStereoFrame(const amalur::PosePacket& metadata){
 static HRESULT STDMETHODCALLTYPE onPresent(IDXGISwapChain* chain,UINT sync,UINT flags) {
     // Take the completed draw's attribution before Present permits recording
     // the next image. Keep this local packet through geo-11's stereo copy.
-    const auto presentedPose=(flags&DXGI_PRESENT_TEST)?amalur::PosePacket{}:render_pose::beginPresent();
+    auto presentedPose=(flags&DXGI_PRESENT_TEST)?amalur::PosePacket{}:render_pose::beginPresent();
+    if(!(flags&DXGI_PRESENT_TEST)){
+        const bool menu=amalur::fullscreenMenu(game_pause::sample(true),motion_controls::dialogueActive.load());
+        fullscreenMenuView.store(menu&&presentedPose.valid&&headTracking.load()&&!interfaceView.load());
+        amalur::presentAsMenu(presentedPose,menu);
+    }
     hud_size::poll();
     source_resolution::apply(chain);
     applyStereoSettings(chain);

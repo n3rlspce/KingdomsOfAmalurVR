@@ -11,6 +11,11 @@ inline GetCapabilities originalCapabilities{};
 inline amalur::MotionInputChannel channel;
 inline SRWLOCK lock=SRWLOCK_INIT;
 inline DWORD packetNumber{};
+inline std::atomic<bool> contactEnabled{false};
+inline std::atomic<bool> dialogueActive{false};
+inline std::atomic<uint64_t> daggerSeen{},swingUntil{};
+inline std::atomic<bool> meleeContextReady{false};
+inline std::atomic<uint64_t> primaryAttackUntil{};
 inline amalur::MovementBasis movementBasis;
 inline void sampleMovementBasis(mgs5vr::Vec3 nativeForward,mgs5vr::Vec3 headForward,bool enabled,uint64_t tick){
     AcquireSRWLockExclusive(&lock);
@@ -46,15 +51,17 @@ inline DWORD WINAPI getState(DWORD index,XINPUT_STATE* state){
     if(active){
         // Item radial directions belong to its screen-space selector, not the
         // world. Rotate virtual locomotion only; keep physical pads untouched.
-        if(!(motion.buttons&XINPUT_GAMEPAD_LEFT_SHOULDER))
+        if(!dialogueActive.load()&&!(motion.buttons&XINPUT_GAMEPAD_LEFT_SHOULDER))
             movementBasis.transform(motion.moveX,motion.moveY,GetTickCount64());
         amalur::mergeMotion(state->Gamepad,motion);
+        if(!dialogueActive.load()&&contactEnabled.load()&&(state->Gamepad.wButtons&XINPUT_GAMEPAD_X)&&state->Gamepad.bRightTrigger<XINPUT_GAMEPAD_TRIGGER_THRESHOLD)
+            primaryAttackUntil.store(GetTickCount64()+2000);
     }
-    amalur::locomotionFacing.observe(gameFocused(),state->Gamepad.sThumbLX,
+    amalur::locomotionFacing.observe(gameFocused()&&!dialogueActive.load(),state->Gamepad.sThumbLX,
         state->Gamepad.sThumbLY,GetTickCount64());
     // Observe the final merged pad so a physical controller gets the same dodge
     // protection. RT+A is an ability, not a dodge; don't seize native facing.
-    amalur::dodgeFacing.observe(gameFocused(),
+    amalur::dodgeFacing.observe(gameFocused()&&!dialogueActive.load(),
         (state->Gamepad.wButtons&XINPUT_GAMEPAD_A)!=0,
         state->Gamepad.bRightTrigger>XINPUT_GAMEPAD_TRIGGER_THRESHOLD,GetTickCount64());
     static DWORD lastInput=~0u;

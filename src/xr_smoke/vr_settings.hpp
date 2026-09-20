@@ -10,7 +10,8 @@ struct VrSettings {
     float hudSize=.8f,interfaceScale=1.f;
     bool interfaceView=false,interfacePending=false;
     float gripPitch{},gripYaw{},gripRoll{};unsigned selectedWeapon{};
-    static constexpr int rowCount=14;
+    float weaponX{},weaponY{},weaponZ{}; // centimetres, weapon-only offsets
+    static constexpr int rowCount=17;
     float depth=20,convergence=100,alignment=26.5f/2560.f,scale=100,fov=130,renderScale=1,sharpness=.25f;
     bool swap=true,visible=false;int selected=0;unsigned recenter=0;
     bool previous[256]{},held[256]{},consumed[256]{};std::wstring path;
@@ -40,8 +41,18 @@ struct VrSettings {
     VrSettings(){wchar_t p[MAX_PATH]{};GetModuleFileNameW(nullptr,p,MAX_PATH);path=p;path=path.substr(0,path.find_last_of(L"\\/")+1)+L"amalur-vr.ini";load();}
     bool edge(int key){bool now=held[key];bool result=now&&!previous[key];previous[key]=now;return result;}
     float read(const wchar_t* key,float fallback,float low,float high){wchar_t text[64]{};GetPrivateProfileStringW(L"VR",key,L"",text,64,path.c_str());if(!*text)return fallback;wchar_t* end{};float value=wcstof(text,&end);return end!=text&&!*end&&std::isfinite(value)?std::clamp(value,low,high):fallback;}
-    void load(){interfaceScale=read(L"InterfaceScale",1,.5f,1.5f);gripPitch=read(L"GripPitch",0,-180,180);gripYaw=read(L"GripYaw",0,-180,180);gripRoll=read(L"GripRoll",0,-180,180);hudSize=read(L"HudSize",.8f,.4f,1.2f);depth=read(L"Depth",20,0,100);convergence=read(L"Convergence",100,1,1000);alignment=read(L"Alignment",26.5f/2560.f,-.05f,.05f);scale=read(L"WorldUnitsPerMeter",100,10,500);fov=read(L"HorizontalFov",130,100,150);renderScale=read(L"RenderScale",1,.5f,1.5f);sharpness=read(L"Sharpness",.25f,0,1);swap=read(L"SwapEyes",1,0,1)>.5f;}
-    void save(){auto put=[&](const wchar_t* key,float value){wchar_t text[64];swprintf_s(text,L"%.7g",value);WritePrivateProfileStringW(L"VR",key,text,path.c_str());};put(L"InterfaceScale",interfaceScale);put(L"GripPitch",gripPitch);put(L"GripYaw",gripYaw);put(L"GripRoll",gripRoll);put(L"HudSize",hudSize);put(L"Depth",depth);put(L"Convergence",convergence);put(L"Alignment",alignment);put(L"WorldUnitsPerMeter",scale);put(L"HorizontalFov",fov);put(L"RenderScale",renderScale);put(L"Sharpness",sharpness);put(L"SwapEyes",swap?1.f:0.f);}
+    void migrateGripBasis(){
+        if(read(L"GripBasisVersion",0,0,1)>=1)return;
+        // Old trims compensated for a controller/bone-axis mismatch. Retain
+        // their values for reference, but do not stack them on the fixed basis.
+        const wchar_t* keys[]{L"PreviousGripPitch",L"PreviousGripYaw",L"PreviousGripRoll",L"PreviousWeaponX",L"PreviousWeaponY",L"PreviousWeaponZ"};
+        const float values[]{gripPitch,gripYaw,gripRoll,weaponX,weaponY,weaponZ};
+        for(unsigned i=0;i<6;++i){wchar_t text[64];swprintf_s(text,L"%.7g",values[i]);WritePrivateProfileStringW(L"VR",keys[i],text,path.c_str());}
+        gripPitch=gripYaw=gripRoll=weaponX=weaponY=weaponZ=0;
+        save();
+    }
+    void load(){weaponX=read(L"WeaponX",0,-20,20);weaponY=read(L"WeaponY",0,-20,20);weaponZ=read(L"WeaponZ",0,-20,20);interfaceScale=read(L"InterfaceScale",1,.5f,1.5f);gripPitch=read(L"GripPitch",0,-180,180);gripYaw=read(L"GripYaw",0,-180,180);gripRoll=read(L"GripRoll",0,-180,180);hudSize=read(L"HudSize",.8f,.4f,1.2f);depth=read(L"Depth",20,0,100);convergence=read(L"Convergence",100,1,1000);alignment=read(L"Alignment",26.5f/2560.f,-.05f,.05f);scale=read(L"WorldUnitsPerMeter",100,10,500);fov=read(L"HorizontalFov",130,100,150);renderScale=read(L"RenderScale",1,.5f,1.5f);sharpness=read(L"Sharpness",.25f,0,1);swap=read(L"SwapEyes",1,0,1)>.5f;migrateGripBasis();}
+    void save(){auto put=[&](const wchar_t* key,float value){wchar_t text[64];swprintf_s(text,L"%.7g",value);WritePrivateProfileStringW(L"VR",key,text,path.c_str());};put(L"GripBasisVersion",1);put(L"WeaponX",weaponX);put(L"WeaponY",weaponY);put(L"WeaponZ",weaponZ);put(L"InterfaceScale",interfaceScale);put(L"GripPitch",gripPitch);put(L"GripYaw",gripYaw);put(L"GripRoll",gripRoll);put(L"HudSize",hudSize);put(L"Depth",depth);put(L"Convergence",convergence);put(L"Alignment",alignment);put(L"WorldUnitsPerMeter",scale);put(L"HorizontalFov",fov);put(L"RenderScale",renderScale);put(L"Sharpness",sharpness);put(L"SwapEyes",swap?1.f:0.f);}
     void poll(){
         MSG message;while(PeekMessageW(&message,nullptr,0,0,PM_REMOVE)){TranslateMessage(&message);DispatchMessageW(&message);}
         if(interfacePending){interfaceView=!interfaceView;interfacePending=false;}
@@ -66,6 +77,9 @@ struct VrSettings {
         case 11:gripRoll=home?0:std::clamp(gripRoll+direction*5.f,-180.f,180.f);break;
         case 12:interfaceView=home?false:!interfaceView;break;
         case 13:interfaceScale=home?1.f:std::clamp(interfaceScale+direction*.05f,.5f,1.5f);break;
+        case 14:weaponX=home?0:std::clamp(weaponX+direction*.5f,-20.f,20.f);break;
+        case 15:weaponY=home?0:std::clamp(weaponY+direction*.5f,-20.f,20.f);break;
+        case 16:weaponZ=home?0:std::clamp(weaponZ+direction*.5f,-20.f,20.f);break;
         }save();
     }
 };

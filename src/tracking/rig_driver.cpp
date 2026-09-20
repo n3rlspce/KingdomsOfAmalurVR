@@ -20,6 +20,7 @@ int main(int argc,char** argv){
     bool turnSweep=argc>1&&!strcmp(argv[1],"--turn-sweep");
     bool interfaceCheck=argc>1&&!strcmp(argv[1],"--interface-check");
     bool meleeCheck=argc>1&&!strcmp(argv[1],"--melee-check");
+    bool contactCheck=argc>1&&!strcmp(argv[1],"--contact-check");
     bool mouseAttack=argc>1&&!strcmp(argv[1],"--mouse-attack");
     if(!observe&&!statusOnly&&bridgeRunning()){std::fprintf(stderr,"Stop the XR bridge before desktop replay.\n");return 2;}
     amalur::RigStatusChannel status;amalur::RigStatus state;
@@ -34,7 +35,7 @@ int main(int argc,char** argv){
     auto start=GetTickCount64(),lastPrint=uint64_t{};auto initial=state.weaponRemaps;auto initialSlot=state.nativeWeaponSlot;bool drewWeapon=false;
     if(turnSweep)std::printf("{\"test\":\"turn-sweep-v1\",\"startTick\":%llu,\"durationMs\":18500}\n",start);
     std::puts(meleeCheck?"{\"test\":\"dagger-attachment-v1\",\"durationMs\":8000,\"attacks\":false}":cameraSweep?"{\"test\":\"camera-sweep-v1\",\"durationMs\":4000,\"maxAngleDegrees\":20}":"{\"test\":\"rig-replay-v1\",\"units\":\"game units\"}");
-    while(GetTickCount64()-start<(preview?600000:meleeCheck?8000:turnSweep?18500:interfaceCheck?9000:cameraSweep?4000:2500)){
+    while(GetTickCount64()-start<(preview?600000:contactCheck?12000:meleeCheck?8000:turnSweep?18500:interfaceCheck?9000:cameraSweep?4000:2500)){
         auto now=GetTickCount64();float t=static_cast<float>(now-start)/1000.f;
         if(!status.transfer(state,false)){Sleep(8);continue;}
         if(GetTickCount()-state.tick>1000||(!observe&&!preview&&!state.focused)){std::fprintf(stderr,"Stopped: game telemetry stale or focus lost.\n");return 5;}
@@ -42,7 +43,7 @@ int main(int argc,char** argv){
         if(initialSlot==8&&state.nativeWeaponSlot==5)drewWeapon=true;
         const char* phase=preview?"preview":meleeCheck?(t<2?"hands_static":t<6?"hands_sweep":"hands_return"):turnSweep?"turn_sweep":cameraSweep?"camera_sweep":t<.3f?"idle":t<.7f?"attack":t<2?"hand_sweep":"recover";
         if(!observe){
-            amalur::PosePacket p;p.valid=1;p.gameMode=(preview||meleeCheck)?2:1;p.recenter=(preview||meleeCheck)?1000:0;p.tick=now;p.position[1]=1.7f;
+            amalur::PosePacket p;p.valid=1;p.gameMode=(preview||meleeCheck||contactCheck)?2:1;p.recenter=(preview||meleeCheck||contactCheck)?1000:0;p.tick=now;p.position[1]=1.7f;
             if(interfaceCheck&&t>=3&&t<6)p.gameMode=3;
             if(cameraSweep){
                 p.recenter=1001;
@@ -63,10 +64,15 @@ int main(int argc,char** argv){
             head.publish(p);p.position[0]=.25f;p.position[1]=1.3f;p.position[2]=-.35f;
             if(cameraSweep){p.orientation[0]=p.orientation[1]=p.orientation[2]=0;p.orientation[3]=1;}
             if(preview||meleeCheck){p.position[0]=.65f;p.position[1]=1.3f;p.position[2]=0;}
+            if(contactCheck){
+                p.position[0]=.25f;p.position[1]=.7f;p.position[2]=-.55f;
+                if(t>=5&&t<11){float s=std::fmod(t-5,2.f);if(s<.6f)p.position[0]+=.3f*std::sin(s*10.4719755f);}
+            }
             if(meleeCheck&&t>=2&&t<6){p.position[1]+=.2f*std::sin((t-2)*3.14159265f);p.orientation[2]=std::sin(.45f*std::sin((t-2)*3.14159265f));p.orientation[3]=std::sqrt(1-p.orientation[2]*p.orientation[2]);}
-            if(!preview&&!meleeCheck&&!cameraSweep&&!turnSweep&&!interfaceCheck&&t>=.7f&&t<2){p.position[0]+=.15f*std::sin((t-.7f)*4);p.orientation[1]=std::sin(.4f*std::sin(t));p.orientation[3]=std::sqrt(1-p.orientation[1]*p.orientation[1]);}
+            if(!preview&&!meleeCheck&&!contactCheck&&!cameraSweep&&!turnSweep&&!interfaceCheck&&t>=.7f&&t<2){p.position[0]+=.15f*std::sin((t-.7f)*4);p.orientation[1]=std::sin(.4f*std::sin(t));p.orientation[3]=std::sqrt(1-p.orientation[1]*p.orientation[1]);}
             hand.publish(p);amalur::MotionInputPacket m;m.active=1;
             if(preview||meleeCheck){p.position[0]=-.65f;p.position[1]=1.15f;p.orientation[2]=-p.orientation[2];leftHand.publish(p);}
+            if(contactCheck){p.position[0]=-.25f;leftHand.publish(p);}
             if(mouseAttack){bool down=t>=.3f&&t<.65f;if(down!=mouse.down){mouse_event(down?MOUSEEVENTF_LEFTDOWN:MOUSEEVENTF_LEFTUP,0,0,0,0);mouse.down=down;}}
             else if(!preview&&!meleeCheck&&!cameraSweep&&!turnSweep&&!interfaceCheck&&t>=.3f&&t<.65f)m.buttons=XINPUT_GAMEPAD_X;
             if(turnSweep&&t>=6){const float phase=std::fmod(t-6,2.5f);if(phase>=.8f&&phase<1.5f)m.moveY=.65f;}

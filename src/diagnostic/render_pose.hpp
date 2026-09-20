@@ -84,6 +84,9 @@ static void draw(ID3D11DeviceContext* context){
     if(match&&epoch.load()==current){drawn=match->pose;haveDrawn=true;acceptedEpoch=current;++matches;}
     ReleaseSRWLockExclusive(&lock);
 }
+static amalur::PosePacket currentDrawn(){
+    AcquireSRWLockShared(&lock);auto pose=haveDrawn?drawn:amalur::PosePacket{};ReleaseSRWLockShared(&lock);return pose;
+}
 static amalur::PosePacket beginPresent(){
     AcquireSRWLockExclusive(&lock);
     auto pose=haveDrawn?drawn:amalur::PosePacket{};

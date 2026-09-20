@@ -41,9 +41,14 @@ float4 ps(V i):SV_TARGET{
  float2 uv=float2(.5+.5*ray.x*parameters.x+parameters.w,.5-.5*ray.y*parameters.y);
  if(any(uv<0)||any(uv>1))return float4(0,0,0,1);
  uv.x=(uv.x+parameters.z)*.5;
- float3 color=source.Sample(linearClamp,uv).rgb;
  uint w,h;source.GetDimensions(w,h);float2 texel=1.0/float2(w,h);
- float3 neighbors=source.Sample(linearClamp,uv+float2(texel.x,0)).rgb+source.Sample(linearClamp,uv-float2(texel.x,0)).rgb+source.Sample(linearClamp,uv+float2(0,texel.y)).rgb+source.Sample(linearClamp,uv-float2(0,texel.y)).rgb;
+ // Clamp every filter tap to this eye's texel centres, not the whole SBS
+ // texture. Bilinear filtering/sharpening must never read the adjacent eye.
+ float2 eyeMin=float2(parameters.z*.5+texel.x*.5,texel.y*.5);
+ float2 eyeMax=float2((parameters.z+1)*.5-texel.x*.5,1-texel.y*.5);
+ uv=clamp(uv,eyeMin,eyeMax);
+ float3 color=source.Sample(linearClamp,uv).rgb;
+ float3 neighbors=source.Sample(linearClamp,clamp(uv+float2(texel.x,0),eyeMin,eyeMax)).rgb+source.Sample(linearClamp,clamp(uv-float2(texel.x,0),eyeMin,eyeMax)).rgb+source.Sample(linearClamp,clamp(uv+float2(0,texel.y),eyeMin,eyeMax)).rgb+source.Sample(linearClamp,clamp(uv-float2(0,texel.y),eyeMin,eyeMax)).rgb;
  return float4(saturate(color+quality.x*(color-neighbors*.25)),1);
 })";
         Ptr<ID3DBlob> vertex,pixel,error;

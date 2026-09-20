@@ -19,11 +19,14 @@
 #include <string>
 #include <vector>
 #include "../tracking/pose_channel.hpp"
+#include "../tracking/menu_view.hpp"
 #include "../tracking/motion_input.hpp"
 #include "../tracking/rig_status.hpp"
 #include "../tracking/grip_settings.hpp"
 #include "stereo_source.hpp"
 #include "render_pose.hpp"
+#include "menu_anchor.hpp"
+#include "game_lifetime.hpp"
 using Microsoft::WRL::ComPtr;
 using namespace DirectX;
 static XrInstance instance{};
@@ -65,6 +68,28 @@ int main(int argc,char** argv) {
         bool good=std::abs(std::abs(dot)-1)<.0001f&&std::abs(result.position.x-5.032f)<.0001f&&std::abs(result.position.y-6)<.0001f&&std::abs(result.position.z-7)<.0001f;
         std::cout<<(good?"PASS":"FAIL")<<": rendered pose preserves eye cant and offset across 90-degree head rotation\n";return good?0:1;
     }
+    if(argc==2&&std::string(argv[1])=="--menu-anchor"){
+        MenuAnchor anchor;XrPosef first{{0,0,0,1},{1,2,3}};
+        anchor.update(first,0);auto initial=anchor.pose;
+        const float v=std::sqrt(.5f);XrPosef turned{{0,v,0,v},{4,5,6}};
+        anchor.update(turned,0);
+        bool good=anchor.pose.position.x==initial.position.x&&anchor.pose.position.z==initial.position.z&&anchor.pose.orientation.w==1;
+        anchor.update(turned,1);
+        good=good&&std::abs(anchor.pose.position.x-2)<.0001f&&std::abs(anchor.pose.position.z-6)<.0001f;
+        anchor.close();anchor.update(first,1);
+        good=good&&anchor.pose.position.x==1&&anchor.pose.position.y==2&&anchor.pose.position.z==1;
+        for(float pitch:{-.6f,0.f,.7f})for(float roll:{-.4f,0.f,.5f}){
+            XMFLOAT4 tilt;XMStoreFloat4(&tilt,XMQuaternionRotationRollPitchYaw(pitch,.8f,roll));
+            XrPosef tilted{{tilt.x,tilt.y,tilt.z,tilt.w},{1,2,3}};
+            anchor.close();anchor.update(tilted,2);
+            good=good&&std::abs(anchor.pose.orientation.x)<1e-5f&&std::abs(anchor.pose.orientation.z)<1e-5f
+                &&std::abs(anchor.pose.orientation.y-std::sin(.4f))<1e-5f&&std::abs(anchor.pose.position.y-2)<1e-5f;
+        }
+        XMFLOAT4 vertical;XMStoreFloat4(&vertical,XMQuaternionRotationRollPitchYaw(XM_PIDIV2,0,0));
+        anchor.update({{vertical.x,vertical.y,vertical.z,vertical.w},{1,2,3}},3);
+        good=good&&std::isfinite(anchor.pose.position.x)&&std::abs(anchor.pose.orientation.y-std::sin(.4f))<1e-5f;
+        std::cout<<(good?"PASS":"FAIL")<<": menu stays fixed, upright and eye-level across pitch/roll/yaw; recenter/reopening and vertical-look fallback pass\n";return good?0:1;
+    }
     bool live=false,trackingMode=false,gameMode=false;
     // Measured at geo-11 separation=20: distant geometry has ~53 px disparity
     // across 2560 px eyes, with near disparity of the opposite depth sign.
@@ -81,6 +106,7 @@ int main(int argc,char** argv) {
     Resources r;
     VrSettings settings;
     amalur::HudSettingsChannel hudSettings;
+    amalur::HudSettingsChannel menuSettings{L"Local\\AmalurMenuSettingsV1",L"Local\\AmalurMenuSettingsMutexV1"};
     amalur::GripSettingsChannel gripSettings;
     SettingsPanel panel;
     if(gameMode)settings.captureInput();
@@ -91,6 +117,7 @@ int main(int argc,char** argv) {
     amalur::PoseChannel leftHand(L"Local\\AmalurVRLeftHandV3",L"Local\\AmalurVRLeftHandMutexV3");
     amalur::PoseChannel rightHand(L"Local\\AmalurVRRightHandV3",L"Local\\AmalurVRRightHandMutexV3");
     StereoSource stereoSource;
+    MenuAnchor menuAnchor;
     try {
         uint32_t n{}; XR(xrEnumerateInstanceExtensionProperties(nullptr,0,&n,nullptr));
         std::vector<XrExtensionProperties> ext(n,{XR_TYPE_EXTENSION_PROPERTIES});
@@ -198,13 +225,18 @@ int main(int argc,char** argv) {
         D3D11_RASTERIZER_DESC rd{};rd.FillMode=D3D11_FILL_SOLID;rd.CullMode=D3D11_CULL_NONE;rd.DepthClipEnable=TRUE;ComPtr<ID3D11RasterizerState> raster;hrcheck(device->CreateRasterizerState(&rd,&raster));
         bool running=false,focused=false,done=false; unsigned frames=0; std::array<bool,2> pressed{}; const auto start=std::chrono::steady_clock::now();
         if(gameMode&&!stereoSource.initialize(device.Get()))throw std::runtime_error("Stereo presenter initialization failed");
+        GameLifetime gameLifetime;
         const int duration=trackingMode?1800:30;
         const int stopKey=trackingMode?VK_F12:VK_ESCAPE;
         std::cout<<"Session test: "<<duration<<" seconds, "<<(trackingMode?"F12":"ESC")<<" exits.\n";
         if(gameMode)std::cout<<"EXPERIMENTAL GAME STEREO: menu panel until F10 camera is active; waiting for geo-11 Katanga surface. Scale/eye convergence uncalibrated.\n";
         else if(trackingMode)std::cout<<"POSE BRIDGE: desktop camera diagnostic only. The headset still shows triangles, not Amalur.\n";
         while(!done && std::chrono::steady_clock::now()-start<std::chrono::seconds(duration) && !(GetAsyncKeyState(stopKey)&0x8000)) {
-            if(gameMode){settings.poll();if(gripSettings.open(true))gripSettings.publish(settings.gripPitch,settings.gripYaw,settings.gripRoll);if(hudSettings.open(true))hudSettings.publish(settings.hudSize);if(settings.renderScale!=activeRenderScale){createEyeChains();activeRenderScale=settings.renderScale;}}
+            if(gameMode&&gameLifetime.gameExited()){
+                std::cout<<"Game process exited; closing VR bridge.\n";
+                break;
+            }
+            if(gameMode){settings.poll();if(gripSettings.open(true))gripSettings.publish(settings.gripPitch,settings.gripYaw,settings.gripRoll,settings.weaponX,settings.weaponY,settings.weaponZ);if(hudSettings.open(true))hudSettings.publish(settings.hudSize);if(menuSettings.open(true))menuSettings.publish(amalur::menuScale(settings.interfaceScale)*.8f);if(settings.renderScale!=activeRenderScale){createEyeChains();activeRenderScale=settings.renderScale;}}
             XrEventDataBuffer event{XR_TYPE_EVENT_DATA_BUFFER};
             for(;;) {
                 auto result=xrPollEvent(instance,&event); if(result==XR_EVENT_UNAVAILABLE) break; xrcheck(result,"xrPollEvent");
@@ -280,6 +312,11 @@ int main(int argc,char** argv) {
                 trackedGame=!settings.interfaceView&&sourceReady&&gameFrame.valid&&gameFrame.projectionX>0&&gameFrame.projectionY>0;
                 render=render&&sourceReady;
             }
+            if(gameMode&&render){
+                if(trackedGame)menuAnchor.close();
+                else if((head.locationFlags&(XR_SPACE_LOCATION_ORIENTATION_VALID_BIT|XR_SPACE_LOCATION_POSITION_VALID_BIT))==(XR_SPACE_LOCATION_ORIENTATION_VALID_BIT|XR_SPACE_LOCATION_POSITION_VALID_BIT))menuAnchor.update(head.pose,settings.recenter);
+                else if(!menuAnchor.active)render=false;
+            }
             if(render)for(int i=0;i<2;++i){
                 uint32_t index{};XrSwapchainImageAcquireInfo acquire{XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO};XR(xrAcquireSwapchainImage(r.chains[i],&acquire,&index));XrSwapchainImageWaitInfo wi{XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO};wi.timeout=XR_INFINITE_DURATION;XR(xrWaitSwapchainImage(r.chains[i],&wi));
                 auto texture=images[i][index].texture;D3D11_TEXTURE2D_DESC td{};texture->GetDesc(&td);ComPtr<ID3D11RenderTargetView> target;D3D11_RENDER_TARGET_VIEW_DESC rtv{};rtv.Format=static_cast<DXGI_FORMAT>(format);rtv.ViewDimension=D3D11_RTV_DIMENSION_TEXTURE2D;hrcheck(device->CreateRenderTargetView(texture,&rtv,&target));
@@ -313,10 +350,10 @@ int main(int argc,char** argv) {
             std::array<XrCompositionLayerQuad,2> menu{};
             const XrCompositionLayerBaseHeader* menuLayers[2]{};
             if(gameMode&&!trackedGame&&render)for(int i=0;i<2;++i){
-                menu[i].type=XR_TYPE_COMPOSITION_LAYER_QUAD;menu[i].space=r.view;
+                menu[i].type=XR_TYPE_COMPOSITION_LAYER_QUAD;menu[i].space=r.local;
                 menu[i].eyeVisibility=i==0?XR_EYE_VISIBILITY_LEFT:XR_EYE_VISIBILITY_RIGHT;
-                menu[i].subImage=projectionViews[i].subImage;menu[i].pose.orientation.w=1;menu[i].pose.position.z=-2;
-                const float interfaceScale=settings.interfaceView?settings.interfaceScale:1.f;
+                menu[i].subImage=projectionViews[i].subImage;menu[i].pose=menuAnchor.pose;
+                const float interfaceScale=amalur::menuScale(settings.interfaceScale);
                 menu[i].size={2.f*interfaceScale,1.125f*interfaceScale};menuLayers[i]=reinterpret_cast<const XrCompositionLayerBaseHeader*>(&menu[i]);
             }
             std::vector<const XrCompositionLayerBaseHeader*> submitted;

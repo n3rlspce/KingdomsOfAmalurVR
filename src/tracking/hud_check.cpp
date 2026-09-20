@@ -25,22 +25,24 @@ int main(){
 
     ComPtr<ID3D11Device> device;ComPtr<ID3D11DeviceContext> context;D3D_FEATURE_LEVEL level;
     check(SUCCEEDED(D3D11CreateDevice(nullptr,D3D_DRIVER_TYPE_WARP,nullptr,0,nullptr,0,D3D11_SDK_VERSION,&device,&level,&context)),"WARP device");
-    D3D11_TEXTURE1D_DESC d{};d.Width=1;d.MipLevels=1;d.ArraySize=1;d.Format=DXGI_FORMAT_R32G32B32A32_FLOAT;d.BindFlags=D3D11_BIND_SHADER_RESOURCE;
+    D3D11_TEXTURE1D_DESC d{};d.Width=4;d.MipLevels=1;d.ArraySize=1;d.Format=DXGI_FORMAT_R32G32B32A32_FLOAT;d.BindFlags=D3D11_BIND_SHADER_RESOURCE;
     ComPtr<ID3D11Texture1D> original;ComPtr<ID3D11ShaderResourceView> originalView;
     check(SUCCEEDED(device->CreateTexture1D(&d,nullptr,&original))&&SUCCEEDED(device->CreateShaderResourceView(original.Get(),nullptr,&originalView)),"original slot contents");
     auto ptr=originalView.Get();context->VSSetShaderResources(119,1,&ptr);
-    for(float size:{.4f,.8f,1.2f}){
-        hud_size::requested=size;
-        {hud_size::Binding binding(context.Get(),true);ComPtr<ID3D11ShaderResourceView> current;context->VSGetShaderResources(119,1,&current);
+    for(float size:{.4f,.8f,1.2f})for(bool flat:{false,true})for(bool dialogue:{false,true})for(bool menu:{false,true}){
+        hud_size::requested=size;hud_size::requestedMenu=.6f;
+        {hud_size::Binding binding(context.Get(),true,flat,dialogue,menu);ComPtr<ID3D11ShaderResourceView> current;context->VSGetShaderResources(119,1,&current);
             check(current&&current.Get()!=originalView.Get(),"HUD binding installed");
             ComPtr<ID3D11Resource> resource;current->GetResource(&resource);
             d.Usage=D3D11_USAGE_STAGING;d.BindFlags=0;d.CPUAccessFlags=D3D11_CPU_ACCESS_READ;
             ComPtr<ID3D11Texture1D> staging;check(SUCCEEDED(device->CreateTexture1D(&d,nullptr,&staging)),"readback texture");context->CopyResource(staging.Get(),resource.Get());
             D3D11_MAPPED_SUBRESOURCE mapped{};check(SUCCEEDED(context->Map(staging.Get(),0,D3D11_MAP_READ,0,&mapped)),"GPU setting readback");
-            auto values=static_cast<float*>(mapped.pData);check(std::abs(values[0]-size)<.0001f&&values[1]==1,"GPU receives size and valid marker");context->Unmap(staging.Get(),0);
+            auto values=static_cast<float*>(mapped.pData);check(std::abs(values[0]-(menu&&!dialogue?.6f:size))<.0001f&&values[1]==1,"GPU receives size and valid marker");
+            check(values[2]==(flat?1.f:0.f)&&values[3]==(dialogue?1.f:(menu?2.f:0.f)),"GPU receives flat-view and dialogue transitions even at unchanged size");
+            context->Unmap(staging.Get(),0);
         }
         ComPtr<ID3D11ShaderResourceView> restored;context->VSGetShaderResources(119,1,&restored);check(restored.Get()==originalView.Get(),"caller slot restored");
     }
     {hud_size::Binding binding(context.Get(),false);ComPtr<ID3D11ShaderResourceView> current;context->VSGetShaderResources(119,1,&current);check(current.Get()==originalView.Get(),"ordinary draws unchanged");}
-    puts("PASS: HUD IPC, input/persistence, GPU updates and binding restoration");
+    puts("PASS: HUD IPC, input/persistence, GPU size/dialogue/flat transitions and binding restoration");
 }

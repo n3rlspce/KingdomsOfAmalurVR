@@ -5,7 +5,7 @@
 // An OpenXR quad keeps text readable independently of game render resolution.
 // GDI supplies the font rasterizer; no input injection or game HUD patch needed.
 class SettingsPanel {
-    static constexpr int width=1100,height=1110;
+    static constexpr int width=1100,height=1290;
     XrSwapchain chain{};std::vector<XrSwapchainImageD3D11KHR> images;
     HDC dc{};HBITMAP bitmap{};HGDIOBJ oldBitmap{};HFONT font{},title{};void* bits{};
     std::vector<unsigned char> pixels;DXGI_FORMAT format{};
@@ -26,20 +26,23 @@ public:
         text(42,130,L"Ctrl + Home: reset row    Ctrl + R: recenter    Auto-saved");
         wchar_t line[256];swprintf_s(line,L"Headset IPD: %.1f mm (runtime)   |   %s",ipd,s.interfaceView?L"Interface View":(tracking?L"6DoF active":L"Menu view - F10 enables tracking"));SetTextColor(dc,RGB(200,208,220));text(42,195,line);
         swprintf_s(line,L"Source / eye: %u x %u     XR / eye: %u x %u",sourceWidth,sourceHeight,eyeWidth,eyeHeight);text(42,234,line);
-        const wchar_t* labels[]={L"HUD size",L"Stereo depth strength",L"Convergence (game units)",L"Infinity alignment at 20% depth",L"World units per metre",L"Game horizontal FOV",L"XR render scale",L"Sharpening",L"Reverse source eyes",L"Hand grip pitch (degrees)",L"Hand grip yaw (degrees)",L"Hand grip roll (degrees)",L"Interface View (Ctrl + I)",L"Interface size"};
-        float values[]={s.hudSize*100,s.depth,s.convergence,s.alignment*100,s.scale,s.fov,s.renderScale*100,s.sharpness*100,s.swap?1.f:0.f,s.gripPitch,s.gripYaw,s.gripRoll,s.interfaceView?1.f:0.f,s.interfaceScale*100};
+        const wchar_t* labels[]={L"HUD size",L"Stereo depth strength",L"Convergence (game units)",L"Infinity alignment at 20% depth",L"World units per metre",L"Game horizontal FOV",L"XR render scale",L"Sharpening",L"Reverse source eyes",L"Hand grip pitch (degrees)",L"Hand grip yaw (degrees)",L"Hand grip roll (degrees)",L"Interface View (Ctrl + I)",L"Fullscreen menu size",L"Dagger outward (+) / inward (-), cm",L"Dagger forward (+) / back (-), cm",L"Dagger up (+) / down (-), cm"};
+        float values[]={s.hudSize*100,s.depth,s.convergence,s.alignment*100,s.scale,s.fov,s.renderScale*100,s.sharpness*100,s.swap?1.f:0.f,s.gripPitch,s.gripYaw,s.gripRoll,s.interfaceView?1.f:0.f,s.interfaceScale*100,s.weaponX,s.weaponY,s.weaponZ};
         for(int i=0;i<VrSettings::rowCount;++i){int y=302+i*43;if(i==s.selected){RECT row{24,y-6,width-24,y+37};HBRUSH h=CreateSolidBrush(RGB(34,67,88));FillRect(dc,&row,h);DeleteObject(h);}SetTextColor(dc,RGB(227,235,244));text(44,y,labels[i]);if(i==8||i==12)swprintf_s(line,L"%s",values[i]>0?L"ON":L"OFF");else swprintf_s(line,(i==0||i==13)?L"%.0f%%":L"%.2f",values[i]);text(850,y,line);}
+        static_assert(sizeof(labels)/sizeof(labels[0])==VrSettings::rowCount);
+        static_assert(sizeof(values)/sizeof(values[0])==VrSettings::rowCount);
         // Keyboard-operated slider, matching the panel's existing arrow controls.
         RECT track{360,332,780,338};HBRUSH rail=CreateSolidBrush(RGB(73,91,110));FillRect(dc,&track,rail);DeleteObject(rail);
         int knob=360+static_cast<int>((s.hudSize-.4f)/.8f*420);RECT thumb{knob-5,329,knob+5,341};HBRUSH accent=CreateSolidBrush(RGB(116,194,217));FillRect(dc,&thumb,accent);DeleteObject(accent);
         RECT interfaceTrack{360,891,780,897};HBRUSH interfaceRail=CreateSolidBrush(RGB(73,91,110));FillRect(dc,&interfaceTrack,interfaceRail);DeleteObject(interfaceRail);
         int interfaceKnob=360+static_cast<int>((s.interfaceScale-.5f)*420);RECT interfaceThumb{interfaceKnob-5,888,interfaceKnob+5,900};HBRUSH interfaceAccent=CreateSolidBrush(RGB(116,194,217));FillRect(dc,&interfaceThumb,interfaceAccent);DeleteObject(interfaceAccent);
-        SetTextColor(dc,RGB(159,177,195));text(42,932,L"Depth strength is not calibrated IPD. Hardware IPD uses Quest's dial.");
-        swprintf_s(line,L"Stereo control: %s   |   F7 recenter   F10 tracking   F12 exit",stereoStatus==0?L"connected":L"waiting / unavailable");text(42,973,line);
-        text(42,1014,L"XR scale changes output only. Source resolution requires game restart.");
+        SetTextColor(dc,RGB(159,177,195));text(42,1069,L"Dagger offsets follow each wrist; outward is mirrored for the left hand.");
+        text(42,1112,L"Depth strength is not calibrated IPD. Hardware IPD uses Quest's dial.");
+        swprintf_s(line,L"Stereo control: %s   |   F7 recenter   F10 tracking   F12 exit",stereoStatus==0?L"connected":L"waiting / unavailable");text(42,1153,line);
+        text(42,1194,L"XR scale changes output only. Source resolution requires game restart.");
         GdiFlush();auto in=static_cast<unsigned char*>(bits);bool bgra=format==DXGI_FORMAT_B8G8R8A8_UNORM||format==DXGI_FORMAT_B8G8R8A8_UNORM_SRGB;
         for(size_t j=0;j<pixels.size();j+=4){pixels[j]=in[j+(bgra?0:2)];pixels[j+1]=in[j+1];pixels[j+2]=in[j+(bgra?2:0)];pixels[j+3]=200;}
         uint32_t index{};XrSwapchainImageAcquireInfo a{XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO};XR(xrAcquireSwapchainImage(chain,&a,&index));XrSwapchainImageWaitInfo wait{XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO};wait.timeout=XR_INFINITE_DURATION;XR(xrWaitSwapchainImage(chain,&wait));context->UpdateSubresource(images[index].texture,0,nullptr,pixels.data(),width*4,0);XrSwapchainImageReleaseInfo release{XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO};XR(xrReleaseSwapchainImage(chain,&release));
-        XrCompositionLayerQuad layer{XR_TYPE_COMPOSITION_LAYER_QUAD};layer.layerFlags=XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT|XR_COMPOSITION_LAYER_UNPREMULTIPLIED_ALPHA_BIT;layer.space=view;layer.eyeVisibility=XR_EYE_VISIBILITY_BOTH;layer.subImage.swapchain=chain;layer.subImage.imageRect.extent={width,height};layer.pose.orientation.w=1;layer.pose.position.y=-.55f;layer.pose.position.z=-1.4f;layer.size={.825f,.8325f};return layer;
+        XrCompositionLayerQuad layer{XR_TYPE_COMPOSITION_LAYER_QUAD};layer.layerFlags=XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT|XR_COMPOSITION_LAYER_UNPREMULTIPLIED_ALPHA_BIT;layer.space=view;layer.eyeVisibility=XR_EYE_VISIBILITY_BOTH;layer.subImage.swapchain=chain;layer.subImage.imageRect.extent={width,height};layer.pose.orientation.w=1;layer.pose.position.y=-.55f;layer.pose.position.z=-1.4f;layer.size={.825f,.9675f};return layer;
     }
 };

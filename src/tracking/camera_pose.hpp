@@ -33,6 +33,10 @@ struct HeadingAnchor {
 struct SnapHeading {
     unsigned session{};float baseline{},offset{},angle{};bool valid{};
     void reset(){valid=false;offset=angle=0;}
+    void rebase(unsigned currentSession,float cumulativeDegrees){
+        if(!std::isfinite(cumulativeDegrees))return;
+        session=currentSession;baseline=cumulativeDegrees;offset=angle;valid=true;
+    }
     Vec3 apply(Vec3 heading,unsigned currentSession,float cumulativeDegrees){
         if(!std::isfinite(cumulativeDegrees))return heading;
         if(!valid){session=currentSession;baseline=cumulativeDegrees;valid=true;}

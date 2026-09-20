@@ -1,5 +1,6 @@
 #pragma once
 #include <mgs5vr/arm_ik.hpp>
+#include <algorithm>
 #include <cmath>
 #include <cstring>
 #include <initializer_list>
@@ -23,6 +24,21 @@ inline bool gripAngleTrim(float pitch,float yaw,float roll,mgs5vr::Pose& out){
     out=mgs5vr::compose(y,mgs5vr::compose(p,r));return mgs5vr::valid(out);
 }
 enum class ArmSide { Right, Left };
+// The authored wrist's +X runs toward the knuckles. Its thumb side is +Z
+// on the right and -Z on the left. These are not the converted XR grip axes:
+// +Y follows the grip tube toward the thumb, -Z follows the hand forward.
+// Explicitly map the two frames rather than assigning a grip quaternion to a
+// wrist bone (which leaves a permanent bend/twist even with neutral trim).
+inline mgs5vr::Pose wristBasis(ArmSide side){
+    return side==ArmSide::Right?mgs5vr::Pose{{-.5f,.5f,.5f,.5f},{}}
+        :mgs5vr::Pose{{.5f,.5f,-.5f,.5f},{}};
+}
+inline mgs5vr::Pose wristFromControllerGrip(ArmSide side,mgs5vr::Pose grip){
+    return mgs5vr::compose(grip,wristBasis(side));
+}
+inline mgs5vr::Pose controllerGripFromWrist(ArmSide side,mgs5vr::Pose wrist){
+    return mgs5vr::compose(wrist,mgs5vr::inverse(wristBasis(side)));
+}
 struct ArmReference {
     mgs5vr::ArmPose relative;
     mgs5vr::Pose handRelative[64]{};uint32_t handIds[64]{};bool handBone[64]{};
@@ -86,6 +102,23 @@ inline bool solveArm(ArmSide side,const RigBone* native,RigBone* output,unsigned
     const float meters=1.f/unitsPerMeter;
     arm.shoulder.position=arm.shoulder.position*meters;arm.elbow.position=arm.elbow.position*meters;arm.wrist.position=arm.wrist.position*meters;
     target.position=target.position*meters;
+    // A tracked hand must not stop at the avatar's shorter authored reach.
+    // Extend both segments proportionally only outside their natural reach;
+    // derive this afresh from the native/reference pose, never last frame.
+    const auto upper=arm.elbow.position-arm.shoulder.position;
+    const auto lower=arm.wrist.position-arm.elbow.position;
+    const float upperLength=std::sqrt(mgs5vr::dot(upper,upper));
+    const float lowerLength=std::sqrt(mgs5vr::dot(lower,lower));
+    if(upperLength<.05f||lowerLength<.05f||upperLength>.7f||lowerLength>.7f)return false;
+    const auto ray=target.position-arm.shoulder.position;
+    const float requested=std::sqrt(mgs5vr::dot(ray,ray));
+    // Retain bounded fallback for implausible tracking jumps and the core
+    // solver's segment limits. Two times native reach covers ordinary reach
+    // differences without turning a bad controller pose into an enormous arm.
+    const float maximum=std::min(2.f,.699f/std::max(upperLength,lowerLength));
+    const float extension=std::clamp((requested+.001f)/(upperLength+lowerLength),1.f,std::max(1.f,maximum));
+    arm.elbow.position=arm.shoulder.position+upper*extension;
+    arm.wrist.position=arm.elbow.position+lower*extension;
     // Amalur model axes: +X forward, +Y right, +Z up. Elbow stays out and down.
     auto solved=mgs5vr::solveArm(arm,target,{-0.15f,side==ArmSide::Right?1.f:-1.f,-0.35f});if(!solved)return false;
     auto pose=solved->pose;

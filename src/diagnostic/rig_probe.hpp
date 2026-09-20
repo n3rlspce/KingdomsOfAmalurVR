@@ -120,6 +120,39 @@ inline void afterEvaluation(uintptr_t object){
 }
 // Native attachment-pose remapper. Output is argument 3, a Fab + 0x34
 // array descriptor. Confirmed with a hardware write breakpoint on glove wrist Z.
+inline void traceRemap(uintptr_t object,uintptr_t output,uintptr_t slot,bool solved,arm_rig::Scratch& scratch){
+    if(!scratch.trace.root)return;
+    auto& trace=scratch.trace;trace.object=static_cast<uint32_t>(object);trace.slot=static_cast<uint32_t>(slot);
+    if(solved)trace.flags|=8u;
+    __try {
+        const auto count=player_rig::word(output+4),buffer=player_rig::word(output);
+        const auto manager=player_rig::word(gameBase+0x15fdf54),assetId=player_rig::word(object+0xf0);
+        if(count&&count<=64&&buffer&&assetId>=2&&assetId<100000){
+            const auto state=*reinterpret_cast<unsigned char*>(player_rig::word(manager+0x28)+assetId);
+            if((state&4)&&!(state&16)){
+                const auto asset=player_rig::word(player_rig::word(manager+0x18)+assetId*4),blob=player_rig::word(asset+0x1c);
+                const auto offset=player_rig::word(blob+0x20);
+                if(player_rig::word(blob)==0x45533033&&player_rig::word(blob+0x10)==count&&offset&&offset<=65536){
+                    memcpy(&trace.objectWorld.position,reinterpret_cast<void*>(object+0x124),12);
+                    memcpy(&trace.objectWorld.orientation,reinterpret_cast<void*>(object+0x134),16);
+                    trace.objectWorld=amalur::nativePose(trace.objectWorld);
+                    for(unsigned i=0;i<count;++i){
+                        const auto id=player_rig::word(blob+0x20+offset+i*4);
+                        if(id!=0x88d0eb&&id!=0x87c3ed)continue;
+                        const unsigned side=id==0x88d0eb?0:1;
+                        const auto pose=amalur::bonePose(reinterpret_cast<const amalur::RigBone*>(buffer)[i]);
+                        if(!mgs5vr::valid(pose))continue;
+                        // The caller copies the parent root transform to this
+                        // child AFTER this hook returns. Use that final basis;
+                        // retain the old child basis separately for diagnosis.
+                        trace.remapped[side]=mgs5vr::compose(trace.rootWorld,pose);trace.flags|=16u<<side;
+                    }
+                }
+            }
+        }
+    } __except(EXCEPTION_EXECUTE_HANDLER){trace.flags|=64u;}
+    arm_trace::publish(trace);
+}
 inline void __fastcall evaluateBones(void* mapper,void*,uintptr_t slot,uintptr_t source,
     uintptr_t output,uintptr_t skeleton,uintptr_t extra,uintptr_t flags){
     auto object=output>=0x34?output-0x34:0;
@@ -128,7 +161,11 @@ inline void __fastcall evaluateBones(void* mapper,void*,uintptr_t slot,uintptr_t
     const bool solved=arm_rig::prepare(source,output,scratch);
     const auto input=solved?reinterpret_cast<uintptr_t>(scratch.descriptor):source;
     const auto renderSlot=arm_rig::trackedWeaponSlot(mapper,slot,output,solved);
+    weapon_control::restoreHeldTranslation(object);
     originalBones(mapper,renderSlot,input,output,skeleton,extra,flags);
+    if(solved&&arm_rig::enabled.load())weapon_control::translateHeld(object,renderSlot,source,input);
+    traceRemap(object,output,renderSlot,solved,scratch);
+    if(solved&&renderSlot==7)weapon_control::recordBlades(object);
     rig_status::attachment(mapper,renderSlot,source,output,slot);
     afterEvaluation(object);
 }
@@ -146,5 +183,6 @@ inline void install(){
     if(!memcmp(world,worldPrefix,sizeof(worldPrefix))&&player_rig::word(reinterpret_cast<uintptr_t>(world)+4)==gameBase+0x157713c
         &&!memcmp(world+0x85,worldTail,sizeof(worldTail)))
         hook(world,reinterpret_cast<void*>(&boneWorld),reinterpret_cast<void**>(&originalWorld),"Tracked player bone world sockets");
+    weapon_control::installHeldVisibility();
 }
 }

@@ -8,7 +8,9 @@ inline amalur::RigStatusChannel channel;
 inline void attachment(void* mapper,uintptr_t slot,uintptr_t source,uintptr_t output,uintptr_t nativeSlot){
     __try {
         auto root=rig_probe::playerRoot();if(!root||source!=root+0x34||output<0x34||slot>=32)return;
-        auto object=output-0x34;if(!weapon_control::isSinglePlayerWeapon(object))return;
+        auto object=output-0x34;bool daggers=weapon_control::isPlayerDaggers(object);
+        if(daggers)motion_controls::daggerSeen.store(GetTickCount64());
+        if(!daggers&&!weapon_control::isSinglePlayerWeapon(object))return;
         // Bounded discovery of a newly equipped weapon's attachment maps.
         // This observes the native table; it does not select an unverified slot.
         static uintptr_t observedObject{};static uint32_t observedOwner{};
