@@ -12,6 +12,12 @@ local function require_function(value, name)
     return value
 end
 
+local function require_dispatch()
+    if not (_G.amalur_dispatch_state and _G.amalur_dispatch_state.executing == true) then
+        fail('use the game update dispatcher; direct console mutations are disabled')
+    end
+end
+
 local function integer(value, low, high, name)
     if type(value) ~= 'number' or value ~= value or
        value < low or value > high or value % 1 ~= 0 then
@@ -48,6 +54,7 @@ end
 
 -- One actor per call. Distance is in game units, not meters.
 function dev.spawn(name, distance)
+    require_dispatch()
     if distance == nil then distance = 500 end
     distance = integer(distance, 100, 2000, 'distance')
     local create = require_function(PROTO and PROTO.create_actor, 'PROTO.create_actor')
@@ -75,6 +82,7 @@ end
 
 -- Any resolvable item simtype; weapon example below.
 function dev.give(name, quantity)
+    require_dispatch()
     if quantity == nil then quantity = 1 end
     quantity = integer(quantity, 1, 20, 'quantity')
     local give = require_function(PLAYER and PLAYER.cheat_add_item, 'PLAYER.cheat_add_item')
@@ -92,6 +100,7 @@ end
 -- Native inventory slots: 0 primary, 1 secondary. These are not VR hands.
 -- Equip an existing item without granting another copy.
 function dev.equip_existing(name, slot)
+    require_dispatch()
     slot = integer(slot, 0, 1, 'weapon slot')
     local find = require_function(PLAYER and PLAYER.get_item_index, 'PLAYER.get_item_index')
     local equip = require_function(PLAYER and PLAYER.equip, 'PLAYER.equip')
@@ -106,6 +115,7 @@ function dev.equip_existing(name, slot)
 end
 
 function dev.give_and_equip(name, slot)
+    require_dispatch()
     slot = integer(slot, 0, 1, 'weapon slot')
     local find = require_function(PLAYER and PLAYER.get_item_index, 'PLAYER.get_item_index')
     local equip = require_function(PLAYER and PLAYER.equip, 'PLAYER.equip')

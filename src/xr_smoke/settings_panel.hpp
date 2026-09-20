@@ -32,12 +32,12 @@ public:
                 int y=220+i*49;
                 if(i==s.developerRow){RECT row{24,y-5,width-24,y+37};HBRUSH h=CreateSolidBrush(RGB(34,67,88));FillRect(dc,&row,h);DeleteObject(h);}
                 SetTextColor(dc,developer->busy()?RGB(130,143,156):RGB(227,235,244));
-                std::wstring label=i==0?L"Connect / check Lua framework":i==1?L"Spawn one wolf":std::wstring(L"Give ")+amalur::developer::weapons[i-2].label;
+                std::wstring label=i==0?L"Connect / check game dispatcher":i==1?L"Spawn one wolf":std::wstring(amalur::developer::weapons[i-2].label);
                 text(44,y,label);
             }
             SetTextColor(dc,RGB(159,177,195));
-            const wchar_t* destinations[]={L"Inventory",L"Primary weapon",L"Secondary weapon"};
-            text(42,810,std::wstring(L"Left / Right: give to ")+destinations[s.developerDestination]);
+            const wchar_t* destinations[]={L"Give to inventory",L"Give + equip primary",L"Give + equip secondary",L"Equip existing primary",L"Equip existing secondary"};
+            text(42,810,std::wstring(L"Left / Right: ")+destinations[s.developerDestination]);
             text(42,855,L"Independent left / right weapons are not available yet.");
             SetTextColor(dc,RGB(116,194,217));
             RECT statusRect{42,925,width-42,1080};

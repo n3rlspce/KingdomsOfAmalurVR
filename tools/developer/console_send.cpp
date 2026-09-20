@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cstdio>
 #include "../../src/tracking/developer_commands.hpp"
+#include "../../src/tracking/rig_status.hpp"
 
 static std::string quote(const std::wstring& path){
     std::string out="'";
@@ -16,16 +17,16 @@ static std::string quote(const std::wstring& path){
     }
     return out+"'";
 }
-static std::string script(const std::wstring& path,int row,const std::string& nonce){
-    auto q=quote(path),command=amalur::developer::command(row);
-    if(q.empty()||command.empty())return {};
-    const auto source="local ok,r=pcall(function() local f,e=loadfile("+q+"); assert(f,e); f(); return "+command+
-        " end); print('AMALUR'..'_DEV_"+nonce+"|'..(ok and 'OK|' or 'ERROR|')..tostring(r))";
-    // Framework 1.4 reads stdin with operator>>: whitespace splits commands.
-    // Encode the complete Lua chunk as one token, including spaces in paths.
-    std::string encoded="assert(loadstring('";
-    for(unsigned char ch:source){char escaped[5];sprintf_s(escaped,"\\%03u",unsigned(ch));encoded+=escaped;}
-    return encoded+"'))()";
+static std::string script(int row,const std::string& nonce,const std::wstring& session){
+    auto command=amalur::developer::command(row),q=quote(session);
+    if(command.empty()||q.empty())return {};
+    return "return {nonce='"+nonce+"',session="+q+",connect="+(row==0?"true":"false")+
+        ",run=function() return "+command+" end}";
+}
+static bool gameplay(DWORD pid){
+    amalur::RigStatusChannel channel;amalur::RigStatus status;
+    return channel.transfer(status,false)&&status.version==1&&status.pid==pid&&
+        DWORD(GetTickCount()-status.tick)<500&&status.paused==0&&status.tracked!=0;
 }
 static std::wstring output(HANDLE handle){
     CONSOLE_SCREEN_BUFFER_INFO info{};
@@ -39,7 +40,7 @@ static std::wstring output(HANDLE handle){
 }
 int wmain(int argc,wchar_t** argv){
     if(argc==2&&std::wstring(argv[1])==L"--emit-test-command"){
-        puts(script(L"C:\\test's folder\\amalur_dev.lua",1,"offline").c_str());return 0;
+        puts(script(1,"offline",L"test_session").c_str());return 0;
     }
     if(argc==4&&std::wstring(argv[1])==L"--inspect"){
         wchar_t* end{};DWORD pid=wcstoul(argv[2],&end,10);
@@ -63,9 +64,9 @@ int wmain(int argc,wchar_t** argv){
     }
     if(argc==2&&std::wstring(argv[1])==L"--selftest"){
         if(!amalur::developer::command(-1).empty()||!amalur::developer::command(amalur::developer::actions).empty())return 1;
-        auto s=script(L"C:\\test's folder\\amalur_dev.lua",1,"42");
-        if(s.find("AMALUR_DEV_42|")!=std::string::npos)return 2; // echoed source cannot be an ACK
-        if(s.find_first_of(" \t\r\n")!=std::string::npos||s.rfind("assert(loadstring('",0)!=0)return 3;
+        auto s=script(1,"42",L"test_session");
+        if(s.find("run=function() return amalur_dev.wolf() end")==std::string::npos)return 2;
+        if(s.find("connect=false")==std::string::npos||s.rfind("return {",0)!=0)return 3;
         if(!quote(L"C:\\bad\nname").empty())return 4;
         for(int i=2;i<11;++i)if(amalur::developer::command(i).find("',1)")==std::string::npos)return 5;
         return 0;
@@ -83,39 +84,40 @@ int wmain(int argc,wchar_t** argv){
     bool named=QueryFullProcessImageNameW(process,0,name,&len)!=0;
     const wchar_t* slash=wcsrchr(name,L'\\');
     if(!named||_wcsicmp(slash?slash+1:name,L"koa.exe")!=0){CloseHandle(process);return finish(L"Target is not Amalur.",2);}
+    if(!gameplay(pid)){CloseHandle(process);return finish(L"Close inventory/menus and load gameplay first; nothing sent.",2);}
+    const std::wstring request=std::wstring(name,slash-name+1)+L"mods\\amalur_request.lua";
     FreeConsole();
     if(!AttachConsole(pid)){CloseHandle(process);return finish(L"Lua framework console unavailable; nothing sent.",2);}
     SetConsoleCtrlHandler(nullptr,TRUE);
-    HANDLE input=CreateFileW(L"CONIN$",GENERIC_READ|GENERIC_WRITE,FILE_SHARE_READ|FILE_SHARE_WRITE,nullptr,OPEN_EXISTING,0,nullptr);
-    HANDLE screen=CreateFileW(L"CONOUT$",GENERIC_READ|GENERIC_WRITE,FILE_SHARE_READ|FILE_SHARE_WRITE,nullptr,OPEN_EXISTING,0,nullptr);
-    auto close=[&](){if(input!=INVALID_HANDLE_VALUE)CloseHandle(input);if(screen!=INVALID_HANDLE_VALUE)CloseHandle(screen);FreeConsole();CloseHandle(process);};
-    DWORD mode{};
-    if(input==INVALID_HANDLE_VALUE||screen==INVALID_HANDLE_VALUE||!GetConsoleMode(input,&mode)||output(screen).empty()){
-        close();return finish(L"Console transport unavailable; nothing sent.",2);
+    HANDLE screen=CreateFileW(L"CONOUT$",GENERIC_READ,FILE_SHARE_READ|FILE_SHARE_WRITE,nullptr,OPEN_EXISTING,0,nullptr);
+    bool published=false;
+    auto close=[&](){if(published)DeleteFileW(request.c_str());if(screen!=INVALID_HANDLE_VALUE)CloseHandle(screen);FreeConsole();CloseHandle(process);};
+    const auto captured=screen==INVALID_HANDLE_VALUE?std::wstring{}:output(screen);
+    if(captured.empty()){
+        close();return finish(L"Framework output unavailable; nothing sent.",2);
     }
-    INPUT_RECORD queued[256];DWORD queuedCount{};
-    if(!PeekConsoleInputW(input,queued,256,&queuedCount)){
-        close();return finish(L"Cannot check console input; nothing sent.",2);
+    std::wstring session;
+    if(row!=0){
+        const std::wstring tag=L"AMALUR_DEV_SESSION|";
+        auto at=captured.rfind(tag);
+        if(at!=std::wstring::npos){at+=tag.size();auto endAt=captured.find(L'|',at);if(endAt!=std::wstring::npos)session=captured.substr(at,endAt-at);}
+        if(session.empty()||session.size()>64||session.find_first_not_of(L"0123456789_")!=std::wstring::npos){
+            close();return finish(L"Connect to the game update dispatcher first; nothing sent.",2);
+        }
     }
-    for(DWORD i=0;i<queuedCount;++i)if(queued[i].EventType==KEY_EVENT&&queued[i].Event.KeyEvent.bKeyDown){
-        close();return finish(L"Console has pending keyboard input; nothing sent.",2);
-    }
-    // Do not append to partially typed text in a line editor.
-    CONSOLE_SCREEN_BUFFER_INFO info{};GetConsoleScreenBufferInfo(screen,&info);
-    if(info.dwCursorPosition.X!=0){close();return finish(L"Console line is not empty; nothing sent.",2);}
-    wchar_t module[MAX_PATH]{};GetModuleFileNameW(nullptr,module,MAX_PATH);
-    std::wstring path=module;path=path.substr(0,path.find_last_of(L"\\/")+1)+L"amalur_dev.lua";
     const auto nonce=std::to_string(GetCurrentProcessId())+"_"+std::to_string(GetTickCount64());
-    auto line=script(path,static_cast<int>(row),nonce);
+    auto line=script(static_cast<int>(row),nonce,session);
     if(line.empty()){close();return finish(L"Unsupported script path; nothing sent.",2);}
-    line+='\r';std::vector<INPUT_RECORD> events;
-    for(char ch:line){INPUT_RECORD e{};e.EventType=KEY_EVENT;e.Event.KeyEvent.bKeyDown=TRUE;e.Event.KeyEvent.wRepeatCount=1;
-        e.Event.KeyEvent.wVirtualKeyCode=ch=='\r'?VK_RETURN:0;e.Event.KeyEvent.uChar.UnicodeChar=ch;events.push_back(e);
-        e.Event.KeyEvent.bKeyDown=FALSE;events.push_back(e);}
+    const auto temporary=request+L"."+std::wstring(nonce.begin(),nonce.end())+L".tmp";
+    HANDLE file=CreateFileW(temporary.c_str(),GENERIC_WRITE,0,nullptr,CREATE_NEW,FILE_ATTRIBUTE_NORMAL,nullptr);
+    if(file==INVALID_HANDLE_VALUE){close();return finish(L"Cannot stage request; nothing sent.",2);}
     DWORD written{};
-    if(!WriteConsoleInputW(input,events.data(),static_cast<DWORD>(events.size()),&written)||written!=events.size()){
-        close();return finish(L"Console write incomplete. Outcome unknown; do not retry.",3);
+    bool complete=WriteFile(file,line.data(),static_cast<DWORD>(line.size()),&written,nullptr)&&written==line.size();
+    CloseHandle(file);
+    if(!complete||!gameplay(pid)||!MoveFileExW(temporary.c_str(),request.c_str(),MOVEFILE_WRITE_THROUGH)){
+        DeleteFileW(temporary.c_str());close();return finish(L"Request busy or gameplay unavailable; nothing sent.",2);
     }
+    published=true;
     std::wstring marker=L"AMALUR_DEV_"+std::wstring(nonce.begin(),nonce.end())+L"|";
     const ULONGLONG start=GetTickCount64();
     while(GetTickCount64()-start<6000&&WaitForSingleObject(process,0)==WAIT_TIMEOUT){
@@ -123,7 +125,7 @@ int wmain(int argc,wchar_t** argv){
         if(at!=std::wstring::npos){
             auto result=text.substr(at+marker.size());
             if(result.rfind(L"OK|",0)==0){close();return finish(row==0?L"Connected. Ready for explicit commands.":L"Command submitted to Lua; verify the result in game.",0);}
-            if(result.rfind(L"ERROR|",0)==0){close();return finish(L"Lua rejected command: "+result.substr(6,75),4);}
+            if(result.rfind(L"ERROR|",0)==0){auto endAt=result.find(L"|END");close();return finish(L"Lua rejected command: "+result.substr(6,endAt==std::wstring::npos?512:endAt-6),4);}
         }
         Sleep(50);
     }

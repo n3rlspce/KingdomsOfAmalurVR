@@ -5,6 +5,7 @@
 #include <cstdio>
 #include <string>
 #include <stdexcept>
+#include "../tracking/developer_commands.hpp"
 
 struct VrSettings {
     float hudSize=.8f,interfaceScale=1.f;
@@ -54,11 +55,11 @@ struct VrSettings {
         bool enter=edge(VK_RETURN),escape=edge(VK_ESCAPE);
         if(developerVisible){
             if(escape){developerVisible=false;return;}
-            if(up)developerRow=(developerRow+10)%11;
-            if(down)developerRow=(developerRow+1)%11;
-            if(left)developerDestination=(developerDestination+2)%3;
-            if(right)developerDestination=(developerDestination+1)%3;
-            if(enter)developerAction=developerRow+(developerRow>=2?developerDestination*11:0);
+            if(up)developerRow=(developerRow+amalur::developer::rows-1)%amalur::developer::rows;
+            if(down)developerRow=(developerRow+1)%amalur::developer::rows;
+            if(left)developerDestination=(developerDestination+amalur::developer::destinations-1)%amalur::developer::destinations;
+            if(right)developerDestination=(developerDestination+1)%amalur::developer::destinations;
+            if(enter)developerAction=developerRow+(developerRow>=2?developerDestination*amalur::developer::rows:0);
             return;
         }
         if(!visible)return;

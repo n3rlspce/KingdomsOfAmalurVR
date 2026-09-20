@@ -14,7 +14,7 @@ int main(){
     if(s.developerAction!=1)return 4;
     s.developerAction=-1;s.poll();if(s.developerAction!=-1)return 5;
     s.held[VK_DOWN]=false;s.held[VK_RETURN]=false;s.poll();
-    s.developerRow=10;s.held[VK_DOWN]=true;s.poll();
+    s.developerRow=amalur::developer::rows-1;s.held[VK_DOWN]=true;s.poll();
     if(s.developerRow!=0)return 6;
     s.held[VK_ESCAPE]=true;s.poll();if(s.developerVisible)return 7;
     s.held[VK_ESCAPE]=false;s.poll();s.developerTogglePending=true;s.poll();
@@ -29,6 +29,10 @@ int main(){
     s.held[VK_RETURN]=false;s.held[VK_RIGHT]=false;s.poll();
     s.held[VK_RIGHT]=true;s.poll();s.held[VK_RETURN]=true;s.poll();
     if(amalur::developer::command(s.developerAction)!="amalur_dev.give_and_equip('sword1h_common01a',1)")return 13;
-    puts("PASS: F11 state, row wrap, one-shot Enter, held-key rejection, panel exclusion and nine weapon commands.");
+    s.held[VK_RETURN]=false;s.held[VK_RIGHT]=false;s.poll();
+    s.held[VK_RIGHT]=true;s.poll();s.held[VK_RETURN]=true;s.poll();
+    if(amalur::developer::command(s.developerAction)!="amalur_dev.equip_existing('sword1h_common01a',0)")return 14;
+    if(amalur::developer::command(amalur::developer::rows*4+amalur::developer::rows-1)!="amalur_dev.equip_existing('sword2h_unique12f',1)")return 15;
+    puts("PASS: F11 state, row wrap, one-shot actions, give/equip and equip-only primary/secondary commands.");
     return 0;
 }

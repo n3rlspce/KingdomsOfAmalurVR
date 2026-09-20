@@ -35,76 +35,54 @@ Do not publish the generated archive or extracted game assets.
 `python tools/developer/check_fast_start.py` tests the emitted startup logic.
 The builder also verifies lossless asset parsing and archive round trips.
 
-## F11 panel
+## F11 panel and game-update dispatch
 
 Build `tools/developer/build.ps1`, then build the XR bridge into the same output
-directory. F11 opens the headset panel; Up/Down selects one wolf or one of nine
-weapon types. Left/Right chooses inventory, primary weapon, or secondary weapon.
-Enter submits one action; Escape/F11 closes. The two native weapon slots are
-independent of future left/right VR hand support.
+directory. With the game closed, run `install-dispatch.ps1 -GameDirectory <game>`
+to install the three owned mod files. This does not activate the framework DLLs.
+The dispatcher uses the framework's `minimap_win` script trigger to wrap the
+original `on_update_event`, preserving its arguments and running requests after it.
 
-The panel/transport still requires the external Lua framework console and live
-validation. Select Connect before sending commands. Missing dependencies produce
-an error without sending anything. Do not assume the installed game has this
-framework. `reserve-f11.ps1` stages an INI with conflicting F11 bindings moved to
-modified key combinations; `install-stereo.ps1` applies the same reservation.
+F11 opens the headset panel. Up/Down selects Connect, one wolf, any of the nine
+weapon types, or a unique greatsword. Left/Right selects Give to inventory,
+Give + equip primary/secondary, or Equip existing primary/secondary. Enter sends
+one action. Escape/F11 closes. Native primary/secondary slots are independent of
+future VR hand assignment. `reserve-f11.ps1` moves conflicting geo-11 bindings.
 
-## Lua commands
+The helper checks fresh telemetry for loaded, unpaused gameplay, atomically
+publishes `mods/amalur_request.lua`, and reads the nonce acknowledgement from the
+framework output. It never writes console input or runs Lua on the console thread.
+Connect establishes a process-local dispatcher session. The dispatcher consumes
+nonces before execution, rejects stale sessions and paused gameplay, and clears
+its execution flag even when Lua returns an error. Direct mutation calls from the
+console are disabled. Pending requests are removed on helper completion/timeout;
+unknown outcomes are never automatically retried.
 
-`probe()` only checks that required API functions exist; it does not call the
-engine, display a notification, or establish that gameplay operations are safe.
-The earlier notification probe triggered a native `WINDOW.create_window` error
-even though the framework returned a successful Lua acknowledgement.
+The module checks API presence without invoking UI notifications. Engine calls
+are made only inside the owned dispatch callback. `equip_existing(name, slot)`
+never grants an item. `give_and_equip` reports a failed inventory lookup after a
+grant without repeating it. Slot 0 is primary; slot 1 is secondary. Distances are
+100–2000 game units and quantities are 1–20.
 
-Live retest: the passive probe and one `sword1h_common01a` grant returned Lua
-acknowledgements without a new runtime error. Inventory confirmation remains
-pending. A subsequent `sword2h_unique12f` grant produced a native runtime error,
-no acknowledgement, and stale telemetry. Its outcome is unknown; do not repeat
-that grant. This does not yet distinguish an asset problem from an unsafe call
-context. Spawning and automatic equip remain unvalidated.
+## Validation and known failures
 
-Standalone Lua commands for the **Re-Reckoning Mod framework and F2 Console**.
-These dependencies are not bundled or installed by this tool. Engine integration
-is pending live validation; offline tests validate command dispatch and guards.
+The old console transport caused native errors: its notification probe failed in
+`WINDOW.create_window`, and a unique-greatsword grant while inventory was open
+left the session frozen. A common longsword grant returned an acknowledgement.
+Those results did not establish reliable mutation safety. The replacement moves
+execution into the game update callback and adds pause checks. Live validation
+of the replacement is required; offline tests cannot prove engine compatibility.
 
-After reviewing the installed console entrypoint, place `amalur_dev.lua` in its
-`mods` folder. From the F2 console in loaded gameplay, run:
+Run `check.py` and `check_dispatch.py` with Python and Lupa. The C++ build runs the
+helper and F11 input tests. Dispatcher tests cover session isolation, consuming
+requests once, rejecting paused requests without executing them on unpause,
+reload behavior, and exception cleanup. Preserve current body/UI bridge changes
+when staging this branch's F11 integration; do not install an older bridge over a
+newer one.
 
-```lua
-run('.\\mods\\amalur_dev.lua')
-amalur_dev.probe()
-amalur_dev.wolf()
-amalur_dev.sword()
-```
-
-Run one command at a time. Loading the file defines commands only. `wolf()` requests
-one `wolf_forest` 500 game units ahead; `sword()` requests one `sword2h_unique12f`.
-For chosen internal names:
-
-```lua
-amalur_dev.spawn('wolf_forest', 500)
-amalur_dev.give('sword2h_unique12f', 1)
-amalur_dev.give_and_equip('sword2h_unique12f', 0) -- primary (1 = secondary)
-amalur_dev.equip_existing('sword2h_unique12f', 0) -- equip only; no extra grant
-```
-
-The engine resolves names through `SIMTYPE_ID`. Resolution alone does not prove
-that a type is a creature, a weapon, loaded, or safe for the current area. There is
-no universal valid-asset catalog. Equip uses the native inventory's item-index
-lookup and two-argument slot assignment. If lookup fails after a grant, the tool
-reports that partial outcome instead of granting again. The commands
-report submission, not verified in-game success. Distance is limited to 100â€“2000
-game units; grants to 1â€“20 items. There is no retry loop or automatic action.
-
-Use disposable save/profile copies: spawning and grants can affect autosaves and
-unique-item state. Review the actual F2 entrypoint before first use: the public
-reference repository's `console.lua` invokes `add_all_items.lua` by default.
-Do not deploy that checkout unchanged. Existing VR D-pad bindings and DLL loader
-compatibility also need checking before installing the dependencies.
-
-API evidence: [F2 Console helper source](https://github.com/mburbea/koar-item-editor/blob/46792455aa87b9a8a6a5b0e754a893f846b6188b/lua/f2Console.lua),
-[simtype catalog](https://github.com/mburbea/koar-item-editor/blob/46792455aa87b9a8a6a5b0e754a893f846b6188b/KoAR.Core/Data/simtype.csv#L4251).
-This file calls the documented engine surface; it does not copy or install the
-external loader, helper code, or catalogs.
-
-Offline checks require Python and `lupa`: `python tools/developer/check.py`.
+API evidence: the user's extracted inventory scripts call
+`PLAYER.get_item_index(SIMTYPE_ID(name))` and `PLAYER.equip(index, slot)`;
+the autosave script calls `GAME.is_game_paused()` without arguments.
+[Public F2 helper source](https://github.com/mburbea/koar-item-editor/blob/46792455aa87b9a8a6a5b0e754a893f846b6188b/lua/f2Console.lua)
+and [simtype catalog](https://github.com/mburbea/koar-item-editor/blob/46792455aa87b9a8a6a5b0e754a893f846b6188b/KoAR.Core/Data/simtype.csv)
+provide grant/spawn and item-name references. No external helper code is bundled.

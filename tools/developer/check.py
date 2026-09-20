@@ -9,6 +9,7 @@ def main():
     lua.execute('''
         mutations = {}
         math.floor = nil -- The game's math table does not expose standard floor.
+        amalur_dispatch_state = {executing = true}
         function record(kind, ...)
             table.insert(mutations, {kind, ...})
         end
@@ -35,6 +36,15 @@ def main():
     source = Path(__file__).with_name('amalur_dev.lua').read_text(encoding='utf-8')
     lua.execute(source)
     lua.execute('assert(#mutations == 0)')
+    lua.execute('''
+        amalur_dispatch_state.executing = false
+        assert(not pcall(amalur_dev.wolf))
+        assert(not pcall(amalur_dev.sword))
+        assert(not pcall(amalur_dev.equip_existing, 'sword2h_unique12f', 0))
+        assert(not pcall(amalur_dev.give_and_equip, 'sword2h_unique12f', 0))
+        assert(#mutations == 0)
+        amalur_dispatch_state.executing = true
+    ''')
     lua.execute('''
         local original_player = get_player
         get_player = function() error('probe must not call engine functions') end
