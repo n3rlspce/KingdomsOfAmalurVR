@@ -90,6 +90,21 @@ function dev.sword()
 end
 
 -- Native inventory slots: 0 primary, 1 secondary. These are not VR hands.
+-- Equip an existing item without granting another copy.
+function dev.equip_existing(name, slot)
+    slot = integer(slot, 0, 1, 'weapon slot')
+    local find = require_function(PLAYER and PLAYER.get_item_index, 'PLAYER.get_item_index')
+    local equip = require_function(PLAYER and PLAYER.equip, 'PLAYER.equip')
+    local player = require_function(get_player, 'get_player')()
+    if player == nil or player == false or player == 0 then fail('load a game first') end
+    local item = find(simtype(name))
+    if item == nil or item == false or item == -1 then
+        fail('item is not in inventory; nothing granted or equipped')
+    end
+    equip(item, slot)
+    return 'equip submitted: ' .. name .. ' slot ' .. slot
+end
+
 function dev.give_and_equip(name, slot)
     slot = integer(slot, 0, 1, 'weapon slot')
     local find = require_function(PLAYER and PLAYER.get_item_index, 'PLAYER.get_item_index')

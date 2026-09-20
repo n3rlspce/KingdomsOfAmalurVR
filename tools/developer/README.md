@@ -85,6 +85,7 @@ For chosen internal names:
 amalur_dev.spawn('wolf_forest', 500)
 amalur_dev.give('sword2h_unique12f', 1)
 amalur_dev.give_and_equip('sword2h_unique12f', 0) -- primary (1 = secondary)
+amalur_dev.equip_existing('sword2h_unique12f', 0) -- equip only; no extra grant
 ```
 
 The engine resolves names through `SIMTYPE_ID`. Resolution alone does not prove

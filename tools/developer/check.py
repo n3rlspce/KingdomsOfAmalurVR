@@ -84,6 +84,14 @@ def main():
         PLAYER.get_item_index = function(id) assert(id == 202); return 73 end
         PLAYER.equip = function(...) record('equip', ...) end
         for slot = 0, 1 do
+            amalur_dev.equip_existing('sword2h_unique12f', slot)
+            assert(#mutations == 1 and mutations[1][1] == 'equip')
+            assert(mutations[1][2] == 73 and mutations[1][3] == slot)
+            mutations = {}
+        end
+        assert(not pcall(amalur_dev.equip_existing, 'sword2h_unique12f', 2))
+        assert(#mutations == 0)
+        for slot = 0, 1 do
             amalur_dev.give_and_equip('sword2h_unique12f', slot)
             assert(#mutations == 2 and mutations[1][1] == 'grant')
             assert(mutations[2][1] == 'equip' and mutations[2][2] == 73)
@@ -93,6 +101,8 @@ def main():
         assert(not pcall(amalur_dev.give_and_equip, 'sword2h_unique12f', 2))
         assert(#mutations == 0)
         PLAYER.get_item_index = function() return -1 end
+        assert(not pcall(amalur_dev.equip_existing, 'sword2h_unique12f', 0))
+        assert(#mutations == 0)
         assert(not pcall(amalur_dev.give_and_equip, 'sword2h_unique12f', 0))
         assert(#mutations == 1 and mutations[1][1] == 'grant')
         mutations = {}
