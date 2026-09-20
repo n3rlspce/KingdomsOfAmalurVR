@@ -23,6 +23,13 @@ inline constexpr int prepareCharacterAction=rows*destinations;
 inline constexpr int verifyEquipAction=prepareCharacterAction+1;
 inline constexpr int invincibilityAction=verifyEquipAction+1;
 inline constexpr int actions=invincibilityAction+1;
+inline constexpr int panelRows=rows+2;
+inline int panelAction(int row,int destination){
+    if(row==rows)return prepareCharacterAction;
+    if(row==rows+1)return invincibilityAction;
+    if(row<0||row>=rows||destination<0||destination>=destinations)return -1;
+    return row+(row>=2?destination*rows:0);
+}
 inline std::string command(int row) {
     if(row<0||row>=actions)return {};
     if(row==prepareCharacterAction)return "amalur_dev.prepare_test_character()";

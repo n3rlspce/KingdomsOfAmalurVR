@@ -25,19 +25,20 @@ public:
         auto text=[&](int x,int y,const std::wstring& value){TextOutW(dc,x,y,value.c_str(),static_cast<int>(value.size()));};
         if(s.developerVisible&&developer){
             text(42,28,L"AMALUR VR  /  DEVELOPER");SelectObject(dc,font);
-            SetTextColor(dc,RGB(116,194,217));text(42,95,L"F11 / Esc: close    Up / Down: select    Enter: run once");
+            SetTextColor(dc,RGB(116,194,217));text(42,95,L"Hold both stick clicks: open / close    B: close");
+            text(42,132,L"Left stick: select / destination    A / right trigger: run");
             SetTextColor(dc,RGB(220,228,237));
-            text(42,150,L"Use disposable saves. Actions can affect autosaves.");
-            for(int i=0;i<amalur::developer::rows;++i){
-                int y=220+i*49;
+            text(42,174,L"Dev save actions. F11, arrows and Enter also work.");
+            for(int i=0;i<amalur::developer::panelRows;++i){
+                int y=220+i*40;
                 if(i==s.developerRow){RECT row{24,y-5,width-24,y+37};HBRUSH h=CreateSolidBrush(RGB(34,67,88));FillRect(dc,&row,h);DeleteObject(h);}
                 SetTextColor(dc,developer->busy()?RGB(130,143,156):RGB(227,235,244));
-                std::wstring label=i==0?L"Connect / check game dispatcher":i==1?L"Spawn one wolf":std::wstring(amalur::developer::weapons[i-2].label);
+                std::wstring label=i==0?L"Connect / check game dispatcher":i==1?L"Spawn one wolf":i==amalur::developer::rows?L"Dev character: level 40":i==amalur::developer::rows+1?L"Enable invincibility":std::wstring(amalur::developer::weapons[i-2].label);
                 text(44,y,label);
             }
             SetTextColor(dc,RGB(159,177,195));
             const wchar_t* destinations[]={L"Give to inventory",L"Give + equip primary",L"Give + equip secondary",L"Equip existing primary",L"Equip existing secondary"};
-            text(42,810,std::wstring(L"Left / Right: ")+destinations[s.developerDestination]);
+            text(42,810,s.developerRow>=2&&s.developerRow<amalur::developer::rows?std::wstring(L"Weapon destination: ")+destinations[s.developerDestination]:L"Single action - destination applies to weapon rows only");
             text(42,855,L"Independent left / right weapons are not available yet.");
             SetTextColor(dc,RGB(116,194,217));
             RECT statusRect{42,925,width-42,1080};
