@@ -51,6 +51,11 @@ modified key combinations; `install-stereo.ps1` applies the same reservation.
 
 ## Lua commands
 
+`probe()` only checks that required API functions exist; it does not call the
+engine, display a notification, or establish that gameplay operations are safe.
+The earlier notification probe triggered a native `WINDOW.create_window` error
+even though the framework returned a successful Lua acknowledgement.
+
 Standalone Lua commands for the **Re-Reckoning Mod framework and F2 Console**.
 These dependencies are not bundled or installed by this tool. Engine integration
 is pending live validation; offline tests validate command dispatch and guards.

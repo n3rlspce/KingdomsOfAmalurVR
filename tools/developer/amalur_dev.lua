@@ -33,12 +33,17 @@ local function simtype(name)
     return id
 end
 
--- A notification proves dispatch only, not successful creation of an actor/item.
+-- Passive capability check: never invoke engine or UI functions from this probe.
 function dev.probe()
-    local notify = require_function(interfaceLibrary and interfaceLibrary.ftp_notify,
-                                    'interfaceLibrary.ftp_notify')
-    notify('Amalur developer commands ready')
-    return true
+    require_function(get_player, 'get_player')
+    require_function(SIMTYPE_ID, 'SIMTYPE_ID')
+    require_function(PROTO and PROTO.create_actor, 'PROTO.create_actor')
+    require_function(ACTOR and ACTOR.get_angle, 'ACTOR.get_angle')
+    require_function(ACTOR and ACTOR.get_point_near_object, 'ACTOR.get_point_near_object')
+    require_function(PLAYER and PLAYER.cheat_add_item, 'PLAYER.cheat_add_item')
+    require_function(PLAYER and PLAYER.get_item_index, 'PLAYER.get_item_index')
+    require_function(PLAYER and PLAYER.equip, 'PLAYER.equip')
+    return 'developer APIs present; gameplay operations untested'
 end
 
 -- One actor per call. Distance is in game units, not meters.

@@ -24,15 +24,27 @@ def main():
             end
         }
         PROTO = {create_actor = function(...) record('spawn', ...) end}
-        PLAYER = {cheat_add_item = function(...) record('grant', ...) end}
+        PLAYER = {
+            cheat_add_item = function(...) record('grant', ...) end,
+            get_item_index = function(...) record('find', ...) end,
+            equip = function(...) record('equip', ...) end
+        }
         interfaceLibrary = {ftp_notify = function(...) record('notify', ...) end}
     ''')
     source = Path(__file__).with_name('amalur_dev.lua').read_text(encoding='utf-8')
     lua.execute(source)
     lua.execute('assert(#mutations == 0)')
     lua.execute('''
-        amalur_dev.probe()
-        assert(#mutations == 1 and mutations[1][1] == 'notify')
+        local original_player = get_player
+        get_player = function() error('probe must not call engine functions') end
+        assert(amalur_dev.probe() == 'developer APIs present; gameplay operations untested')
+        assert(#mutations == 0)
+        get_player = original_player
+        local original_equip = PLAYER.equip
+        PLAYER.equip = nil
+        assert(not pcall(amalur_dev.probe))
+        assert(#mutations == 0)
+        PLAYER.equip = original_equip
         mutations = {}
         amalur_dev.wolf()
         local call = mutations[1]
