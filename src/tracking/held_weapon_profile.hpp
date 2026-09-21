@@ -1,5 +1,6 @@
 #pragma once
 #include <cstdint>
+#include "weapon_family.hpp"
 
 namespace amalur {
 // Primary preserves existing behavior; secondary must have one unambiguous
@@ -18,6 +19,7 @@ struct CapturedHeldWeaponProfile {
 };
 inline constexpr CapturedHeldWeaponProfile capturedHeldWeaponProfiles[]{
     {HeldWeaponKind::Longsword,2478,4,{0x00ae838d,0x006666f1,0x00ea7b92,0x00858053},{-1,0,1,1}},
+    {HeldWeaponKind::Longsword,5457,4,{0x00ae838d,0x006666f1,0x00b1fe66,0x00858053},{-1,0,1,1}},
     {HeldWeaponKind::Staff,1514,4,{0x00ae838d,0x006666f1,0x00bbefd6,0x00858053},{-1,0,1,1}},
     {HeldWeaponKind::Greatsword,1250,5,{0x00ae838d,0x006666f1,0x00ed512c,0x00e6c85b,0x00858053},{-1,0,1,1,1}},
     {HeldWeaponKind::Hammer,1323,5,{0x00ae838d,0x006666f1,0x00aea294,0x0017311f,0x00858053},{-1,0,1,1,1}},

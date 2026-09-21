@@ -9,16 +9,18 @@ Experimental VR mod for **Kingdoms of Amalur: Re-Reckoning**, targeting **Quest 
 - HUD and menu adjustments, first-person dialogue, and developer camera/animation isolation toggles.
 - Free-offhand support grip for captured weapon models, plus primary/secondary held-weapon visibility.
 - Experimental physical damage paths for verified primary daggers, longsword and greatsword; deliberate swing gates and shared collision previews.
-- Native attack, combo, sound/FX and render-publication diagnostics.
+- Longsword V3: physical three-strike sequence, raised-hand charge, captured native audio and custom trails for verified regular/rusty models; scoped physical hit-stop suppression.
+- Native third-person mode, hold-to-scroll settings, health/weapon-move cheats, and native attack/effect diagnostics.
+- Cinematic camera and dialogue-gaze experiments with Lua letterbox removal.
 - Developer panel inventory tools, Sorcery unlock and spell test loadout, with bounded labels fixing the spell-row bridge crash.
-- Revision-checked experimental startup tools and automatic Continue support.
+- Revision-checked startup tools, automatic Continue with autosave disabled before loading, and a UI pause-recovery action.
 - The VR bridge closes when the game exits.
 
 ## Known limitations
 
-Weapon jitter and VR session loss remain under investigation. Body stabilization has improved in live tests, but this is not complete visual or stability acceptance. Collision shapes are provisional; faeblades use fitting guides and thrown chakrams remain unsupported. Staff magic is observed for diagnostics, not enabled as physical contact damage. Physical-swing sound/VFX playback and native combo moves are not enabled.
+Weapon jitter and VR session loss remain under investigation. Body stabilization has improved in live tests, but this is not complete visual or stability acceptance. Collision shapes are provisional; faeblades use fitting guides and thrown chakrams remain unsupported. Staff magic is observed for diagnostics, not enabled as physical contact damage. Longsword audio and custom trails are experimental; native trail ownership and broader weapon combo/effect playback remain unfinished.
 
-**Experimental physical contacts have caused simulation freezes and can stop after death/reload.** They are compiled out by default. The opt-in build and marker are for controlled diagnostics. Native contact acceptance logs are not proof of enemy health loss. Finger curl, broad weapon-model coverage and fully unattended startup are unfinished.
+**Experimental physical contacts have caused simulation freezes and can stop after death/reload.** They are compiled out by default. The opt-in build and marker are for controlled diagnostics. Native contact acceptance logs are not proof of enemy health loss. Finger curl, broad weapon-model coverage and startup/pause reliability are unfinished. Cinematic scene coverage, dialogue gaze and the latest hit-stop change need headset validation.
 
 ## Development
 

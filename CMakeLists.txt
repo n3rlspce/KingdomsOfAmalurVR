@@ -161,3 +161,39 @@ target_link_libraries(melee_debug_check PRIVATE user32)
 
 
 target_link_libraries(render_pose_check PRIVATE mgs5vr_core)
+
+add_executable(cinematic_check src/tracking/cinematic_check.cpp)
+target_link_libraries(cinematic_check PRIVATE mgs5vr_core user32)
+target_include_directories(cinematic_check PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+
+add_executable(developer_labels_check src/tracking/developer_labels_check.cpp)
+target_link_libraries(developer_labels_check PRIVATE mgs5vr_core user32)
+target_include_directories(developer_labels_check PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+
+add_executable(longsword_damage_check src/tracking/longsword_damage_check.cpp)
+target_link_libraries(longsword_damage_check PRIVATE mgs5vr_core user32)
+target_include_directories(longsword_damage_check PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+
+add_executable(longsword_gesture_check src/tracking/longsword_gesture_check.cpp)
+target_link_libraries(longsword_gesture_check PRIVATE mgs5vr_core user32)
+target_include_directories(longsword_gesture_check PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+
+add_executable(longsword_hold_check src/tracking/longsword_hold_check.cpp)
+target_link_libraries(longsword_hold_check PRIVATE mgs5vr_core user32)
+target_include_directories(longsword_hold_check PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+
+add_executable(longsword_trail_check src/tracking/longsword_trail_check.cpp)
+target_link_libraries(longsword_trail_check PRIVATE mgs5vr_core user32)
+target_include_directories(longsword_trail_check PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+
+add_executable(native_attack_observation_check src/tracking/native_attack_observation_check.cpp)
+target_link_libraries(native_attack_observation_check PRIVATE mgs5vr_core user32)
+target_include_directories(native_attack_observation_check PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+
+add_executable(physical_hitstop_check src/tracking/physical_hitstop_check.cpp)
+target_link_libraries(physical_hitstop_check PRIVATE mgs5vr_core user32)
+target_include_directories(physical_hitstop_check PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+
+add_executable(third_person_check src/tracking/third_person_check.cpp)
+target_link_libraries(third_person_check PRIVATE mgs5vr_core user32)
+target_include_directories(third_person_check PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})

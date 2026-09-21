@@ -7,6 +7,12 @@
 static void check(bool pass,const char* label){if(!pass){printf("FAIL: %s\n",label);std::exit(1);}}
 static bool closeEnough(float a,float b){return std::abs(a-b)<.002f;}
 int main(){
+    for(const auto attack:{XINPUT_GAMEPAD_X,XINPUT_GAMEPAD_Y}){
+        XINPUT_GAMEPAD moving{};amalur::MotionInputPacket attackMotion{};
+        attackMotion.moveY=.75f;attackMotion.buttons=attack;
+        amalur::mergeMotion(moving,attackMotion);
+        check(moving.sThumbLY>24000&&(moving.wButtons&attack),"native attack input does not suppress forward locomotion");
+    }
     unsigned char core[0x400]{};
     amalur::CameraPose flat{{1,2,3},{4,5,6},{0,0,1}},vr{{10,20,30},{40,50,60},{0,0,1}};
     float vrFov=130;

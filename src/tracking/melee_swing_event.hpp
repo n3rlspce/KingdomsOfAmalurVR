@@ -7,6 +7,8 @@ struct MeleeSwingEvent {
     unsigned hand{},serial{},chainStep{},generation{};
     uint64_t tick{};
     mgs5vr::Pose weaponPose{};
+    uint32_t attackAsset{},attackFlags{};
+    bool heavy{};
 };
 // Gesture sequence only. Native weapon combo/talent selection remains separate.
 struct MeleeSwingChain {

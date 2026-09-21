@@ -19,6 +19,7 @@ unsigned hooked{},rigidHooked{};
 void hook(void*,void*,void**,const char* label){++hooked;if(!strcmp(label,"Rigid weapon packet provenance"))++rigidHooked;}
 #include "src/tracking/locomotion_frame.hpp"
 namespace render_pose {inline const float* receivedVP{};inline amalur::LocomotionFrame drawn{};inline bool locomotionForVP(const float* vp,amalur::LocomotionFrame& out){receivedVP=vp;out=drawn;return drawn.valid;}}
+#include "play_mode.hpp"
 #include "src/diagnostic/skin_root_pair.hpp"
 void check(bool b,const char* s){if(!b){printf("FAIL %s\n",s);exit(1);}}
 void put(uintptr_t p,uint32_t x){memcpy(reinterpret_cast<void*>(p),&x,4);}

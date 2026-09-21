@@ -8,10 +8,13 @@ def runtime():
     lua = LuaRuntime()
     lua.execute('''
         calls = {}; shown = true; disabled = false; fonts = false; slot = 0
-        progress = -1; system_ui = false
+        progress = -1; system_ui = false; autosave = true; autosave_sets = 0; profile_applies = 0
         function record(name) calls[#calls+1] = name end
         WINDOW = {is_visible = function(window) assert(window == 42); return shown end}
         PROFILE = {
+            set_enable_autosave = function(value) assert(value == false); autosave = value; autosave_sets = autosave_sets + 1 end,
+            get_enable_autosave = function() return autosave end,
+            apply_profile_settings = function() assert(autosave == false); profile_applies = profile_applies + 1 end,
             get_splash_win_progress_state = function() return progress end,
             is_system_ui_being_shown = function() return system_ui end,
             start_splash_win_profile_acquisition = function() record('profile') end
@@ -26,7 +29,7 @@ def runtime():
             on_update_event = function(e,w,arg) assert(e == 7 and w == 42 and arg == 9); record('splash') end}
         main_menu = {m_inited = true, m_window = 42,
             on_update_event = function() record('menu') end,
-            continue_last_save = function() record('continue') end}
+            continue_last_save = function() assert(autosave == false and profile_applies == 1); record('continue') end}
     ''')
     lua.execute(source)
     lua.execute('assert(#calls == 0)')
@@ -43,6 +46,7 @@ lua.execute('''
 ''')
 lua.execute(source)
 lua.execute('main_menu.on_update_event(); assert(#calls == 9)')
+lua.execute('assert(autosave_sets == 1 and profile_applies == 1)')
 for guard in ['shown = false', 'disabled = true', 'fonts = true', 'slot = -1',
               'system_ui = true', 'main_menu.m_inited = false', 'main_menu.m_restore_op_active = true']:
     lua = runtime(); lua.execute(guard)
@@ -83,3 +87,13 @@ lua.execute('''
     main_menu.on_update_event(); assert(#calls == 5)
 ''')
 print('PASS: early window observer discovers preloaded menu; preserves return values; unhooks; loads once on update only.')
+lua = runtime()
+lua.execute('''
+    PROFILE.set_enable_autosave = function() autosave_sets = autosave_sets + 1 end
+    main_menu.on_update_event(); main_menu.on_update_event()
+    assert(amalur_startup_state.failed and autosave_sets == 1 and #calls == 2)
+''')
+lua = runtime()
+lua.execute('''slot = -1; main_menu.on_update_event()
+    assert(autosave == false and profile_applies == 1 and #calls == 1)''')
+print('PASS: autosave disabled and applied before Continue, no repeated profile writes, no load on failed verification, setting applied even with no save slot.')

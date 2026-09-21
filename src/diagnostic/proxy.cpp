@@ -56,7 +56,7 @@ static std::atomic<void*> probeCamera{nullptr};
 static ULONG_PTR gameBase{};
 static std::atomic<unsigned> cameraLogs{0};
 static std::atomic<bool> headTracking{true};
-static std::atomic<bool> firstPerson{true};
+static amalur::FirstPersonPreference firstPerson;
 static amalur::DeveloperCameraSettings developerCamera;
 static std::atomic<bool> interfaceView{false};
 static std::atomic<bool> fullscreenMenuView{false};
@@ -179,6 +179,7 @@ static bool hook(void* target,void* detour,void** original,const char* name) {
 #include "melee_feedback.hpp"
 #include "melee_contact.hpp"
 #include "dialogue_camera.hpp"
+#include "cinematic_camera.hpp"
 static bool isCameraCore(unsigned char* core) {
     // Core is embedded at BHG::Camera +8. Other embedded camera structures also
     // use the rebuild routine, so never infer ownership from its address alone.
@@ -195,7 +196,9 @@ static void __fastcall onRebuildCamera(void* camera,void*) {
     // Rebuild may be requested several times in one frame. Do not feed our
     // previous offset back into the engine rig on a subsequent request.
     if(cameraInputs.core==core)restoreCameraInputs();
-    if(dialogue_camera::rebuild(camera))return;
+    cinematic_camera::restore(camera);
+    if(dialogue_camera::rebuild(camera)){cinematic_camera::leave();return;}
+    if(cinematic_camera::rebuild(camera))return;
     if(!isCameraCore(core)){realRebuildCamera(camera);return;}
     mgs5vr::Vec3 selectedPlayerPosition{};
     const bool selectedPlayerValid=firstPerson.load()&&player_rig::location(camera,selectedPlayerPosition);

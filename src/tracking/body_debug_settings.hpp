@@ -1,5 +1,6 @@
 #pragma once
 #include <windows.h>
+#include "play_mode.hpp"
 #ifndef AMALUR_BODY_DEBUG_MAPPING
 #define AMALUR_BODY_DEBUG_MAPPING L"Local\\AmalurBodyAnimationModesV1"
 #endif
@@ -19,7 +20,7 @@ public:
         if(!value_&&mapping_){CloseHandle(mapping_);mapping_=nullptr;}
         return value_!=nullptr;
     }
-    LONG read(){return open()?InterlockedCompareExchange(value_,0,0):0;}
+    LONG read(){LONG bits=open()?InterlockedCompareExchange(value_,0,0):0;return playMode.normal()?bits|nativeTorso|nativeArms:bits;}
     bool enabled(LONG bit){return (read()&bit)!=0;}
     void resetAblations(){if(open())InterlockedAnd(value_,~rigAblationMask);}
     void toggle(LONG bit){if(open())InterlockedXor(value_,bit);}

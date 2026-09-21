@@ -1,6 +1,8 @@
 #pragma once
+#include "../tracking/weapon_family.hpp"
 #include "../tracking/melee_swing_event.hpp"
 #include "../tracking/melee_feedback_capture.hpp"
+#include <cmath>
 
 // Include after player_rig and weapon_control. This prerequisite observes the
 // actual native audio/FX callbacks, but NEVER replays them or borrows pointers.
@@ -12,15 +14,7 @@ inline amalur::MeleeFeedbackInbox inbox;
 inline amalur::MeleeFeedbackBudget swingBudget,nativeBudget;
 inline std::atomic_flag observing=ATOMIC_FLAG_INIT;
 
-inline void onSwing(const amalur::MeleeSwingEvent& event){
-    const auto now=GetTickCount64();
-    AcquireSRWLockExclusive(&stateLock);
-    const bool accepted=inbox.accept(event,now);
-    const bool report=accepted&&swingBudget.allow(now);
-    ReleaseSRWLockExclusive(&stateLock);
-    if(report)log("VR melee feedback swing tick=%llu owner=%08x weapon=%08x asset=%u hand=%u serial=%u chain=%u generation=%u nativePlayback=unverified\n",
-        event.tick,event.owner,event.weapon,event.asset,event.hand,event.serial,event.chainStep,event.generation);
-}
+inline void onSwing(const amalur::MeleeSwingEvent& event);
 
 enum class Kind:unsigned {GameSound,DerivedSound,WeaponFx,CharacterWeaponFx,Fx};
 inline constexpr uintptr_t vtables[]{0x132a46c,0x132aadc,0x1329cdc,0x132a564,0x1322634};
@@ -94,6 +88,17 @@ inline void inspect(Kind kind,uintptr_t event,uintptr_t record,uintptr_t index,u
         start,end,recordStart,recordEnd,windows,serial[0],serial[1],chain[0],chain[1],dropped);
 }
 #include "melee_feedback_resolved.hpp"
+#include "melee_longsword_audio.hpp"
+inline void onSwing(const amalur::MeleeSwingEvent& event){
+    const auto now=GetTickCount64();
+    AcquireSRWLockExclusive(&stateLock);
+    const bool accepted=inbox.accept(event,now);
+    const bool report=accepted&&swingBudget.allow(now);
+    ReleaseSRWLockExclusive(&stateLock);
+    if(accepted)longsword_audio::onSwing(event);
+    if(report)log("VR melee feedback swing tick=%llu owner=%08x weapon=%08x asset=%u hand=%u serial=%u chain=%u generation=%u nativePlayback=%s\n",event.tick,event.owner,event.weapon,event.asset,event.hand,event.serial,event.chainStep,event.generation,amalur::knownLongswordModel(event.asset)?"longsword-audio-pilot":"unavailable");
+}
+
 inline void observe(Kind kind,uintptr_t event,uintptr_t record,uintptr_t index,uintptr_t times){
     if(observing.test_and_set())return;
     __try{inspect(kind,event,record,index,times);}
@@ -131,6 +136,7 @@ inline void install(){
         hook(target,replacements[i],reinterpret_cast<void**>(&original[i]),names[i]);
     }
     resolved::install();
-    log("VR melee native feedback observation enabled; native playback unavailable\n");
+    longsword_audio::install();
+    log("VR melee native feedback observation enabled; longsword audio pilot installed when signatures validate\n");
 }
 }

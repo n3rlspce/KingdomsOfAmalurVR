@@ -17,7 +17,7 @@ public:
     void reset(){count_=0;armed_=false;quiet_=fast_=false;speed_=0;hasFire_=false;gate_="warming-up";}
     float speed() const{return speed_;}
     const char* gate() const{return gate_;}
-    bool sample(mgs5vr::Vec3 pointRelativeToHead,uint64_t tick,unsigned generation,bool eligible){
+    bool sample(mgs5vr::Vec3 pointRelativeToHead,uint64_t tick,unsigned generation,bool eligible,float threshold=.9f,unsigned sustainedMs=30){
         if(!eligible||!std::isfinite(pointRelativeToHead.x)||!std::isfinite(pointRelativeToHead.y)||!std::isfinite(pointRelativeToHead.z)){
             reset();gate_="ineligible-or-invalid";return false;
         }
@@ -44,17 +44,17 @@ public:
             if(!quiet_){quiet_=true;quietSince_=tick;}
             if(tick-quietSince_>=80)armed_=true;
         }else quiet_=false;
-        if(speed_>=.9f){
+        if(speed_>=threshold){
             if(!fast_){fast_=true;fastSince_=tick;}
         }else fast_=false;
         // A deliberate return slash can start without an 80ms stationary hold.
         // Keep initial tracking arming and the existing speed/duration/cooldown
         // gates; only a reversal relative to the last fired slash can rearm.
         const bool returnSlash=hasFire_&&mgs5vr::dot(direction,lastDirection_)<-.25f;
-        if((armed_||returnSlash)&&fast_&&tick-fastSince_>=30&&(!hasFire_||tick-lastFire_>=250)){
+        if((armed_||returnSlash)&&fast_&&tick-fastSince_>=sustainedMs&&(!hasFire_||tick-lastFire_>=250)){
             armed_=false;quiet_=false;lastFire_=tick;lastDirection_=direction;hasFire_=true;gate_="accepted";return true;
         }
-        gate_=speed_<.9f?"below-speed":!(armed_||returnSlash)?"needs-rearm":!fast_||tick-fastSince_<30?"too-brief":"cooldown";
+        gate_=speed_<threshold?"below-speed":!(armed_||returnSlash)?"needs-rearm":!fast_||tick-fastSince_<sustainedMs?"too-brief":"cooldown";
         return false;
     }
 private:

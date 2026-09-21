@@ -242,6 +242,7 @@ int main(int argc,char** argv) {
         D3D11_BUFFER_DESC bd{}; bd.ByteWidth=sizeof(vertices);bd.Usage=D3D11_USAGE_IMMUTABLE;bd.BindFlags=D3D11_BIND_VERTEX_BUFFER; D3D11_SUBRESOURCE_DATA initial{vertices}; ComPtr<ID3D11Buffer> vb,cb; hrcheck(device->CreateBuffer(&bd,&initial,&vb));
         bd.ByteWidth=64;bd.Usage=D3D11_USAGE_DEFAULT;bd.BindFlags=D3D11_BIND_CONSTANT_BUFFER;hrcheck(device->CreateBuffer(&bd,nullptr,&cb));
         D3D11_RASTERIZER_DESC rd{};rd.FillMode=D3D11_FILL_SOLID;rd.CullMode=D3D11_CULL_NONE;rd.DepthClipEnable=TRUE;ComPtr<ID3D11RasterizerState> raster;hrcheck(device->CreateRasterizerState(&rd,&raster));
+        XrSessionState sessionState=XR_SESSION_STATE_UNKNOWN; uint64_t lastHealthTick{}; unsigned lastHealthBits=~0u;
         bool running=false,focused=false,done=false; unsigned frames=0; std::array<bool,2> pressed{}; const auto start=std::chrono::steady_clock::now();
         if(gameMode&&!stereoSource.initialize(device.Get()))throw std::runtime_error("Stereo presenter initialization failed");
         GameLifetime gameLifetime;
@@ -255,12 +256,12 @@ int main(int argc,char** argv) {
                 std::cout<<"Game process exited; closing VR bridge.\n";
                 break;
             }
-            if(gameMode){settings.poll();mapPanelSettings.publish(settings.mapPanelPrototype);DWORD developerPid=GetTickCount()-latestRig.tick<1000?latestRig.pid:0;developer.poll(developerPid,developerPid&&latestRig.paused==0&&latestRig.weaponRemaps>0);if(settings.developerAction>=0){developer.submit(settings.developerAction,developerPid);settings.developerAction=-1;}if(gripSettings.open(true))gripSettings.publish(settings.gripPitch,settings.gripYaw,settings.gripRoll,settings.weaponX,settings.weaponY,settings.weaponZ);if(hudSettings.open(true))hudSettings.publish(settings.hudSize);if(menuSettings.open(true))menuSettings.publish(amalur::menuScale(settings.interfaceScale)*.8f);if(settings.renderScale!=activeRenderScale){createEyeChains();activeRenderScale=settings.renderScale;}}
+            if(gameMode){settings.poll();mapPanelSettings.publish(settings.mapPanelPrototype);DWORD developerPid=GetTickCount()-latestRig.tick<1000?latestRig.pid:0;developer.poll(developerPid,developerPid&&latestRig.paused==0&&latestRig.weaponRemaps>0);if(settings.menuRecovery.poll(developerPid)&&settings.menuRecovery.failed){settings.visible=true;settings.developerVisible=false;}if(settings.pauseNativeRequested){settings.pauseNativeRequested=false;settings.menuRecovery.submit(developerPid);if(settings.menuRecovery.failed){settings.visible=true;settings.developerVisible=false;}}if(settings.developerAction>=0){developer.submit(settings.developerAction,developerPid);settings.developerAction=-1;}if(gripSettings.open(true))gripSettings.publish(settings.gripPitch,settings.gripYaw,settings.gripRoll,settings.weaponX,settings.weaponY,settings.weaponZ);if(hudSettings.open(true))hudSettings.publish(settings.hudSize);if(menuSettings.open(true))menuSettings.publish(amalur::menuScale(settings.interfaceScale)*.8f);if(settings.renderScale!=activeRenderScale){createEyeChains();activeRenderScale=settings.renderScale;}}
             XrEventDataBuffer event{XR_TYPE_EVENT_DATA_BUFFER};
             for(;;) {
                 auto result=xrPollEvent(instance,&event); if(result==XR_EVENT_UNAVAILABLE) break; xrcheck(result,"xrPollEvent");
                 if(event.type==XR_TYPE_EVENT_DATA_SESSION_STATE_CHANGED) {
-                    auto state=reinterpret_cast<XrEventDataSessionStateChanged*>(&event)->state;std::cout<<"Session state="<<state<<"\n";focused=state==XR_SESSION_STATE_FOCUSED;
+                    auto state=reinterpret_cast<XrEventDataSessionStateChanged*>(&event)->state;sessionState=state;std::cout<<"Session state="<<state<<" tick="<<GetTickCount64()<<std::endl;focused=state==XR_SESSION_STATE_FOCUSED;
                     if(state==XR_SESSION_STATE_READY){XrSessionBeginInfo b{XR_TYPE_SESSION_BEGIN_INFO};b.primaryViewConfigurationType=XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO;XR(xrBeginSession(r.session,&b));running=true;}
                     if(state==XR_SESSION_STATE_STOPPING){XR(xrEndSession(r.session));running=false;done=true;}
                     if(state==XR_SESSION_STATE_EXITING||state==XR_SESSION_STATE_LOSS_PENDING) done=true;
@@ -305,8 +306,9 @@ int main(int argc,char** argv) {
                 if(rigStatus.transfer(freshRig,false)&&freshRig.version==1)latestRig=freshRig;
                 const bool gameplay=!settings.interfaceView&&latestRig.pid&&GetTickCount()-latestRig.tick<1000
                     &&latestRig.weaponRemaps>0&&latestRig.paused==0;
-                const bool panelCapture=settings.pollDeveloperControllers(touch,gameMode&&VrSettings::gameFocused(),developer.busy());
+                bool panelCapture=settings.pollDeveloperControllers(touch,gameMode&&VrSettings::gameFocused(),developer.busy());
                 auto mapped=touchMapper.map(touch,gameMode&&!panelCapture&&!settings.visible&&!settings.developerVisible&&VrSettings::gameFocused(),gameplay);
+                panelCapture=settings.applyPauseInput(touch,gameMode&&VrSettings::gameFocused(),mapped)||panelCapture;
                 settings.selectedWeapon=mapped.selectedWeapon;
                 motionInput.publish(mapped);
                 for(int i=0;i<2;++i){XrActionStateGetInfo get{XR_TYPE_ACTION_STATE_GET_INFO};get.action=trigger;get.subactionPath=handPaths[i];XrActionStateFloat value{XR_TYPE_ACTION_STATE_FLOAT};XR(xrGetActionStateFloat(r.session,&get,&value));
@@ -332,9 +334,9 @@ int main(int argc,char** argv) {
             if(trackingMode)trackingSnapshots.publish(snapshot);
             bool render=fs.shouldRender&&count==2&&(state.viewStateFlags&XR_VIEW_STATE_POSITION_VALID_BIT)&&(state.viewStateFlags&XR_VIEW_STATE_ORIENTATION_VALID_BIT);
             amalur::PosePacket gameFrame;
-            bool trackedGame=false;bool mapPanelFrame=false;
+            bool trackedGame=false;bool mapPanelFrame=false;bool sourceReady=false;
             if(gameMode){
-                bool sourceReady=stereoSource.acquirePaired(device.Get(),context.Get(),gameFrame);
+                sourceReady=stereoSource.acquirePaired(device.Get(),context.Get(),gameFrame);
                 trackedGame=!settings.interfaceView&&sourceReady&&gameFrame.valid&&gameFrame.projectionX>0&&gameFrame.projectionY>0;
                 render=render&&sourceReady;
                 mapPanelFrame=sourceReady&&gameFrame.gameMode==5&&!settings.interfaceView;
@@ -349,6 +351,24 @@ int main(int argc,char** argv) {
                 if(trackedGame&&!mapPanelFrame)menuAnchor.close();
                 else if((head.locationFlags&(XR_SPACE_LOCATION_ORIENTATION_VALID_BIT|XR_SPACE_LOCATION_POSITION_VALID_BIT))==(XR_SPACE_LOCATION_ORIENTATION_VALID_BIT|XR_SPACE_LOCATION_POSITION_VALID_BIT))menuAnchor.update(head.pose,settings.recenter);
                 else if(!menuAnchor.active)render=false;
+            }
+            // Bounded diagnostics distinguish runtime focus/tracking loss from a
+            // missing game frame or flat-view fallback. Do not change input/pose policy.
+            const unsigned healthBits=(focused?1u:0u)|(snapshot.head.valid?2u:0u)
+                |(sourceReady?4u:0u)|(trackedGame?8u:0u)|(render?16u:0u)
+                |(fs.shouldRender?32u:0u)|(settings.interfaceView?64u:0u)
+                |(settings.developerVisible?128u:0u)|(settings.visible?256u:0u);
+            const auto healthTick=GetTickCount64();
+            if(healthTick-lastHealthTick>=5000 || (healthBits!=lastHealthBits&&healthTick-lastHealthTick>=250)){
+                std::cout<<"VR health tick="<<healthTick<<" session="<<sessionState
+                    <<" focused="<<focused<<" headFlags="<<head.locationFlags<<" headValid="<<snapshot.head.valid
+                    <<" viewFlags="<<state.viewStateFlags<<" viewCount="<<count<<" shouldRender="<<fs.shouldRender
+                    <<" sourceReady="<<sourceReady<<" trackedGame="<<trackedGame<<" render="<<render
+                    <<" frameValid="<<gameFrame.valid<<" frameTick="<<gameFrame.tick
+                    <<" frameAge="<<(gameFrame.tick&&healthTick>=gameFrame.tick?healthTick-gameFrame.tick:0)
+                    <<" interface="<<settings.interfaceView<<" settings="<<settings.visible
+                    <<" developer="<<settings.developerVisible<<std::endl;
+                lastHealthTick=healthTick;lastHealthBits=healthBits;
             }
             if(render)for(int i=0;i<2;++i){
                 uint32_t index{};XrSwapchainImageAcquireInfo acquire{XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO};XR(xrAcquireSwapchainImage(r.chains[i],&acquire,&index));XrSwapchainImageWaitInfo wi{XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO};wi.timeout=XR_INFINITE_DURATION;XR(xrWaitSwapchainImage(r.chains[i],&wi));
@@ -406,8 +426,9 @@ int main(int argc,char** argv) {
             }
             XrFrameEndInfo end{XR_TYPE_FRAME_END_INFO};end.displayTime=fs.predictedDisplayTime;end.environmentBlendMode=XR_ENVIRONMENT_BLEND_MODE_OPAQUE;end.layerCount=static_cast<uint32_t>(submitted.size());end.layers=submitted.data();XR(xrEndFrame(r.session,&end));if(render)++frames;
         }
+        std::cout<<"VR loop exit tick="<<GetTickCount64()<<" state="<<sessionState<<" done="<<done<<" stopKey="<<bool(GetAsyncKeyState(stopKey)&0x8000)<<std::endl;
         std::cout<<"Rendered pairs="<<frames<<"; visual comfort, pose accuracy and haptic perception require human verification.\n";
         return frames?0:2;
-    }catch(const std::exception& e){std::cerr<<"FAIL: "<<e.what()<<"\n";return 1;}
+    }catch(const std::exception& e){std::cerr<<"FAIL tick="<<GetTickCount64()<<": "<<e.what()<<"\n";return 1;}
 }
 

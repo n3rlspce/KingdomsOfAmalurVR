@@ -10,12 +10,13 @@
 #include <cstdlib>
 #include <cstring>
 #include "weapon_pose.hpp"
+#include "melee_swing_event.hpp"
 using Microsoft::WRL::ComPtr;
 static void log(const char* text,...){std::printf("%s",text);}
 static std::atomic<bool> firstPerson{true},interfaceView{false};
 namespace arm_rig {static std::atomic<bool> enabled{true};}
-namespace motion_controls {inline bool gameFocused(){return false;}struct Controls {int selectedWeapon{};};inline Controls viewControls(){return {};}}
-namespace weapon_control {static SRWLOCK poseLock=SRWLOCK_INIT;static mgs5vr::Pose visualPoses[2];static uint64_t visualTick,tick,leftTick;static uint32_t visualAsset=1520,visualWeapon=123,visualSelection=0;static bool visualDual=true;}
+namespace motion_controls {inline bool focused=true;inline bool gameFocused(){return focused;}struct Controls {int selectedWeapon{};};inline Controls viewControls(){return {};}}
+namespace weapon_control {static SRWLOCK poseLock=SRWLOCK_INIT;static mgs5vr::Pose visualPoses[2];static uint64_t visualTick,tick,leftTick;static uint32_t visualAsset=1520,visualWeapon=123,visualSelection=0;static bool visualDual=true;inline float longswordCharge{};inline bool longswordReady{};inline unsigned generation{};inline amalur::MeleeSwingEvent swingEvents[2];inline std::atomic<uint32_t> physicalActor{0};}
 #include "../diagnostic/melee_debug.hpp"
 static void check(bool b,const char* message){if(!b){std::fprintf(stderr,"FAIL: %s\n",message);std::exit(1);}}
 int main(){
@@ -66,8 +67,19 @@ int main(){
         check(toggle.enabled(),"rendering weapon switches never disables collision toggle");
         c->IAGetPrimitiveTopology(&topology);check(topology==D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP,"each profile restores pipeline");
     }
+    check(toggle.toggle()&&!toggle.enabled(),"explicit disable");
+    weapon_control::visualAsset=2478;weapon_control::visualDual=false;
+    weapon_control::longswordCharge=1;weapon_control::longswordReady=true;
+    weapon_control::visualTick=weapon_control::tick=GetTickCount64();
+    c->ClearRenderTargetView(rt.Get(),black);melee_debug::draw(chain.Get(),vp,true);
+    c->CopyResource(staging.Get(),back.Get());check(SUCCEEDED(c->Map(staging.Get(),0,D3D11_MAP_READ,0,&map)),"charge readback");
+    unsigned green=0;for(unsigned y=0;y<256;++y)for(unsigned x=0;x<256;++x){auto p=static_cast<unsigned char*>(map.pData)+y*map.RowPitch+x*4;if(p[1]>150&&p[0]<100&&p[2]<120)++green;}
+    c->Unmap(staging.Get(),0);check(green>10,"ready indicator visible with collision debug OFF");
+    motion_controls::focused=false;c->ClearRenderTargetView(rt.Get(),black);melee_debug::draw(chain.Get(),vp,true);
+    c->CopyResource(staging.Get(),back.Get());check(SUCCEEDED(c->Map(staging.Get(),0,D3D11_MAP_READ,0,&map)),"cancel readback");
+    unsigned lit=0;for(unsigned y=0;y<256;++y)for(unsigned x=0;x<256;++x){auto p=static_cast<unsigned char*>(map.pData)+y*map.RowPitch+x*4;if(p[0]||p[1]||p[2])++lit;}
+    c->Unmap(staging.Get(),0);check(!lit,"focus loss hides charge and trail");
     restored.Reset();rt.Reset();back.Reset();c->OMSetRenderTargets(0,nullptr,nullptr);
     check(SUCCEEDED(chain->ResizeBuffers(1,128,128,DXGI_FORMAT_UNKNOWN,0)),"overlay does not retain backbuffer after drawing");
-    check(toggle.toggle()&&!toggle.enabled(),"explicit disable");
     DestroyWindow(window);std::printf("PASS: overlay pixels cyan=%u magenta=%u; pipeline restored; resize succeeds\n",cyan,magenta);
 }

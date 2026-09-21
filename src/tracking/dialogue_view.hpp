@@ -3,6 +3,10 @@
 #include <cstdint>
 
 namespace amalur {
+inline Vec3 dialogueEntryFacing(Vec3 player,Vec3 npc,Vec3 fallback){
+    auto direction=npc-player;direction.z=0;
+    return normalize(direction)?direction:fallback;
+}
 // A dialogue camera cut must not move the VR viewer. Only a new conversation,
 // player, or reference-space generation rebases the local headset origin.
 struct DialogueView {

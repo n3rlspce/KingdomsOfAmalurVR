@@ -6,6 +6,8 @@
 #include "../tracking/grip_settings.hpp"
 #include "../tracking/melee_swing.hpp"
 #include "../tracking/melee_swing_event.hpp"
+#include "../tracking/longsword_gesture.hpp"
+#include "../tracking/longsword_hold.hpp"
 #include "../tracking/grip_filter.hpp"
 namespace arm_rig {extern std::atomic<bool> enabled;}
 namespace weapon_control {
@@ -21,6 +23,11 @@ inline uint64_t bladeTick{};inline uint32_t bladeOwner{};
 inline unsigned swingSerial[2]{};inline float swingSpeed[2]{};
 inline amalur::MeleeSwingEvent swingEvents[2];
 inline amalur::MeleeSwingChain swingChain;
+inline amalur::LongswordGesture longswordGesture;
+inline amalur::LongswordHold longswordHold;
+inline float longswordCharge{};
+inline bool longswordReady{};
+inline std::atomic<uint32_t> physicalActor{0};
 inline uint32_t visualWeapon{},visualAsset{},gestureWeapon{};
 inline uint32_t visualSelection{};
 inline uint64_t visualTick{};inline bool visualDual{};
@@ -79,17 +86,28 @@ inline void sample(amalur::CameraPose rig,mgs5vr::Pose origin,float scale,unsign
         &&motion_controls::gameFocused()&&!motion_controls::dialogueActive.load();
     AcquireSRWLockExclusive(&poseLock);locomotionFrame=locomotion;desired=result;tick=valid?p.tick:0;desiredLeft=leftResult;leftTick=leftValid?l.tick:0;generation=recenter;worldScale=scale;
     gestures=gestures&&visualWeapon&&visualTick&&visualTick<=now&&now-visualTick<100;
-    if(!gestures||gestureWeapon!=visualWeapon){rightSwing.reset();leftSwing.reset();swingChain.reset();gestureWeapon=gestures?visualWeapon:0;}
+    if(!gestures||gestureWeapon!=visualWeapon){rightSwing.reset();leftSwing.reset();swingChain.reset();longswordGesture.reset();longswordHold.reset();gestureWeapon=gestures?visualWeapon:0;}
     if(offsetValid)weaponCentimetres=offset;
     auto tip=[&](const amalur::PosePacket& v){return amalur::meleeTipRelative(mgs5vr::Pose{{v.orientation[0],v.orientation[1],v.orientation[2],v.orientation[3]},{v.position[0],v.position[1],v.position[2]}},headLocal);};
-    bool r=rightSwing.sample(tip(p),p.tick,recenter,gestures&&valid);
+    const bool longsword=amalur::knownLongswordModel(visualAsset)&&visualSelection==0&&motion_controls::viewControls().selectedWeapon==0;
+    const auto bladeUp=mgs5vr::rotate(visualPoses[0].orientation,{0,0,1});
+    const mgs5vr::Vec3 relativeHand{p.position[0]-headLocal.x,p.position[1]-headLocal.y,p.position[2]-headLocal.z};
+    const bool stableHold=longswordHold.sample(relativeHand,p.tick,recenter,gestures&&valid&&longsword);
+    const bool preparation=longsword&&longswordHold.raising()&&bladeUp.z>.3f&&relativeHand.y>-.45f;
+    bool r=rightSwing.sample(tip(p),p.tick,recenter,gestures&&valid,longsword?2.0f:.9f,longsword?55:30);
+    if(r&&preparation){r=false;log("VR longsword preparation tick=%llu sound-and-damage=suppressed\n",now);}
     bool left=leftSwing.sample(tip(l),l.tick,recenter,gestures&&visualDual&&leftValid);
     if(r)++swingSerial[0];if(left)++swingSerial[1];
-    const auto chainStep=(r||left)?swingChain.advance(visualWeapon,recenter,now):0;
+    const bool raised=relativeHand.y>=-.30f&&bladeUp.z>=.40f;
+    const auto swordStrike=longswordGesture.sample(visualWeapon,recenter,p.tick,
+        gestures&&valid&&longsword,raised,stableHold?0.f:1.f,r);
+    longswordCharge=longswordGesture.progress();longswordReady=longswordGesture.ready();
+    const auto chainStep=longsword?swordStrike.step:(r||left)?swingChain.advance(visualWeapon,recenter,now):0;
     auto publish=[&](unsigned side,uint64_t stamp){
         auto& event=swingEvents[side];event={};event.weapon=visualWeapon;event.asset=visualAsset;
         event.hand=side;event.serial=swingSerial[side];event.generation=recenter;event.tick=stamp;
         event.chainStep=chainStep;event.weaponPose=visualPoses[side];
+        if(longsword&&side==0){event.attackAsset=swordStrike.attack;event.attackFlags=swordStrike.flags;event.heavy=swordStrike.heavy;}
     };
     if(r)publish(0,p.tick);if(left)publish(1,l.tick);
     swingSpeed[0]=rightSwing.speed();swingSpeed[1]=leftSwing.speed();
@@ -97,7 +115,16 @@ inline void sample(amalur::CameraPose rig,mgs5vr::Pose origin,float scale,unsign
     const auto reportModel=visualAsset,reportWeapon=visualWeapon,reportSelection=visualSelection;
     const auto reportFrame=visualTick;const auto rs=swingSpeed[0],ls=swingSpeed[1];
     const auto rg=rightSwing.gate(),lg=leftSwing.gate();
+    const auto rightSerial=swingSerial[0],leftSerial=swingSerial[1];
+    const auto charge=longswordCharge;const bool charged=longswordReady;
     ReleaseSRWLockExclusive(&poseLock);
+    static int chargeState=-1;const int state=charged?2:charge>0?1:0;
+    if(chargeState!=state){chargeState=state;log("VR longsword charge tick=%llu model=%u weapon=%08x state=%d progress=%.3f raised=%d speed=%.3f\n",now,reportModel,reportWeapon,state,charge,raised,rs);}
+    if(r&&longsword)log("VR longsword strike tick=%llu weapon=%08x serial=%u step=%u attack=%u flags=%u heavy=%d speed=%.3f\n",now,reportWeapon,rightSerial,swordStrike.step,swordStrike.attack,swordStrike.flags,swordStrike.heavy,rs);
+    // Log accepted gesture speed itself; the interval peak may belong to a
+    // different sample and must not be mistaken for the acceptance speed.
+    if(r)log("VR swing accepted tick=%llu poseTick=%llu model=%u weapon=%08x hand=0 serial=%u chain=%u speed=%.4f threshold=%.2f\n",now,p.tick,reportModel,reportWeapon,rightSerial,chainStep,rs,longsword?2.0:.9);
+    if(left)log("VR swing accepted tick=%llu poseTick=%llu model=%u weapon=%08x hand=1 serial=%u chain=%u speed=%.4f threshold=0.9\n",now,l.tick,reportModel,reportWeapon,leftSerial,chainStep,ls);
     // Preserve the peak from EVERY detector sample, publishing at most20Hz.
     // Failed/slow motions remain visible, not just accepted attacks.
     static uint64_t speedReport{};static uint32_t speedWeapon{};static unsigned speedGeneration{};
@@ -109,14 +136,14 @@ inline void sample(amalur::CameraPose rig,mgs5vr::Pose origin,float scale,unsign
     fired[0]+=r;fired[1]+=left;
     if(now>=speedReport&&(peaks[0]>=.2f||peaks[1]>=.2f||fired[0]||fired[1])){
         speedReport=now+50;
-        log("VR swing speed tick=%llu model=%u weapon=%08x generation=%u allowed=%d speed=%.4f,%.4f peak=%.4f,%.4f fired=%u,%u gate=%s,%s threshold=0.9\n",
-            now,reportModel,reportWeapon,recenter,gestures,rs,ls,peaks[0],peaks[1],fired[0],fired[1],gates[0],gates[1]);
+        log("VR swing speed tick=%llu model=%u weapon=%08x generation=%u allowed=%d speed=%.4f,%.4f peak=%.4f,%.4f fired=%u,%u gate=%s,%s threshold=%.2f\n",
+            now,reportModel,reportWeapon,recenter,gestures,rs,ls,peaks[0],peaks[1],fired[0],fired[1],gates[0],gates[1],longsword?2.0:.9);
         peaks[0]=peaks[1]=0;fired[0]=fired[1]=0;
     }
     static uint64_t nextReport{};
     if(now>=nextReport){nextReport=now+2000;
-        log("VR swing detector tick=%llu model=%u weapon=%08x selection=%u currentSelection=%u poseTick=%llu allowed=%d rightTracked=%d leftTracked=%d speed=%.3f,%.3f threshold=0.9 focused=%d firstPerson=%d interface=%d dialogue=%d nativeArms=%d\n",
-            now,reportModel,reportWeapon,reportSelection,motion_controls::viewControls().selectedWeapon,reportFrame,gestures,valid,leftValid,rs,ls,
+        log("VR swing detector tick=%llu model=%u weapon=%08x selection=%u currentSelection=%u poseTick=%llu allowed=%d rightTracked=%d leftTracked=%d speed=%.3f,%.3f threshold=%.2f focused=%d firstPerson=%d interface=%d dialogue=%d nativeArms=%d\n",
+            now,reportModel,reportWeapon,reportSelection,motion_controls::viewControls().selectedWeapon,reportFrame,gestures,valid,leftValid,rs,ls,longsword?2.0:.9,
             motion_controls::gameFocused(),firstPerson.load(),interfaceView.load(),motion_controls::dialogueActive.load(),amalur::bodyDebug.enabled(amalur::nativeArms));
     }
 }
@@ -165,21 +192,19 @@ inline void observeNativeWeaponSlot(void* mapper,uintptr_t slot,uintptr_t source
     }__except(EXCEPTION_EXECUTE_HANDLER){}
 }
 inline bool isOnlyActivePlayerWeapon(uintptr_t self){
-    if(isSinglePlayerWeapon(self))return true;
     const auto root=currentWeaponRoot();if(!root)return false;
     auto n=player_rig::word(root+0x28),children=player_rig::word(root+0x24);if(n>32||!children)return false;
     NativeWeaponSlot seen[32];AcquireSRWLockShared(&poseLock);memcpy(seen,nativeWeaponSlots,sizeof(seen));ReleaseSRWLockShared(&poseLock);
     const auto now=GetTickCount64();const auto selection=motion_controls::viewControls().selectedWeapon;
-    bool found=false;
+    amalur::ActiveWeaponSet active;
     for(unsigned i=0;i<n;++i){auto object=fab(player_rig::word(children+i*4));if(!object)continue;
         auto owner=player_rig::word(object+0xf8);
         if(!player_rig::part(player_rig::resolve(owner),11,owner,0x135745c))continue;
-        if(object==self){found=true;continue;}
         bool stowed=false;for(const auto& entry:seen)
             if(amalur::freshBackSocket(entry,object,owner,root,player_rig::word(root+0xf8),selection,now)){stowed=true;break;}
-        if(!stowed)return false;
+        active.observe(object==self,stowed);
     }
-    return found;
+    return active.accepts();
 }
 inline bool isPlayerDaggers(uintptr_t self){
     auto player=reinterpret_cast<uintptr_t>(player_rig::player.load());if(!player)return false;
@@ -396,7 +421,7 @@ inline void translateHeld(uintptr_t object,uintptr_t slot,uintptr_t source,uintp
 }
 inline void recordBlades(uintptr_t object){
     __try{
-        if(!isPlayerDaggers(object))return;
+        if(!isPlayerDaggers(object)||!isOnlyActivePlayerWeapon(object))return;
         auto native=[](mgs5vr::Pose p){p.orientation={-p.orientation.x,-p.orientation.y,-p.orientation.z,p.orientation.w};return p;};
         mgs5vr::Pose root;memcpy(&root.position,reinterpret_cast<void*>(object+0x124),12);memcpy(&root.orientation,reinterpret_cast<void*>(object+0x134),16);
         root=native(root);if(!mgs5vr::valid(root))return;

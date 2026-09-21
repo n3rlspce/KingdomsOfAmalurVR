@@ -32,7 +32,7 @@ int main(){
  }
  check(!s.ablationAction(VrSettings::ablationFirstRow-1,true)&&!s.ablationAction(VrSettings::ablationResetRow+1,true),"other rows excluded");
  check(s.developerAction==-1,"experiments never dispatch gameplay commands");
- check(220+(VrSettings::developerPanelRows-1)*29+28<1045,"all rows fit above footer");
+ check(220+(VrSettings::developerPanelRows-1)*31+28<1045,"all rows fit above footer");
  check(VrSettings::mapPanelRow==VrSettings::developerPanelRows,"hidden prototype remains hidden");
  puts("PASS: isolated shared IPC, independent keyboard/controller rows, all combinations, reset and panel bounds");
 }

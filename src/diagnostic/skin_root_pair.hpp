@@ -17,7 +17,7 @@ struct Palette {
 inline Bones bones[32];inline Palette palettes[capacity];inline unsigned cursor{};
 inline SRWLOCK lock=SRWLOCK_INIT;
 inline std::atomic<unsigned> captured{},matched{},rejected{},advanced{};
-inline bool active(){return headTracking.load()&&!interfaceView.load()&&(firstPerson.load()||arm_rig::enabled.load());}
+inline bool active(){return !amalur::playMode.normal()&&headTracking.load()&&!interfaceView.load()&&(firstPerson.load()||arm_rig::enabled.load());}
 inline bool owned(uintptr_t object,uintptr_t root){
     if(!root||root!=rig_probe::playerRoot())return false;
     auto n=player_rig::word(root+0x28);if(n>32)return false;

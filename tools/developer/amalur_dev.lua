@@ -26,10 +26,17 @@ end
 function dev.enable_invincibility()
     require_dispatch()
     local set = require_function(ACTOR and ACTOR.set_unkillable, 'ACTOR.set_unkillable')
+    local read = require_function(ACTOR and ACTOR.is_unkillable, 'ACTOR.is_unkillable')
     local player = require_function(get_player, 'get_player')()
     if player == nil or player == false or player == 0 then fail('load a game first') end
     set(player, true)
-    return 'invincibility setter applied to player'
+    local enabled = read(player)
+    if enabled ~= true and enabled ~= 1 then fail('player unkillable flag did not enable') end
+    local health = ''
+    if type(ACTOR.get_current_health) == 'function' and type(ACTOR.get_max_health) == 'function' then
+        health = '; HP ' .. tostring(ACTOR.get_current_health(player)) .. '/' .. tostring(ACTOR.get_max_health(player))
+    end
+    return 'Death protection verified ON' .. health .. '. Damage and stagger can still occur; re-enable after loading a save.'
 end
 
 local function equip_verified(item, slot)
@@ -61,6 +68,49 @@ local function integer(value, low, high, name)
         fail(name .. ' must be an integer from ' .. low .. ' to ' .. high)
     end
     return value
+end
+
+function dev.boost_health(target)
+    require_dispatch()
+    target = integer(target or 10000, 1000, 100000, 'target HP')
+    local player = require_function(get_player, 'get_player')()
+    if player == nil or player == false or player == 0 then fail('load a game first') end
+    local maximum = require_function(ACTOR and ACTOR.get_max_health, 'ACTOR.get_max_health')
+    local current = require_function(ACTOR.get_current_health, 'ACTOR.get_current_health')
+    local heal = require_function(ACTOR.modify_health, 'ACTOR.modify_health')
+    local attribute = require_function(PLAYER and PLAYER.get_unmodified_attribute, 'PLAYER.get_unmodified_attribute')
+    local add = require_function(PLAYER.increment_attribute, 'PLAYER.increment_attribute')
+    local before = maximum(player)
+    if type(before) ~= 'number' or before <= 0 or before ~= before then fail('invalid maximum HP') end
+    local might = integer(attribute('Might'), 0, 100000, 'Might')
+    local added = 0
+    if before < target then
+        -- Measure this character's actual scaling; do not assume a level formula.
+        add('Might', 1)
+        added = 1
+        local per_point = maximum(player) - before
+        if type(per_point) ~= 'number' or per_point ~= per_point or per_point <= 0 then
+            fail('Might changed by 1 but health scaling unavailable; stopped without further grants')
+        end
+        local missing = (target - maximum(player)) / per_point
+        if missing > 0 then
+            local points = missing - missing % 1
+            if points < missing then points = points + 1 end
+            points = integer(points, 1, 10000, 'extra Might points')
+            add('Might', points)
+            added = added + points
+        end
+    end
+    local after = maximum(player)
+    if type(after) ~= 'number' or after < target then fail('maximum HP target not reached; no retry') end
+    local hp = current(player)
+    if type(hp) ~= 'number' or hp ~= hp or hp < 0 then fail('invalid current HP') end
+    if hp < after then heal(player, after - hp) end
+    local result = current(player)
+    if type(result) ~= 'number' or result < after - 1 then fail('maximum HP boosted but refill not confirmed') end
+    return 'HP verified ' .. tostring(result) .. '/' .. tostring(after) ..
+        '; Might ' .. tostring(might) .. ' -> ' .. tostring(attribute('Might')) ..
+        ' (' .. added .. ' added)'
 end
 
 local function simtype(name)
@@ -113,7 +163,7 @@ local sorcery = {
     'SphereOfReprisal','SphereOfRetribution'
 }
 
-function dev.max_sorcery()
+local function max_abilities(names)
     require_dispatch()
     local resolve = require_function(ABILITY_ID, 'ABILITY_ID')
     local data = character_data
@@ -122,10 +172,10 @@ function dev.max_sorcery()
     local maximum = require_function(ABILITY and ABILITY.get_ability_max_rank, 'ABILITY.get_ability_max_rank')
     local plan = {}
     -- Validate every ID/rank before the first mutation.
-    for _, name in ipairs(sorcery) do
-        local id = resolve('Sorcery_' .. name)
+    for _, name in ipairs(names) do
+        local id = resolve(name)
         if not id or id == 0 or not data.m_lookup_by_ability or not data.m_lookup_by_ability[id] then
-            fail('unknown Sorcery ability: ' .. name)
+            fail('unknown ability: ' .. name)
         end
         local target = integer(maximum(id), 1, 20, 'maximum ability rank')
         local current = integer(rank(id), 0, 30, 'current ability rank')
@@ -141,7 +191,30 @@ function dev.max_sorcery()
             added = added + 1
         end
     end
+    return added
+end
+
+function dev.max_sorcery()
+    local names = {}
+    for _, name in ipairs(sorcery) do names[#names + 1] = 'Sorcery_' .. name end
+    local added = max_abilities(names)
     return 'Sorcery maxed: 25 abilities; ' .. added .. ' ranks added. Assign spells in Abilities or use the spell test set.'
+end
+
+-- Exact IDs from the shipped character_data ability tree. Limit this cheat to
+-- weapon masteries/move chains and the bow's charged/projectile upgrades.
+local weapon_moves = {
+    'Might_LongswordMastery','Might_GreatswordMastery','Might_HammerMastery',
+    'Might_BrutalWeaponry01','Might_BrutalWeaponry02','Might_BrutalWeaponry03','Might_BrutalWeaponry04',
+    'Finesse_DaggerMastery','Finesse_FaebladeMastery','Finesse_LongbowMastery',
+    'Finesse_PreciseWeaponry01','Finesse_PreciseWeaponry02','Finesse_PreciseWeaponry03','Finesse_PreciseWeaponry04',
+    'Finesse_Drawpower','Finesse_ArrowStorm','Finesse_BarbedArrows','Finesse_Scattershot',
+    'Sorcery_StaffMastery','Sorcery_SceptreMastery','Sorcery_ChakramMastery',
+    'Sorcery_ArcaneWeaponry01','Sorcery_ArcaneWeaponry02','Sorcery_ArcaneWeaponry03','Sorcery_ArcaneWeaponry04'
+}
+function dev.unlock_weapon_moves()
+    local added = max_abilities(weapon_moves)
+    return 'Weapon moves unlocked: 25 weapon abilities; ' .. added .. ' ranks added. All 9 weapon families.'
 end
 
 function dev.equip_spell_test_set()

@@ -43,6 +43,7 @@ def main():
     lua.execute('assert(#mutations == 0)')
     lua.execute('''
         ACTOR.set_unkillable = function(...) record('unkillable', ...) end
+        ACTOR.is_unkillable = function(player) assert(player == 42); return true end
         amalur_dispatch_state.executing = false
         assert(not pcall(amalur_dev.enable_invincibility))
         assert(#mutations == 0)
@@ -50,6 +51,9 @@ def main():
         amalur_dev.enable_invincibility()
         assert(#mutations == 1 and mutations[1][1] == 'unkillable')
         assert(mutations[1][2] == 42 and mutations[1][3] == true)
+        mutations = {}
+        ACTOR.is_unkillable = function() return false end
+        assert(not pcall(amalur_dev.enable_invincibility) and #mutations == 1)
         mutations = {}
         ACTOR.set_unkillable = nil
         assert(not pcall(amalur_dev.enable_invincibility))

@@ -38,6 +38,16 @@ static bool sample(State& out){
         if(!loc)return false;
         const double angle=static_cast<uint32_t>(word(loc+0xb0))*(6.283185307179586/4294967296.0);
         s.facing={static_cast<float>(std::cos(angle)),static_cast<float>(std::sin(angle)),0};
+        // DialogMgr getter 9CEE70 returns +5C as the active NPC handle. Seed
+        // entry toward that participant, not the player's leftover movement yaw.
+        // DialogueView latches this once: subsequent head turns remain free.
+        const auto npcHandle=static_cast<uint32_t>(word(dialog+0x5c));
+        const auto npcEntity=player_rig::resolve(npcHandle);
+        const auto npcLocation=player_rig::part(npcEntity,6,npcHandle,0x1355cdc);
+        if(npcLocation){
+            mgs5vr::Vec3 npcPosition{};memcpy(&npcPosition,reinterpret_cast<void*>(npcLocation+0x24),12);
+            s.facing=amalur::dialogueEntryFacing(s.position,npcPosition,s.facing);
+        }
         if(word(dialogs+0x148)!=dialog||word(scene+0x410)!=camera||word(p+0x108)!=playerCamera||word(p+0x1ec)!=s.owner)return false;
         out=s;return true;
     } __except(EXCEPTION_EXECUTE_HANDLER){return false;}

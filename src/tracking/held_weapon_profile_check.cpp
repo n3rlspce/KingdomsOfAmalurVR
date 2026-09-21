@@ -30,6 +30,10 @@ int main(){
     const uint32_t longsword[]{0xae838d,0x6666f1,0xea7b92,0x858053};const int16_t single[]{-1,0,1,1};
     check(capturedHeldWeapon(2478,4,longsword,single)==HeldWeaponKind::Longsword,"recorded longsword");
     check(capturedHeldWeapon(1514,4,longsword,single)==HeldWeaponKind::None,"staff cannot use longsword skeleton");
+    const uint32_t rusty[]{0xae838d,0x6666f1,0xb1fe66,0x858053};
+    check(capturedHeldWeapon(5457,4,rusty,single)==HeldWeaponKind::Longsword,"rusty exact skeleton");
+    check(capturedHeldWeapon(5457,4,longsword,single)==HeldWeaponKind::None&&capturedHeldWeapon(2478,4,rusty,single)==HeldWeaponKind::None,"longsword variants cannot impersonate skeleton");
+    check(knownLongswordModel(5457)&&knownLongswordModel(2478)&&!knownLongswordModel(2199),"family exact allowlist");
     const uint32_t chakrams[]{0xae838d,0x6666f1,0xdbd751,0x12d1b1d,0x863d06,0xc7b304,0x1453f90};
     const int16_t chakramParents[]{-1,0,1,2,0,4,5};
     check(capturedHeldWeapon(1877,7,chakrams,chakramParents)==HeldWeaponKind::None,"chakrams excluded");

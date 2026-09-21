@@ -4,19 +4,21 @@
 #include <cmath>
 #include <cstdint>
 #include <cstring>
+#include "play_mode.hpp"
 #include <initializer_list>
 
 namespace amalur {
 struct MotionInputPacket {
-    uint32_t version{4},active{};
+    uint32_t version{5},active{};
     uint64_t tick{};
-    float moveX{},moveY{};
+    float moveX{},moveY{},lookX{},lookY{};
     uint32_t buttons{};
     float block{},abilities{},supportGrip{};
     uint32_t selectedWeapon{};float turnYawDegrees{};uint32_t session{GetCurrentProcessId()};
 };
 inline bool validMotionInput(const MotionInputPacket& p,uint64_t now){
-    return p.version==4&&p.active==1&&p.tick<=now&&now-p.tick<250
+    return p.version==5&&p.active==1&&p.tick<=now&&now-p.tick<250
+        &&std::isfinite(p.lookX)&&std::isfinite(p.lookY)&&std::abs(p.lookX)<=1&&std::abs(p.lookY)<=1
         &&std::isfinite(p.moveX)&&std::isfinite(p.moveY)
         &&std::abs(p.moveX)<=1&&std::abs(p.moveY)<=1
         &&!(p.buttons&~0xf3ffu)&&std::isfinite(p.block)&&std::isfinite(p.abilities)
@@ -112,7 +114,9 @@ public:
         if(now<stealthPulseUntil_)p.buttons|=XINPUT_GAMEPAD_RIGHT_SHOULDER;
         if(t.menu)p.buttons|=XINPUT_GAMEPAD_START;
         if(!gameplay)dpad(p,t.rightX,t.rightY);
-        else {
+        else if(playMode.normal()){
+            p.lookX=t.rightX;p.lookY=t.rightY;deadzone(p.lookX,p.lookY);
+        }else {
             if(std::abs(t.rightX)<.25f)turnArmed_=true;
             if(turnArmed_&&std::abs(t.rightX)>.7f){turn_+=t.rightX>0?30.f:-30.f;turnArmed_=false;}
         }
@@ -124,6 +128,7 @@ inline void mergeMotion(XINPUT_GAMEPAD& pad,const MotionInputPacket& p){
     pad.bLeftTrigger=static_cast<BYTE>(std::fmax(pad.bLeftTrigger,p.block*255));
     pad.bRightTrigger=static_cast<BYTE>(std::fmax(pad.bRightTrigger,p.abilities*255));
     // A real controller remains usable when the virtual stick is neutral.
+    if(p.lookX!=0||p.lookY!=0){pad.sThumbRX=static_cast<SHORT>(p.lookX*32767);pad.sThumbRY=static_cast<SHORT>(p.lookY*32767);}
     if(p.moveX!=0||p.moveY!=0){pad.sThumbLX=static_cast<SHORT>(p.moveX*32767);pad.sThumbLY=static_cast<SHORT>(p.moveY*32767);}
 }
 class MotionInputChannel {
@@ -133,7 +138,7 @@ public:
     bool open(bool writer){
         if(memory_)return writer==writer_;
         writer_=writer;
-        constexpr auto name=L"Local\\AmalurMotionInputV4",lock=L"Local\\AmalurMotionInputMutexV4";
+        constexpr auto name=L"Local\\AmalurMotionInputV5",lock=L"Local\\AmalurMotionInputMutexV5";
         mapping_=writer?CreateFileMappingW(INVALID_HANDLE_VALUE,nullptr,PAGE_READWRITE,0,sizeof(MotionInputPacket),name):OpenFileMappingW(FILE_MAP_READ,FALSE,name);
         mutex_=writer?CreateMutexW(nullptr,FALSE,lock):OpenMutexW(SYNCHRONIZE|MUTEX_MODIFY_STATE,FALSE,lock);
         if(mapping_&&mutex_)memory_=MapViewOfFile(mapping_,writer?FILE_MAP_WRITE:FILE_MAP_READ,0,0,sizeof(MotionInputPacket));

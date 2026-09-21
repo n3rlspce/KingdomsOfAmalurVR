@@ -20,7 +20,7 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Panel check build failed.' }
     & (Join-Path $out 'developer-panel-check.exe')
     if ($LASTEXITCODE -ne 0) { throw 'Panel checks failed.' }
-    foreach ($name in @('amalur_dev.lua','amalur_dispatch.lua','amalur_dispatch.json')) {
+    foreach ($name in @('amalur_dev.lua','amalur_dispatch.lua','amalur_dispatch.json','amalur_menu.lua','amalur_menu.json')) {
         Copy-Item -LiteralPath (Join-Path $PSScriptRoot $name) -Destination $out -Force
     }
 } finally { Pop-Location }

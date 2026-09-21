@@ -66,6 +66,7 @@ inline void restore(){
     savedObject=0;
 }
 inline void apply(uintptr_t object){
+    if(amalur::playMode.normal())return;
     __try {
         if(savedObject&&savedObject!=object)return; // one mesh lease for this probe
         auto root=playerRoot();if(!root||root==object)return;

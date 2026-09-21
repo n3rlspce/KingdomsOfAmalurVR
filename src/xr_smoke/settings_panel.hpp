@@ -24,13 +24,13 @@ public:
         RECT all{0,0,width,height};HBRUSH background=CreateSolidBrush(RGB(14,21,31));FillRect(dc,&all,background);DeleteObject(background);SetBkMode(dc,TRANSPARENT);SelectObject(dc,title);SetTextColor(dc,RGB(237,242,250));
         auto text=[&](int x,int y,const std::wstring& value){TextOutW(dc,x,y,value.c_str(),static_cast<int>(value.size()));};
         if(s.developerVisible&&developer){
-            text(42,28,L"AMALUR VR  /  DEVELOPER");SelectObject(dc,font);
-            SetTextColor(dc,RGB(116,194,217));text(42,95,L"Click both sticks: open / close    B: close");
-            text(42,132,L"Left stick: select / destination    A / right trigger: run");
+            text(42,28,L"1 Settings    |    [ 2 Dev cheats ]");SelectObject(dc,font);
+            SetTextColor(dc,RGB(116,194,217));text(42,95,L"Both sticks: open / close    X: switch tab    B: close");
+            text(42,132,L"Hold stick up/down: scroll    Left/right: destination    A / RT: run");
             SetTextColor(dc,RGB(220,228,237));
-            text(42,174,L"Dev save actions. F11, arrows and Enter also work.");
+            text(42,174,L"Keyboard: * / F11 open, Tab switches tabs, arrows / Enter.");
             for(int i=0;i<VrSettings::developerPanelRows;++i){
-                int y=220+i*29;
+                int y=220+i*28;
                 if(i==s.developerRow){RECT row{24,y-5,width-24,y+28};HBRUSH h=CreateSolidBrush(RGB(34,67,88));FillRect(dc,&row,h);DeleteObject(h);}
                 SetTextColor(dc,(developer->busy()&&i<amalur::developer::panelRows)?RGB(130,143,156):RGB(227,235,244));
                 std::wstring label;
@@ -49,24 +49,26 @@ public:
             RECT statusRect{42,1125,width-42,1265};
             DrawTextW(dc,developer->status.c_str(),-1,&statusRect,DT_LEFT|DT_WORDBREAK|DT_NOPREFIX);
         }else{
-        text(42,28,L"AMALUR VR  /  SETTINGS");SelectObject(dc,font);text(810,42,s.selectedWeapon?L"SECONDARY":L"PRIMARY");SetTextColor(dc,RGB(116,194,217));text(42,90,L"*: open / close    Arrows: select / adjust (panel only)");
-        text(42,130,L"Ctrl + Home: reset row    Ctrl + R: recenter    Auto-saved");
+        text(42,28,L"[ 1 Settings ]    |    2 Dev cheats");SelectObject(dc,font);SetTextColor(dc,RGB(116,194,217));text(42,90,L"Both sticks: open / close    X: switch tab    B: close");
+        text(42,130,L"Hold stick up/down: scroll    Left/right: adjust    Y: reset");
         wchar_t line[256];swprintf_s(line,L"Headset IPD: %.1f mm (runtime)   |   %s",ipd,s.interfaceView?L"Interface View":(tracking?L"6DoF active":L"Menu view - F10 enables tracking"));SetTextColor(dc,RGB(200,208,220));text(42,195,line);
         swprintf_s(line,L"Source / eye: %u x %u     XR / eye: %u x %u",sourceWidth,sourceHeight,eyeWidth,eyeHeight);text(42,234,line);
-        const wchar_t* labels[]={L"HUD size",L"Stereo depth strength",L"Convergence (game units)",L"Infinity alignment at 20% depth",L"World units per metre",L"Game horizontal FOV",L"XR render scale",L"Sharpening",L"Reverse source eyes",L"Hand grip pitch (degrees)",L"Hand grip yaw (degrees)",L"Hand grip roll (degrees)",L"Interface View (Ctrl + I)",L"Fullscreen menu size",L"Dagger outward (+) / inward (-), cm",L"Dagger forward (+) / back (-), cm",L"Dagger up (+) / down (-), cm"};
-        float values[]={s.hudSize*100,s.depth,s.convergence,s.alignment*100,s.scale,s.fov,s.renderScale*100,s.sharpness*100,s.swap?1.f:0.f,s.gripPitch,s.gripYaw,s.gripRoll,s.interfaceView?1.f:0.f,s.interfaceScale*100,s.weaponX,s.weaponY,s.weaponZ};
-        for(int i=0;i<VrSettings::rowCount;++i){int y=302+i*43;if(i==s.selected){RECT row{24,y-6,width-24,y+28};HBRUSH h=CreateSolidBrush(RGB(34,67,88));FillRect(dc,&row,h);DeleteObject(h);}SetTextColor(dc,RGB(227,235,244));text(44,y,labels[i]);if(i==8||i==12)swprintf_s(line,L"%s",values[i]>0?L"ON":L"OFF");else swprintf_s(line,(i==0||i==13)?L"%.0f%%":L"%.2f",values[i]);text(850,y,line);}
+        const wchar_t* labels[]={L"Play mode",L"HUD size",L"Stereo depth strength",L"Convergence (game units)",L"Infinity alignment at 20% depth",L"World units per metre",L"Game horizontal FOV",L"XR render scale",L"Sharpening",L"Reverse source eyes",L"Hand grip pitch (degrees)",L"Hand grip yaw (degrees)",L"Hand grip roll (degrees)",L"Interface View (Ctrl + I)",L"Fullscreen menu size",L"Dagger outward (+) / inward (-), cm",L"Dagger forward (+) / back (-), cm",L"Dagger up (+) / down (-), cm",L"Open pause menu (A / right trigger)",L"Recenter view (A / right trigger)"};
+        float values[]={amalur::playMode.normal()?1.f:0.f,s.hudSize*100,s.depth,s.convergence,s.alignment*100,s.scale,s.fov,s.renderScale*100,s.sharpness*100,s.swap?1.f:0.f,s.gripPitch,s.gripYaw,s.gripRoll,s.interfaceView?1.f:0.f,s.interfaceScale*100,s.weaponX,s.weaponY,s.weaponZ,0,0};
+        for(int i=0;i<VrSettings::rowCount;++i){int y=282+i*38;if(i==s.selected){RECT row{24,y-6,width-24,y+28};HBRUSH h=CreateSolidBrush(RGB(34,67,88));FillRect(dc,&row,h);DeleteObject(h);}SetTextColor(dc,RGB(227,235,244));text(44,y,labels[i]);if(i==0)swprintf_s(line,L"%s",amalur::playMode.normal()?L"Third person":L"First person");else if(i==9||i==13)swprintf_s(line,L"%s",values[i]>0?L"ON":L"OFF");else swprintf_s(line,(i==1||i==14)?L"%.0f%%":L"%.2f",values[i]);text(i==0?790:850,y,i>=VrSettings::rowCount-2?L"Run":line);}
         static_assert(sizeof(labels)/sizeof(labels[0])==VrSettings::rowCount);
         static_assert(sizeof(values)/sizeof(values[0])==VrSettings::rowCount);
         // Keyboard-operated slider, matching the panel's existing arrow controls.
-        RECT track{360,332,780,338};HBRUSH rail=CreateSolidBrush(RGB(73,91,110));FillRect(dc,&track,rail);DeleteObject(rail);
-        int knob=360+static_cast<int>((s.hudSize-.4f)/.8f*420);RECT thumb{knob-5,329,knob+5,341};HBRUSH accent=CreateSolidBrush(RGB(116,194,217));FillRect(dc,&thumb,accent);DeleteObject(accent);
-        RECT interfaceTrack{360,891,780,897};HBRUSH interfaceRail=CreateSolidBrush(RGB(73,91,110));FillRect(dc,&interfaceTrack,interfaceRail);DeleteObject(interfaceRail);
-        int interfaceKnob=360+static_cast<int>((s.interfaceScale-.5f)*420);RECT interfaceThumb{interfaceKnob-5,888,interfaceKnob+5,900};HBRUSH interfaceAccent=CreateSolidBrush(RGB(116,194,217));FillRect(dc,&interfaceThumb,interfaceAccent);DeleteObject(interfaceAccent);
+        RECT track{360,352,780,358};HBRUSH rail=CreateSolidBrush(RGB(73,91,110));FillRect(dc,&track,rail);DeleteObject(rail);
+        int knob=360+static_cast<int>((s.hudSize-.4f)/.8f*420);RECT thumb{knob-5,349,knob+5,361};HBRUSH accent=CreateSolidBrush(RGB(116,194,217));FillRect(dc,&thumb,accent);DeleteObject(accent);
+        RECT interfaceTrack{360,872,780,878};HBRUSH interfaceRail=CreateSolidBrush(RGB(73,91,110));FillRect(dc,&interfaceTrack,interfaceRail);DeleteObject(interfaceRail);
+        int interfaceKnob=360+static_cast<int>((s.interfaceScale-.5f)*420);RECT interfaceThumb{interfaceKnob-5,869,interfaceKnob+5,881};HBRUSH interfaceAccent=CreateSolidBrush(RGB(116,194,217));FillRect(dc,&interfaceThumb,interfaceAccent);DeleteObject(interfaceAccent);
+        if(s.menuRecovery.status.empty()){
         SetTextColor(dc,RGB(159,177,195));text(42,1069,L"Dagger offsets follow each wrist; outward is mirrored for the left hand.");
         text(42,1112,L"Depth strength is not calibrated IPD. Hardware IPD uses Quest's dial.");
         swprintf_s(line,L"Stereo control: %s   |   F7 recenter   F10 tracking   F12 exit",stereoStatus==0?L"connected":L"waiting / unavailable");text(42,1153,line);
         text(42,1194,L"XR scale changes output only. Source resolution requires game restart.");
+        }else{RECT menuStatus{42,1069,width-42,1285};DrawTextW(dc,s.menuRecovery.status.c_str(),-1,&menuStatus,DT_LEFT|DT_WORDBREAK|DT_NOPREFIX);}
         }
         GdiFlush();auto in=static_cast<unsigned char*>(bits);bool bgra=format==DXGI_FORMAT_B8G8R8A8_UNORM||format==DXGI_FORMAT_B8G8R8A8_UNORM_SRGB;
         for(size_t j=0;j<pixels.size();j+=4){pixels[j]=in[j+(bgra?0:2)];pixels[j+1]=in[j+1];pixels[j+2]=in[j+(bgra?2:0)];pixels[j+3]=200;}

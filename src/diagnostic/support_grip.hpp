@@ -25,7 +25,8 @@ inline void record(uintptr_t object,uintptr_t slot,mgs5vr::Pose root){
         AcquireSRWLockExclusive(&lock);handle=pose;handleTick=GetTickCount64();handleOwner=owner;handleRootOwner=rootOwner;handleGeneration=gen;handleObject=object;handleAsset=assetId;handleKind=kind;handleSelected=view.selectedWeapon;handleSession=view.session;ReleaseSRWLockExclusive(&lock);
     }__except(EXCEPTION_EXECUTE_HANDLER){}
 }
-inline bool freeOffhand(uintptr_t object,uint32_t owner,unsigned asset,amalur::HeldWeaponKind kind,uint32_t rootOwner){
+inline bool freeOffhand(uintptr_t object,uint32_t owner,unsigned asset,amalur::HeldWeaponKind kind,uint32_t rootOwner,const char*& reason){
+    reason="identity-unavailable";
     __try{
         const auto root=weapon_control::currentWeaponRoot();
         if(!root||player_rig::word(root+0xf8)!=rootOwner||!object
@@ -33,14 +34,14 @@ inline bool freeOffhand(uintptr_t object,uint32_t owner,unsigned asset,amalur::H
             ||player_rig::word(object+0xf8)!=owner||player_rig::word(object+0xf0)!=asset
             ||weapon_control::capturedHeldKind(object)!=kind)return false;
         auto children=player_rig::word(root+0x24),n=player_rig::word(root+0x28);
-        if(n>32||(!children&&n))return false;
+        if(n>32||(!children&&n)){reason="invalid-child-list";return false;}
         for(unsigned i=0;i<n;++i){
             auto child=weapon_control::fab(player_rig::word(children+i*4));if(!child||child==object)continue;
             // Known raised shield. Block input also excludes its transition frames.
-            if(player_rig::word(child+0xf0)==2322&&!(player_rig::word(child+0x1d0)&4))return false;
+            if(player_rig::word(child+0xf0)==2322&&!(player_rig::word(child+0x1d0)&4)){reason="shield-present";return false;}
         }
-        return true;
-    }__except(EXCEPTION_EXECUTE_HANDLER){return false;}
+        reason="free";return true;
+    }__except(EXCEPTION_EXECUTE_HANDLER){reason="unreadable";return false;}
 }
 inline void apply(amalur::RigBone* bones,unsigned count,const int16_t* parents,const uint32_t* ids,
     mgs5vr::Pose root,mgs5vr::Pose left,uint32_t rootOwner,unsigned generation,float scale,bool tracking){
@@ -51,7 +52,8 @@ inline void apply(amalur::RigBone* bones,unsigned count,const int16_t* parents,c
         &&!motion_controls::dialogueActive.load()&&active&&input.selectedWeapon<=1&&input.block<.25f;
     uintptr_t object;uint32_t owner;unsigned asset;amalur::HeldWeaponKind kind;
     AcquireSRWLockShared(&lock);object=handleObject;owner=handleOwner;asset=handleAsset;kind=handleKind;ReleaseSRWLockShared(&lock);
-    const bool offhandFree=allowed&&freeOffhand(object,owner,asset,kind,rootOwner);
+    const char* offhandReason="input-ineligible";
+    const bool offhandFree=allowed&&freeOffhand(object,owner,asset,kind,rootOwner,offhandReason);
     AcquireSRWLockExclusive(&lock);
     const bool selectionChanged=lastSelected!=input.selectedWeapon||lastSession!=input.session;
     if(selectionChanged)attachment.release();
@@ -61,15 +63,28 @@ inline void apply(amalur::RigBone* bones,unsigned count,const int16_t* parents,c
     allowed=allowed&&!selectionChanged&&offhandFree&&object==handleObject&&owner==handleOwner
         &&amalur::supportGripEligible(handleKind,input.selectedWeapon,offhandFree)
         &&input.selectedWeapon==handleSelected&&input.session==handleSession&&handleTick&&handleTick<=now&&now-handleTick<100&&rootOwner==handleRootOwner&&generation==handleGeneration;
-    static uint64_t lastReport{};if(active&&input.supportGrip>.65f&&now-lastReport>2000){lastReport=now;
-        log("Weapon support grip: eligible=%d tracked=%d handleOwner=%08x handleAge=%llu held=%.2f attached=%d\n",allowed,tracking,handleOwner,handleTick&&now>=handleTick?now-handleTick:0,input.supportGrip,attachment.attached);
-    }
-    bool was=attachment.attached;mgs5vr::Pose target;
+    bool was=attachment.attached;mgs5vr::Pose target;bool socketAttempted=false,socketApplied=false;float socketError=-1.f;
     if(attachment.update(allowed,input.supportGrip>.65f,handleOwner,generation,scale,handle,left,target,handleKind,input.selectedWeapon)){
         auto wrist=mgs5vr::compose(mgs5vr::inverse(root),amalur::wristFromControllerGrip(amalur::ArmSide::Left,target));
         // Verified native left-hand weapon mapping uses source bone 36.
         // Seat that socket at the handle instead of putting the wrist there.
-        if(!amalur::attachLeftHandAtSocket(bones,count,parents,ids,36,wrist))attachment.release();
+        socketAttempted=true;
+        socketApplied=amalur::attachLeftHandAtSocket(bones,count,parents,ids,36,wrist);
+        if(!socketApplied)attachment.release();
+        else {auto delta=amalur::bonePose(bones[36]).position-wrist.position;socketError=std::sqrt(mgs5vr::dot(delta,delta))/scale;}
+    }
+    // One complete observation every two seconds, independently of overlay state.
+    // Values describe the solved socket; only a headset view can validate mesh fit.
+    static uint64_t lastReport{};if(active&&input.supportGrip>.65f&&now-lastReport>2000){lastReport=now;
+        mgs5vr::Vec3 point{};float distance=-1.f;
+        if(std::isfinite(scale)&&scale>=10&&scale<=1000&&mgs5vr::valid(handle)&&mgs5vr::valid(left)&&amalur::supportGripPoint(handleKind,point)){
+            auto local=mgs5vr::compose(mgs5vr::inverse(handle),left);auto delta=local.position-point*scale;
+            distance=std::sqrt(mgs5vr::dot(delta,delta))/scale;
+        }
+        log("Weapon support grip: tick=%llu model=%u eligible=%d tracked=%d handleOwner=%08x handleAge=%llu held=%.2f attached=%d offhand=%s block=%.2f selection=%u handleSelection=%u session=%u handleSession=%u generation=%u handleGeneration=%u ownerMatch=%d selectionChanged=%d distanceM=%.4f socketAttempted=%d socketApplied=%d socketErrorM=%.6f pointM=%.3f,%.3f,%.3f\n",
+            now,handleAsset,allowed,tracking,handleOwner,handleTick&&now>=handleTick?now-handleTick:0,input.supportGrip,attachment.attached,
+            offhandReason,input.block,input.selectedWeapon,handleSelected,input.session,handleSession,generation,handleGeneration,
+            rootOwner==handleRootOwner,selectionChanged,distance,socketAttempted,socketApplied,socketError,point.x,point.y,point.z);
     }
     if(was!=attachment.attached)log("Weapon support hand %s (native grip socket anchor)\n",attachment.attached?"attached":"released");
     ReleaseSRWLockExclusive(&lock);

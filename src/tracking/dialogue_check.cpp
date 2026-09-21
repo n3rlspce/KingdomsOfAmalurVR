@@ -8,6 +8,9 @@ int main(){
     using namespace amalur;
     DialogueView view;CameraPose a{},b{};Pose head{};
     const Vec3 player{100,200,300};
+    check(near(dialogueEntryFacing(player,{100,250,500},{1,0,0}),{0,1,0}),"off-axis NPC seeds entry heading, independent of NPC height");
+    check(near(dialogueEntryFacing(player,player,{1,0,0}),{1,0,0}),"coincident NPC keeps valid player-facing fallback");
+    check(near(dialogueEntryFacing(player,{std::numeric_limits<float>::quiet_NaN(),0,0},{1,0,0}),{1,0,0}),"invalid NPC position keeps fallback");
     check(view.apply(1,7,0,0,player,{1,0,0},head,100,a),"entry valid");
     check(near(a.eye,{115,200,485})&&near(a.target-a.eye,{200,0,0}),"eye belongs to player, not side camera");
     head.position.x=.1f;

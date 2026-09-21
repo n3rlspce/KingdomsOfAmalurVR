@@ -1,0 +1,301 @@
+--- /dev/null
++++ b/src/tracking/play_mode.hpp
+@@ -0,0 +1,31 @@
++#pragma once
++#include <windows.h>
++#include <atomic>
++#ifndef AMALUR_PLAY_MODE_MAPPING
++#define AMALUR_PLAY_MODE_MAPPING L"Local\\AmalurNormalThirdPersonV1"
++#endif
++namespace amalur {
++class PlayMode {
++    HANDLE mapping_{}; volatile LONG* value_{}; SRWLOCK lock_=SRWLOCK_INIT;
++public:
++    ~PlayMode(){if(value_)UnmapViewOfFile(const_cast<LONG*>(value_));if(mapping_)CloseHandle(mapping_);}
++    bool open(){
++        AcquireSRWLockExclusive(&lock_);
++        if(value_){ReleaseSRWLockExclusive(&lock_);return true;}
++        mapping_=CreateFileMappingW(INVALID_HANDLE_VALUE,nullptr,PAGE_READWRITE,0,sizeof(LONG),AMALUR_PLAY_MODE_MAPPING);
++        if(mapping_)value_=static_cast<volatile LONG*>(MapViewOfFile(mapping_,FILE_MAP_ALL_ACCESS,0,0,sizeof(LONG)));
++        if(!value_&&mapping_){CloseHandle(mapping_);mapping_=nullptr;}
++        bool result=value_!=nullptr;ReleaseSRWLockExclusive(&lock_);return result;
++    }
++    bool normal(){return open()&&InterlockedCompareExchange(value_,0,0)!=0;}
++    void set(bool normal){if(open())InterlockedExchange(value_,normal?1:0);}
++};
++inline PlayMode playMode;
++// Preserve the first-person preference while temporarily selecting native play.
++class FirstPersonPreference {
++    std::atomic<bool> requested_{true};
++public:
++    bool load() const {return requested_.load()&&!playMode.normal();}
++    void store(bool value){requested_.store(value);}
++};
++}
+--- a/src/tracking/body_debug_settings.hpp
++++ b/src/tracking/body_debug_settings.hpp
+@@ -1,5 +1,6 @@
+ #pragma once
+ #include <windows.h>
++#include "play_mode.hpp"
+ #ifndef AMALUR_BODY_DEBUG_MAPPING
+ #define AMALUR_BODY_DEBUG_MAPPING L"Local\\AmalurBodyAnimationModesV1"
+ #endif
+@@ -19,7 +20,7 @@
+         if(!value_&&mapping_){CloseHandle(mapping_);mapping_=nullptr;}
+         return value_!=nullptr;
+     }
+-    LONG read(){return open()?InterlockedCompareExchange(value_,0,0):0;}
++    LONG read(){LONG bits=open()?InterlockedCompareExchange(value_,0,0):0;return playMode.normal()?bits|nativeTorso|nativeArms:bits;}
+     bool enabled(LONG bit){return (read()&bit)!=0;}
+     void resetAblations(){if(open())InterlockedAnd(value_,~rigAblationMask);}
+     void toggle(LONG bit){if(open())InterlockedXor(value_,bit);}
+--- a/src/tracking/motion_input.hpp
++++ b/src/tracking/motion_input.hpp
+@@ -4,19 +4,21 @@
+ #include <cmath>
+ #include <cstdint>
+ #include <cstring>
++#include "play_mode.hpp"
+ #include <initializer_list>
+ 
+ namespace amalur {
+ struct MotionInputPacket {
+-    uint32_t version{4},active{};
++    uint32_t version{5},active{};
+     uint64_t tick{};
+-    float moveX{},moveY{};
++    float moveX{},moveY{},lookX{},lookY{};
+     uint32_t buttons{};
+     float block{},abilities{},supportGrip{};
+     uint32_t selectedWeapon{};float turnYawDegrees{};uint32_t session{GetCurrentProcessId()};
+ };
+ inline bool validMotionInput(const MotionInputPacket& p,uint64_t now){
+-    return p.version==4&&p.active==1&&p.tick<=now&&now-p.tick<250
++    return p.version==5&&p.active==1&&p.tick<=now&&now-p.tick<250
++        &&std::isfinite(p.lookX)&&std::isfinite(p.lookY)&&std::abs(p.lookX)<=1&&std::abs(p.lookY)<=1
+         &&std::isfinite(p.moveX)&&std::isfinite(p.moveY)
+         &&std::abs(p.moveX)<=1&&std::abs(p.moveY)<=1
+         &&!(p.buttons&~0xf3ffu)&&std::isfinite(p.block)&&std::isfinite(p.abilities)
+@@ -112,7 +114,9 @@
+         if(now<stealthPulseUntil_)p.buttons|=XINPUT_GAMEPAD_RIGHT_SHOULDER;
+         if(t.menu)p.buttons|=XINPUT_GAMEPAD_START;
+         if(!gameplay)dpad(p,t.rightX,t.rightY);
+-        else {
++        else if(playMode.normal()){
++            p.lookX=t.rightX;p.lookY=t.rightY;deadzone(p.lookX,p.lookY);
++        }else {
+             if(std::abs(t.rightX)<.25f)turnArmed_=true;
+             if(turnArmed_&&std::abs(t.rightX)>.7f){turn_+=t.rightX>0?30.f:-30.f;turnArmed_=false;}
+         }
+@@ -124,6 +128,7 @@
+     pad.bLeftTrigger=static_cast<BYTE>(std::fmax(pad.bLeftTrigger,p.block*255));
+     pad.bRightTrigger=static_cast<BYTE>(std::fmax(pad.bRightTrigger,p.abilities*255));
+     // A real controller remains usable when the virtual stick is neutral.
++    if(p.lookX!=0||p.lookY!=0){pad.sThumbRX=static_cast<SHORT>(p.lookX*32767);pad.sThumbRY=static_cast<SHORT>(p.lookY*32767);}
+     if(p.moveX!=0||p.moveY!=0){pad.sThumbLX=static_cast<SHORT>(p.moveX*32767);pad.sThumbLY=static_cast<SHORT>(p.moveY*32767);}
+ }
+ class MotionInputChannel {
+@@ -133,7 +138,7 @@
+     bool open(bool writer){
+         if(memory_)return writer==writer_;
+         writer_=writer;
+-        constexpr auto name=L"Local\\AmalurMotionInputV4",lock=L"Local\\AmalurMotionInputMutexV4";
++        constexpr auto name=L"Local\\AmalurMotionInputV5",lock=L"Local\\AmalurMotionInputMutexV5";
+         mapping_=writer?CreateFileMappingW(INVALID_HANDLE_VALUE,nullptr,PAGE_READWRITE,0,sizeof(MotionInputPacket),name):OpenFileMappingW(FILE_MAP_READ,FALSE,name);
+         mutex_=writer?CreateMutexW(nullptr,FALSE,lock):OpenMutexW(SYNCHRONIZE|MUTEX_MODIFY_STATE,FALSE,lock);
+         if(mapping_&&mutex_)memory_=MapViewOfFile(mapping_,writer?FILE_MAP_WRITE:FILE_MAP_READ,0,0,sizeof(MotionInputPacket));
+--- /dev/null
++++ b/src/tracking/third_person_check.cpp
+@@ -0,0 +1,43 @@
++#define NOMINMAX
++#define AMALUR_PLAY_MODE_MAPPING L"Local\\AmalurThirdPersonOfflineCheck"
++#define AMALUR_BODY_DEBUG_MAPPING L"Local\\AmalurThirdPersonBodyOfflineCheck"
++#include "motion_input.hpp"
++#include "body_debug_settings.hpp"
++#include "../xr_smoke/vr_settings.hpp"
++#include <cassert>
++#include <limits>
++#include <cstdio>
++int main(){
++    using namespace amalur;
++    playMode.set(false);
++    FirstPersonPreference preference;
++    assert(preference.load());
++    auto before=bodyDebug.read();
++    playMode.set(true);
++    assert(!preference.load());
++    assert(bodyDebug.enabled(nativeTorso)&&bodyDebug.enabled(nativeArms));
++    TouchMapper mapper;TouchInput t;mapper.map(t,true);
++    t.rightX=.8f;t.rightY=.4f;
++    auto p=mapper.map(t,true);p.tick=10;
++    assert(p.lookX>0&&p.lookY>0&&p.turnYawDegrees==0&&validMotionInput(p,10));
++    XINPUT_GAMEPAD pad{};mergeMotion(pad,p);
++    assert(pad.sThumbRX>0&&pad.sThumbRY>0);
++    p.lookX=std::numeric_limits<float>::quiet_NaN();assert(!validMotionInput(p,10));
++    p=mapper.map(t,false);assert(!p.active&&!p.lookX&&!p.lookY);
++    t={};mapper.map(t,true);t.rightTrigger=1;p=mapper.map(t,true);
++    assert(p.buttons&XINPUT_GAMEPAD_X); // normal weapon attack remains available
++    playMode.set(false);
++    assert(preference.load()&&bodyDebug.read()==before);
++    t={};mapper.map(t,true);t.rightX=1;p=mapper.map(t,true);
++    assert(p.lookX==0&&p.turnYawDegrees==30); // first-person snap turn restored
++    VrSettings settings;settings.path=L"third-person-test.ini";
++    playMode.set(false);settings.selected=0;settings.adjustSetting(1,false);
++    assert(playMode.normal());settings.load();assert(playMode.normal());
++    settings.adjustSetting(0,true);assert(!playMode.normal());
++    settings.closePanel();t={};t.leftClick=t.rightClick=true;
++    settings.pollDeveloperControllers(t,true,false);t={};settings.pollDeveloperControllers(t,true,false);
++    t.a=true;settings.pollDeveloperControllers(t,true,false);assert(playMode.normal());
++    settings.pollDeveloperControllers(t,true,false);assert(playMode.normal());
++    playMode.set(false);DeleteFileW(settings.path.c_str());
++    puts("PASS: native-body gates, restored first-person preference, orbit axes, attack, focus gating, persistence and panel toggle");
++}
+--- a/src/diagnostic/proxy.cpp
++++ b/src/diagnostic/proxy.cpp
+@@ -56,7 +56,7 @@
+ static ULONG_PTR gameBase{};
+ static std::atomic<unsigned> cameraLogs{0};
+ static std::atomic<bool> headTracking{true};
+-static std::atomic<bool> firstPerson{true};
++static amalur::FirstPersonPreference firstPerson;
+ static amalur::DeveloperCameraSettings developerCamera;
+ static std::atomic<bool> interfaceView{false};
+ static std::atomic<bool> fullscreenMenuView{false};
+--- a/src/diagnostic/arm_rig.hpp
++++ b/src/diagnostic/arm_rig.hpp
+@@ -28,7 +28,7 @@
+ inline amalur::BodyReference neutralBody{};
+ inline LONG lastAblationMask=-1;
+ inline bool solveUnsafe(uintptr_t root,Scratch& scratch,bool solveHand=true,uint32_t origin=amalur::skin_audit::Remap){
+-    if(interfaceView.load()||!headTracking.load()||!root||root!=rig_probe::playerRoot())return false;
++    if(amalur::playMode.normal()||interfaceView.load()||!headTracking.load()||!root||root!=rig_probe::playerRoot())return false;
+     auto& trace=scratch.trace;trace.root=static_cast<uint32_t>(root);trace.frame=presents.load();trace.tick=GetTickCount64();trace.stage=1;
+     skin_trace::ensure();
+     const auto animationModes=amalur::bodyDebug.read();
+--- a/src/diagnostic/skin_root_pair.hpp
++++ b/src/diagnostic/skin_root_pair.hpp
+@@ -17,7 +17,7 @@
+ inline Bones bones[32];inline Palette palettes[capacity];inline unsigned cursor{};
+ inline SRWLOCK lock=SRWLOCK_INIT;
+ inline std::atomic<unsigned> captured{},matched{},rejected{},advanced{};
+-inline bool active(){return headTracking.load()&&!interfaceView.load()&&(firstPerson.load()||arm_rig::enabled.load());}
++inline bool active(){return !amalur::playMode.normal()&&headTracking.load()&&!interfaceView.load()&&(firstPerson.load()||arm_rig::enabled.load());}
+ inline bool owned(uintptr_t object,uintptr_t root){
+     if(!root||root!=rig_probe::playerRoot())return false;
+     auto n=player_rig::word(root+0x28);if(n>32)return false;
+--- a/src/diagnostic/rig_probe.hpp
++++ b/src/diagnostic/rig_probe.hpp
+@@ -66,6 +66,7 @@
+     savedObject=0;
+ }
+ inline void apply(uintptr_t object){
++    if(amalur::playMode.normal())return;
+     __try {
+         if(savedObject&&savedObject!=object)return; // one mesh lease for this probe
+         auto root=playerRoot();if(!root||root==object)return;
+--- a/src/xr_smoke/vr_settings.hpp
++++ b/src/xr_smoke/vr_settings.hpp
+@@ -16,7 +16,7 @@
+     bool interfaceView=false,interfacePending=false;
+     float gripPitch{},gripYaw{},gripRoll{};unsigned selectedWeapon{};
+     float weaponX{},weaponY{},weaponZ{}; // centimetres, weapon-only offsets
+-    static constexpr int rowCount=18;
++    static constexpr int rowCount=19;
+     float depth=20,convergence=100,alignment=26.5f/2560.f,scale=100,fov=130,renderScale=1,sharpness=.25f;
+     bool swap=true,visible=false;int selected=0;unsigned recenter=0;
+     bool developerVisible=false,developerTogglePending=false;
+@@ -48,7 +48,7 @@
+         if(visible){
+             selected=(selected+event.row+rowCount)%rowCount;
+             if(selected==rowCount-1){if(event.activate)++recenter;}
+-            else if(event.destination||event.reset)adjustSetting(event.destination,event.reset);
++            else if(event.destination||event.reset||(selected==0&&event.activate))adjustSetting(event.destination?event.destination:1,event.reset);
+         }
+         if(developerVisible){
+             developerRow=(developerRow+event.row+developerPanelRows)%developerPanelRows;
+@@ -102,8 +102,8 @@
+         gripPitch=gripYaw=gripRoll=weaponX=weaponY=weaponZ=0;
+         save();
+     }
+-    void load(){weaponX=read(L"WeaponX",0,-20,20);weaponY=read(L"WeaponY",0,-20,20);weaponZ=read(L"WeaponZ",0,-20,20);interfaceScale=read(L"InterfaceScale",1,.5f,1.5f);gripPitch=read(L"GripPitch",0,-180,180);gripYaw=read(L"GripYaw",0,-180,180);gripRoll=read(L"GripRoll",0,-180,180);hudSize=read(L"HudSize",.8f,.4f,1.2f);depth=read(L"Depth",20,0,100);convergence=read(L"Convergence",100,1,1000);alignment=read(L"Alignment",26.5f/2560.f,-.05f,.05f);scale=read(L"WorldUnitsPerMeter",100,10,500);fov=read(L"HorizontalFov",130,100,150);renderScale=read(L"RenderScale",1,.5f,1.5f);sharpness=read(L"Sharpness",.25f,0,1);swap=read(L"SwapEyes",1,0,1)>.5f;migrateGripBasis();}
+-    void save(){auto put=[&](const wchar_t* key,float value){wchar_t text[64];swprintf_s(text,L"%.7g",value);WritePrivateProfileStringW(L"VR",key,text,path.c_str());};put(L"GripBasisVersion",1);put(L"WeaponX",weaponX);put(L"WeaponY",weaponY);put(L"WeaponZ",weaponZ);put(L"InterfaceScale",interfaceScale);put(L"GripPitch",gripPitch);put(L"GripYaw",gripYaw);put(L"GripRoll",gripRoll);put(L"HudSize",hudSize);put(L"Depth",depth);put(L"Convergence",convergence);put(L"Alignment",alignment);put(L"WorldUnitsPerMeter",scale);put(L"HorizontalFov",fov);put(L"RenderScale",renderScale);put(L"Sharpness",sharpness);put(L"SwapEyes",swap?1.f:0.f);}
++    void load(){amalur::playMode.set(read(L"NormalThirdPerson",0,0,1)>.5f);weaponX=read(L"WeaponX",0,-20,20);weaponY=read(L"WeaponY",0,-20,20);weaponZ=read(L"WeaponZ",0,-20,20);interfaceScale=read(L"InterfaceScale",1,.5f,1.5f);gripPitch=read(L"GripPitch",0,-180,180);gripYaw=read(L"GripYaw",0,-180,180);gripRoll=read(L"GripRoll",0,-180,180);hudSize=read(L"HudSize",.8f,.4f,1.2f);depth=read(L"Depth",20,0,100);convergence=read(L"Convergence",100,1,1000);alignment=read(L"Alignment",26.5f/2560.f,-.05f,.05f);scale=read(L"WorldUnitsPerMeter",100,10,500);fov=read(L"HorizontalFov",130,100,150);renderScale=read(L"RenderScale",1,.5f,1.5f);sharpness=read(L"Sharpness",.25f,0,1);swap=read(L"SwapEyes",1,0,1)>.5f;migrateGripBasis();}
++    void save(){auto put=[&](const wchar_t* key,float value){wchar_t text[64];swprintf_s(text,L"%.7g",value);WritePrivateProfileStringW(L"VR",key,text,path.c_str());};put(L"NormalThirdPerson",amalur::playMode.normal()?1.f:0.f);put(L"GripBasisVersion",1);put(L"WeaponX",weaponX);put(L"WeaponY",weaponY);put(L"WeaponZ",weaponZ);put(L"InterfaceScale",interfaceScale);put(L"GripPitch",gripPitch);put(L"GripYaw",gripYaw);put(L"GripRoll",gripRoll);put(L"HudSize",hudSize);put(L"Depth",depth);put(L"Convergence",convergence);put(L"Alignment",alignment);put(L"WorldUnitsPerMeter",scale);put(L"HorizontalFov",fov);put(L"RenderScale",renderScale);put(L"Sharpness",sharpness);put(L"SwapEyes",swap?1.f:0.f);}
+     void poll(){
+         MSG message;while(PeekMessageW(&message,nullptr,0,0,PM_REMOVE)){TranslateMessage(&message);DispatchMessageW(&message);}
+         if(interfacePending){interfaceView=!interfaceView;interfacePending=false;}
+@@ -132,28 +132,29 @@
+         if(r)++recenter;
+         if(up)selected=(selected+rowCount-1)%rowCount;if(down)selected=(selected+1)%rowCount;
+         if(selected==rowCount-1){if(enter)++recenter;return;}
+-        adjustSetting(int(right)-int(left),home);
++        adjustSetting((selected==0&&enter)?1:int(right)-int(left),home);
+     }
+     void adjustSetting(int direction,bool home){
+         if(!direction&&!home)return;
+         switch(selected){
+-        case 0:hudSize=home?.8f:std::clamp(hudSize+direction*.05f,.4f,1.2f);break;
+-        case 1:depth=home?20:std::clamp(depth+direction*2.f,0.f,100.f);break;
+-        case 2:convergence=home?100:std::clamp(convergence+direction*5.f,1.f,1000.f);break;
+-        case 3:alignment=home?26.5f/2560.f:std::clamp(alignment+direction*.0005f,-.05f,.05f);break;
+-        case 4:scale=home?100:std::clamp(scale+direction*5.f,10.f,500.f);break;
+-        case 5:fov=home?130:std::clamp(fov+direction*2.f,100.f,150.f);break;
+-        case 6:renderScale=home?1:std::clamp(renderScale+direction*.1f,.5f,1.5f);break;
+-        case 7:sharpness=home?.25f:std::clamp(sharpness+direction*.05f,0.f,1.f);break;
+-        case 8:swap=home?true:!swap;break;
+-        case 9:gripPitch=home?0:std::clamp(gripPitch+direction*5.f,-180.f,180.f);break;
+-        case 10:gripYaw=home?0:std::clamp(gripYaw+direction*5.f,-180.f,180.f);break;
+-        case 11:gripRoll=home?0:std::clamp(gripRoll+direction*5.f,-180.f,180.f);break;
+-        case 12:interfaceView=home?false:!interfaceView;break;
+-        case 13:interfaceScale=home?1.f:std::clamp(interfaceScale+direction*.05f,.5f,1.5f);break;
+-        case 14:weaponX=home?0:std::clamp(weaponX+direction*.5f,-20.f,20.f);break;
+-        case 15:weaponY=home?0:std::clamp(weaponY+direction*.5f,-20.f,20.f);break;
+-        case 16:weaponZ=home?0:std::clamp(weaponZ+direction*.5f,-20.f,20.f);break;
++        case 0:amalur::playMode.set(home?false:!amalur::playMode.normal());++recenter;break;
++        case 1:hudSize=home?.8f:std::clamp(hudSize+direction*.05f,.4f,1.2f);break;
++        case 2:depth=home?20:std::clamp(depth+direction*2.f,0.f,100.f);break;
++        case 3:convergence=home?100:std::clamp(convergence+direction*5.f,1.f,1000.f);break;
++        case 4:alignment=home?26.5f/2560.f:std::clamp(alignment+direction*.0005f,-.05f,.05f);break;
++        case 5:scale=home?100:std::clamp(scale+direction*5.f,10.f,500.f);break;
++        case 6:fov=home?130:std::clamp(fov+direction*2.f,100.f,150.f);break;
++        case 7:renderScale=home?1:std::clamp(renderScale+direction*.1f,.5f,1.5f);break;
++        case 8:sharpness=home?.25f:std::clamp(sharpness+direction*.05f,0.f,1.f);break;
++        case 9:swap=home?true:!swap;break;
++        case 10:gripPitch=home?0:std::clamp(gripPitch+direction*5.f,-180.f,180.f);break;
++        case 11:gripYaw=home?0:std::clamp(gripYaw+direction*5.f,-180.f,180.f);break;
++        case 12:gripRoll=home?0:std::clamp(gripRoll+direction*5.f,-180.f,180.f);break;
++        case 13:interfaceView=home?false:!interfaceView;break;
++        case 14:interfaceScale=home?1.f:std::clamp(interfaceScale+direction*.05f,.5f,1.5f);break;
++        case 15:weaponX=home?0:std::clamp(weaponX+direction*.5f,-20.f,20.f);break;
++        case 16:weaponY=home?0:std::clamp(weaponY+direction*.5f,-20.f,20.f);break;
++        case 17:weaponZ=home?0:std::clamp(weaponZ+direction*.5f,-20.f,20.f);break;
+         }save();
+     }
+ };
+--- a/src/xr_smoke/settings_panel.hpp
++++ b/src/xr_smoke/settings_panel.hpp
+@@ -53,16 +53,16 @@
+         text(42,130,L"Left stick: select / adjust    Y: reset row    Auto-saved");
+         wchar_t line[256];swprintf_s(line,L"Headset IPD: %.1f mm (runtime)   |   %s",ipd,s.interfaceView?L"Interface View":(tracking?L"6DoF active":L"Menu view - F10 enables tracking"));SetTextColor(dc,RGB(200,208,220));text(42,195,line);
+         swprintf_s(line,L"Source / eye: %u x %u     XR / eye: %u x %u",sourceWidth,sourceHeight,eyeWidth,eyeHeight);text(42,234,line);
+-        const wchar_t* labels[]={L"HUD size",L"Stereo depth strength",L"Convergence (game units)",L"Infinity alignment at 20% depth",L"World units per metre",L"Game horizontal FOV",L"XR render scale",L"Sharpening",L"Reverse source eyes",L"Hand grip pitch (degrees)",L"Hand grip yaw (degrees)",L"Hand grip roll (degrees)",L"Interface View (Ctrl + I)",L"Fullscreen menu size",L"Dagger outward (+) / inward (-), cm",L"Dagger forward (+) / back (-), cm",L"Dagger up (+) / down (-), cm",L"Recenter view (A / right trigger)"};
+-        float values[]={s.hudSize*100,s.depth,s.convergence,s.alignment*100,s.scale,s.fov,s.renderScale*100,s.sharpness*100,s.swap?1.f:0.f,s.gripPitch,s.gripYaw,s.gripRoll,s.interfaceView?1.f:0.f,s.interfaceScale*100,s.weaponX,s.weaponY,s.weaponZ,0};
+-        for(int i=0;i<VrSettings::rowCount;++i){int y=302+i*43;if(i==s.selected){RECT row{24,y-6,width-24,y+28};HBRUSH h=CreateSolidBrush(RGB(34,67,88));FillRect(dc,&row,h);DeleteObject(h);}SetTextColor(dc,RGB(227,235,244));text(44,y,labels[i]);if(i==8||i==12)swprintf_s(line,L"%s",values[i]>0?L"ON":L"OFF");else swprintf_s(line,(i==0||i==13)?L"%.0f%%":L"%.2f",values[i]);text(850,y,i==VrSettings::rowCount-1?L"Run":line);}
++        const wchar_t* labels[]={L"Play mode",L"HUD size",L"Stereo depth strength",L"Convergence (game units)",L"Infinity alignment at 20% depth",L"World units per metre",L"Game horizontal FOV",L"XR render scale",L"Sharpening",L"Reverse source eyes",L"Hand grip pitch (degrees)",L"Hand grip yaw (degrees)",L"Hand grip roll (degrees)",L"Interface View (Ctrl + I)",L"Fullscreen menu size",L"Dagger outward (+) / inward (-), cm",L"Dagger forward (+) / back (-), cm",L"Dagger up (+) / down (-), cm",L"Recenter view (A / right trigger)"};
++        float values[]={amalur::playMode.normal()?1.f:0.f,s.hudSize*100,s.depth,s.convergence,s.alignment*100,s.scale,s.fov,s.renderScale*100,s.sharpness*100,s.swap?1.f:0.f,s.gripPitch,s.gripYaw,s.gripRoll,s.interfaceView?1.f:0.f,s.interfaceScale*100,s.weaponX,s.weaponY,s.weaponZ,0};
++        for(int i=0;i<VrSettings::rowCount;++i){int y=282+i*40;if(i==s.selected){RECT row{24,y-6,width-24,y+28};HBRUSH h=CreateSolidBrush(RGB(34,67,88));FillRect(dc,&row,h);DeleteObject(h);}SetTextColor(dc,RGB(227,235,244));text(44,y,labels[i]);if(i==0)swprintf_s(line,L"%s",amalur::playMode.normal()?L"Third person":L"First person");else if(i==9||i==13)swprintf_s(line,L"%s",values[i]>0?L"ON":L"OFF");else swprintf_s(line,(i==1||i==14)?L"%.0f%%":L"%.2f",values[i]);text(i==0?790:850,y,i==VrSettings::rowCount-1?L"Run":line);}
+         static_assert(sizeof(labels)/sizeof(labels[0])==VrSettings::rowCount);
+         static_assert(sizeof(values)/sizeof(values[0])==VrSettings::rowCount);
+         // Keyboard-operated slider, matching the panel's existing arrow controls.
+-        RECT track{360,332,780,338};HBRUSH rail=CreateSolidBrush(RGB(73,91,110));FillRect(dc,&track,rail);DeleteObject(rail);
+-        int knob=360+static_cast<int>((s.hudSize-.4f)/.8f*420);RECT thumb{knob-5,329,knob+5,341};HBRUSH accent=CreateSolidBrush(RGB(116,194,217));FillRect(dc,&thumb,accent);DeleteObject(accent);
+-        RECT interfaceTrack{360,891,780,897};HBRUSH interfaceRail=CreateSolidBrush(RGB(73,91,110));FillRect(dc,&interfaceTrack,interfaceRail);DeleteObject(interfaceRail);
+-        int interfaceKnob=360+static_cast<int>((s.interfaceScale-.5f)*420);RECT interfaceThumb{interfaceKnob-5,888,interfaceKnob+5,900};HBRUSH interfaceAccent=CreateSolidBrush(RGB(116,194,217));FillRect(dc,&interfaceThumb,interfaceAccent);DeleteObject(interfaceAccent);
++        RECT track{360,352,780,358};HBRUSH rail=CreateSolidBrush(RGB(73,91,110));FillRect(dc,&track,rail);DeleteObject(rail);
++        int knob=360+static_cast<int>((s.hudSize-.4f)/.8f*420);RECT thumb{knob-5,349,knob+5,361};HBRUSH accent=CreateSolidBrush(RGB(116,194,217));FillRect(dc,&thumb,accent);DeleteObject(accent);
++        RECT interfaceTrack{360,872,780,878};HBRUSH interfaceRail=CreateSolidBrush(RGB(73,91,110));FillRect(dc,&interfaceTrack,interfaceRail);DeleteObject(interfaceRail);
++        int interfaceKnob=360+static_cast<int>((s.interfaceScale-.5f)*420);RECT interfaceThumb{interfaceKnob-5,869,interfaceKnob+5,881};HBRUSH interfaceAccent=CreateSolidBrush(RGB(116,194,217));FillRect(dc,&interfaceThumb,interfaceAccent);DeleteObject(interfaceAccent);
+         SetTextColor(dc,RGB(159,177,195));text(42,1069,L"Dagger offsets follow each wrist; outward is mirrored for the left hand.");
+         text(42,1112,L"Depth strength is not calibrated IPD. Hardware IPD uses Quest's dial.");
+         swprintf_s(line,L"Stereo control: %s   |   F7 recenter   F10 tracking   F12 exit",stereoStatus==0?L"connected":L"waiting / unavailable");text(42,1153,line);

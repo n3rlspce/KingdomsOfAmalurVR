@@ -1,6 +1,7 @@
 #pragma once
 #include <mgs5vr/core.hpp>
 #include <array>
+#include "weapon_family.hpp"
 namespace amalur {
 inline constexpr unsigned maxWeaponContactSamples=16;
 // Landmark envelopes in native game units, not measured mesh silhouettes.
@@ -23,7 +24,10 @@ inline constexpr WeaponContactProfile contactLine(mgs5vr::Vec3 start,mgs5vr::Vec
 // These are first-pass visual fits, not extracted mesh bounds. Keep radius4,
 // add overlapping samples, and exclude the dagger's grip from damage geometry.
 inline constexpr auto prototypeDaggers=contactLine({0,0,8},{0,0,46},6,4.f);
-inline constexpr auto longswordContact=contactLine({0,0,0},{0,0,78},11,4.f);
+inline constexpr auto longswordContact=contactLine({0,0,0},{0,0,85.8f},12,4.f);
+// Rusty5457 native terminal bone transformed into handle frame: (-4.706,-0.089,64.007).
+// Separate provisional landmark envelope; no mesh-tip fit claimed for this skin.
+inline constexpr auto rustyLongswordContact=contactLine({0,0,0},{-4.706f,-.089f,64.007f},10,4.f);
 inline constexpr auto staffContact=contactLine({0,0,0},{0,0,81.89f},12,4.f);
 inline constexpr auto greatswordContact=contactLine({0,0,18.79f},{.32f,0,136},16,4.f);
 // Only a head-centred provisional volume: do not treat the long handle as a blade.
@@ -35,6 +39,7 @@ inline constexpr WeaponContactProfile faebladesContact{};
 inline const WeaponContactProfile* capturedContactProfile(uint32_t asset){
     switch(asset){
         case 1520:return &prototypeDaggers;case 2478:return &longswordContact;
+        case 5457:return &rustyLongswordContact;
         case 1514:return &staffContact;case 1250:return &greatswordContact;
         case 1323:return &hammerContact;case 1689:return &faebladesContact;
         default:return nullptr; // Chakrams thrown/held transitions unverified.

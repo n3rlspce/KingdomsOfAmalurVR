@@ -1,5 +1,62 @@
 # Developer commands
 
+## Unified VR panel
+
+Click both sticks to open or close the panel. It opens on **Settings**;
+press **X** to switch to **Dev cheats** and back. **B** closes either tab.
+Use the left stick up/down to select a row and left/right to adjust a setting
+or weapon destination. Hold up/down to scroll: repeats start after 350 ms,
+then advance every 75 ms. Keyboard up/down repeats too. Left/right and action
+buttons remain single presses. **Set health to ~10,000** replaces Invincibility
+in the same row; it runs only when activated and refills without adding more
+Might when maximum HP is already high enough. On Settings, **Y** resets the selected value; the final
+Recenter row runs with **A/right trigger**. On Dev cheats, **A/right trigger**
+runs the selected action. Release controls after switching tabs before acting.
+Keyboard `*` and `F11` are aliases for the same panel, with `Tab` switching tabs.
+`panel_check.cpp` and `tabs_check.cpp` cover controller capture and tab behavior.
+**Open pause menu** near the bottom of Settings closes the VR panel after
+activation controls are released, then requests the native ledger window through
+`UI_State_MGR.show_window(ledger_win.m_window, false)`. A separate UI dispatcher
+(`amalur_menu.json` / `.lua`) runs on window update callbacks, without requiring
+cheat connection, living-player telemetry or an unpaused game. It checks window
+visibility for acknowledgement. Failure reopens Settings with the result.
+Requests expire, are session-bound and consumed once; no console-thread engine
+calls or automatic startup action. `pause_check.cpp` and `check_menu.py` cover
+input guards, duplicates, stale sessions, engine failures and callback reloads.
+Live validation in the stuck/dead save remains pending. The previous Start pulse
+reached the game but was ignored in that state.
+Automatic Continue is enabled. Before loading, the startup callback calls
+`PROFILE.set_enable_autosave(false)` and `PROFILE.apply_profile_settings()`, then
+verifies the value with `PROFILE.get_enable_autosave()`. This matches the game's
+Options handler and disables autosaves without blocking manual saves. No savefiles
+are modified by installation. A failed setting change prevents automatic loading.
+The installed `amalur_startup.json` manifest and startup Lua must both remain active.
+
+**Unlock weapon moves (all types)** invokes action 65,
+`amalur_dev.unlock_weapon_moves()`. It maximizes the nine weapon masteries,
+Brutal/Precise/Arcane Weaponry 01–04, and bow Drawpower/ArrowStorm/BarbedArrows/
+Scattershot: 25 verified weapon abilities. Level 40 alone does not grant these;
+Max Sorcery covers only the magical weapon subset. No unrelated skills or
+spells are added. `check_weapon_moves.py` checks scope, preflight, idempotence,
+and stopping on a partial failure. Run from the world through the dispatcher.
+
+### Normal third-person play (combined build)
+
+The first Settings row is **Play mode**. A/right trigger or left/right toggles
+First person / Third person; Y restores First person. This choice persists as
+`NormalThirdPerson` in the bridge INI. Third person retains stereoscopic VR and
+head tracking around the native chase camera, restores native head/body
+visibility and animations, disables VR arm/weapon poses and physical contacts,
+and sends the right stick to the game's normal camera orbit. Existing attack,
+block, movement and spell buttons remain usable. Switching back restores the
+previous first-person and animation preferences.
+
+`normal-third-person.patch` applies to the combined combat035 source; it includes
+the new mode header and `third_person_check.cpp`. Install the resulting DLL and
+bridge together: motion input is now V5 with validated right-stick axes. The
+combined build and native-mode/control/persistence tests pass. Full avatar
+visibility and camera comfort still require an in-headset check.
+
 ## Framework direct-to-save startup
 
 `install-startup.ps1 -GameDirectory <game> -SkipLogos` installs two owned startup

@@ -7,7 +7,9 @@
 int main(){
     VrSettings s;
     s.developerTogglePending=true;s.poll();
-    if(!s.developerVisible||s.visible||s.developerAction!=-1)return 1;
+    if(!s.visible||s.developerVisible||s.developerAction!=-1)return 1;
+    s.held[VK_TAB]=true;s.poll();s.held[VK_TAB]=false;s.poll();
+    if(!s.developerVisible||s.visible)return 55;
     s.held[VK_DOWN]=true;s.poll();
     if(s.developerRow!=1)return 2;
     s.poll();if(s.developerRow!=1)return 3; // held key must not repeat
@@ -20,7 +22,7 @@ int main(){
     if(s.developerRow!=0)return 6;
     s.held[VK_ESCAPE]=true;s.poll();if(s.developerVisible)return 7;
     s.held[VK_ESCAPE]=false;s.poll();s.developerTogglePending=true;s.poll();
-    s.togglePending=true;s.poll();if(!s.visible||s.developerVisible)return 8;
+    s.togglePending=true;s.poll();if(s.panelOpen())return 8;
     if(amalur::developer::command(1)!="amalur_dev.wolf()")return 9;
     for(int i=2;i<11;++i)if(amalur::developer::command(i).empty())return 10;
     s.visible=false;s.developerVisible=true;s.developerRow=2;
@@ -39,11 +41,14 @@ int main(){
     amalur::TouchInput t;
     auto update=[&](uint64_t now,bool busy=false,bool active=true){return c.pollDeveloperControllers(t,active,busy,now);};
     update(0);t.leftClick=t.rightClick=true;
-    if(!update(10)||!c.developerVisible)return 16;
-    update(11);if(!c.developerVisible)return 17;
-    update(100);if(!c.developerVisible)return 18;
-    update(1500);if(!c.developerVisible)return 19; // held chord cannot close again
-    t={};update(1600);
+    if(!update(10)||!c.visible)return 16;
+    update(11);if(!c.visible)return 17;
+    update(100);if(!c.visible)return 18;
+    update(1500);if(!c.visible)return 19; // held chord cannot close again
+    t={};update(1600);t.x=true;update(1601);
+    if(!c.developerVisible||c.visible)return 56;
+    update(1602);if(!c.developerVisible)return 57;
+    t={};update(1603);
     t.leftY=-1;update(1700);if(c.developerRow!=1)return 20;
     update(2000);if(c.developerRow!=1)return 21; // no held-stick repeat
     t={};update(2100);t.leftY=-1;update(2200);if(c.developerRow!=2)return 22;

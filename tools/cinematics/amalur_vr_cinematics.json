@@ -1,0 +1,6 @@
+{
+  "scripts": [
+    {"trigger": "conversation_menu", "path": ".\\mods\\amalur_vr_cinematics_entry.lua"},
+    {"trigger": "cinematic_paused_win", "path": ".\\mods\\amalur_vr_cinematics_entry.lua"}
+  ]
+}

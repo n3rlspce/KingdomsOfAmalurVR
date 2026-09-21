@@ -28,7 +28,7 @@ inline bool calibratedBodyAnchor{};
 inline amalur::BodyReference neutralBody{};
 inline LONG lastAblationMask=-1;
 inline bool solveUnsafe(uintptr_t root,Scratch& scratch,bool solveHand=true,uint32_t origin=amalur::skin_audit::Remap){
-    if(interfaceView.load()||!headTracking.load()||!root||root!=rig_probe::playerRoot())return false;
+    if(amalur::playMode.normal()||interfaceView.load()||!headTracking.load()||!root||root!=rig_probe::playerRoot())return false;
     auto& trace=scratch.trace;trace.root=static_cast<uint32_t>(root);trace.frame=presents.load();trace.tick=GetTickCount64();trace.stage=1;
     skin_trace::ensure();
     const auto animationModes=amalur::bodyDebug.read();

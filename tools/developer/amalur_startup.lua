@@ -39,6 +39,16 @@ local function menu_step(host)
     if flag(require_api(SAVE_RESTORE and SAVE_RESTORE.is_saving_disabled_for_user,
                         'SAVE_RESTORE.is_saving_disabled_for_user')()) then return end
     if flag(require_api(GAME and GAME.is_loading_fonts, 'GAME.is_loading_fonts')()) then return end
+    if not state.autosaveConfigured then
+        -- Match options_win.on_autosave_change: change the profile option,
+        -- then apply it. Do this before loading so entry autosaves are disabled.
+        require_api(PROFILE.set_enable_autosave, 'PROFILE.set_enable_autosave')(false)
+        require_api(PROFILE.apply_profile_settings, 'PROFILE.apply_profile_settings')()
+        local enabled = require_api(PROFILE.get_enable_autosave, 'PROFILE.get_enable_autosave')()
+        assert(enabled == false or enabled == 0, 'Autosave setting did not turn off')
+        state.autosaveConfigured = true
+        print('AMALUR_STARTUP|AUTOSAVE_DISABLED')
+    end
     local slot = require_api(SAVE_RESTORE.get_most_recent_save_slot,
                             'SAVE_RESTORE.get_most_recent_save_slot')()
     if type(slot) ~= 'number' or slot < 0 or slot % 1 ~= 0 then return end

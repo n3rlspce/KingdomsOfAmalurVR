@@ -1,4 +1,5 @@
 #pragma once
+#include "../tracking/native_attack_observation.hpp"
 // Opt-in observation only. Never replay an animation event or retain its pointers.
 namespace melee_contact {inline void capture(uintptr_t component,uintptr_t event);}
 namespace melee_probe {
@@ -45,12 +46,15 @@ inline void observe(uintptr_t component,uintptr_t event,uintptr_t a,uintptr_t b,
                 if(runtime&&player_rig::word(runtime+0x24)==owner&&player_rig::word(runtime+0x20)==index
                     &&(player_rig::word(runtime+0x1c)&1)){asset=player_rig::word(runtime+4);runtimeValid=true;}
             }
-            uint32_t model;uint64_t poseTick;
-            AcquireSRWLockShared(&weapon_control::poseLock);model=weapon_control::visualAsset;poseTick=weapon_control::visualTick;
+            uint32_t model,poseSelection,visualOwner;uint64_t poseTick;
+            AcquireSRWLockShared(&weapon_control::poseLock);model=weapon_control::visualAsset;poseTick=weapon_control::visualTick;poseSelection=weapon_control::visualSelection;visualOwner=weapon_control::visualWeapon;
             ReleaseSRWLockShared(&weapon_control::poseLock);
-            log("VR native combo event tick=%llu owner=%08x event=%08x key=%08x attackAsset=%u runtimeValid=%d flags=%u observedModel=%u modelFresh=%d selection=%u\n",
-                now,owner,player_rig::word(e),player_rig::word(e+0x30),asset,runtimeValid,player_rig::word(e+0x14),model,
-                poseTick&&poseTick<=now&&now-poseTick<100,motion_controls::viewControls().selectedWeapon);
+            const auto selected=motion_controls::viewControls().selectedWeapon;
+            const bool correlated=amalur::nativeAttackVisualCorrelation(asset,model,runtimeValid,poseTick,now,poseSelection,selected);
+            log("VR native combo event tick=%llu owner=%08x event=%08x key=%08x attackAsset=%u runtimeValid=%d flags=%u observedModel=%u modelFresh=%d selection=%u visualModel=%u visualOwner=%08x visualSelection=%u visualAge=%llu expectedModel=%u attribution=%s\n",
+                now,owner,player_rig::word(e),player_rig::word(e+0x30),asset,runtimeValid,player_rig::word(e+0x14),correlated?model:0,
+                correlated,selected,model,visualOwner,poseSelection,poseTick&&poseTick<=now?now-poseTick:~uint64_t(0),
+                amalur::capturedNativeAttackModel(asset),correlated?"captured-family-correlated":"unknown");
         }
     }__except(EXCEPTION_EXECUTE_HANDLER){}
 }

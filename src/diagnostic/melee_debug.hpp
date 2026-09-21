@@ -5,6 +5,7 @@
 #include "melee_debug_pipeline.hpp"
 #include <d3dcompiler.h>
 #include "../tracking/melee_debug_settings.hpp"
+#include "../tracking/longsword_trail.hpp"
 namespace melee_debug {
 inline constexpr unsigned capacity=16384;
 static_assert(capacity>=2*amalur::maxWeaponContactSamples*(3*24*6+6));
@@ -24,8 +25,9 @@ inline ComPtr<ID3D11InputLayout> layout;
 inline ComPtr<ID3D11Buffer> vertices,constants;
 inline ComPtr<ID3D11DepthStencilState> depth;
 inline ComPtr<ID3D11RasterizerState> raster;
+inline ComPtr<ID3D11BlendState> blend;
 inline bool initialize(ID3D11Device* d){
-    if(device.Get()==d)return vs&&ps&&layout&&vertices&&constants&&depth&&raster;
+    if(device.Get()==d)return vs&&ps&&layout&&vertices&&constants&&depth&&raster&&blend;
     device=d;vs.Reset();ps.Reset();layout.Reset();vertices.Reset();constants.Reset();depth.Reset();raster.Reset();
     const char* shader=R"(
 cbuffer Camera : register(b0) {row_major float4x4 vp;};
@@ -50,9 +52,14 @@ float4 PS(O v):SV_TARGET{return v.c;}
     if(FAILED(d->CreateDepthStencilState(&z,&depth)))return false;
     D3D11_RASTERIZER_DESC r{};r.FillMode=D3D11_FILL_SOLID;r.CullMode=D3D11_CULL_NONE;r.DepthClipEnable=TRUE;
     if(FAILED(d->CreateRasterizerState(&r,&raster)))return false;
+    D3D11_BLEND_DESC bd{};auto& rt=bd.RenderTarget[0];rt.BlendEnable=TRUE;
+    rt.SrcBlend=D3D11_BLEND_SRC_ALPHA;rt.DestBlend=D3D11_BLEND_INV_SRC_ALPHA;rt.BlendOp=D3D11_BLEND_OP_ADD;
+    rt.SrcBlendAlpha=D3D11_BLEND_ONE;rt.DestBlendAlpha=D3D11_BLEND_INV_SRC_ALPHA;rt.BlendOpAlpha=D3D11_BLEND_OP_ADD;
+    rt.RenderTargetWriteMask=D3D11_COLOR_WRITE_ENABLE_ALL;blend.Reset();if(FAILED(d->CreateBlendState(&bd,&blend)))return false;
     log("Melee collision overlay initialized: cyan right, magenta left; toggle in F11 developer panel\n");return true;
 }
 inline void draw(IDXGISwapChain* chain,const float* vp,bool valid){
+    static amalur::LongswordTrail trail;
     // Build-time emergency switch, independent of the user toggle.
     if constexpr(!amalur::meleeDebugAvailable)return;
     static amalur::MeleeDebugSettings settings;
@@ -61,21 +68,29 @@ inline void draw(IDXGISwapChain* chain,const float* vp,bool valid){
     if(loggedToggle!=int(enabled)){
         loggedToggle=int(enabled);log("Melee collision overlay toggle=%s\n",enabled?"ON":"OFF");
     }
-    if(!enabled)return;
     auto waiting=[](const char* reason,uint32_t model=0){
         static uint64_t next{};const auto now=GetTickCount64();
         if(now>=next){next=now+3000;log("Melee collision overlay ON waiting=%s model=%u\n",reason,model);}
     };
-    if(!valid||!firstPerson.load()||!arm_rig::enabled.load()||interfaceView.load()){
+    if(!valid||!firstPerson.load()||!arm_rig::enabled.load()||interfaceView.load()||!motion_controls::gameFocused()){
+        trail.hide();
         waiting("gameplay-camera-or-arms");return;
     }
     mgs5vr::Pose poses[2];uint64_t frame,ticks[2];Sweep recent[2][amalur::maxWeaponContactSamples];uint32_t asset,owner,selection;bool dual;
+    float charge;bool chargeReady;
+    amalur::MeleeSwingEvent strike;unsigned generation;
     AcquireSRWLockShared(&weapon_control::poseLock);
     poses[0]=weapon_control::visualPoses[0];poses[1]=weapon_control::visualPoses[1];frame=weapon_control::visualTick;
     asset=weapon_control::visualAsset;owner=weapon_control::visualWeapon;dual=weapon_control::visualDual;selection=weapon_control::visualSelection;
     ticks[0]=weapon_control::tick;ticks[1]=weapon_control::leftTick;
+    charge=weapon_control::longswordCharge;chargeReady=weapon_control::longswordReady;
+    strike=weapon_control::swingEvents[0];generation=weapon_control::generation;
     ReleaseSRWLockShared(&weapon_control::poseLock);
+    const bool chargeVisible=amalur::knownLongswordModel(asset)&&selection==0&&charge>0&&motion_controls::gameFocused();
+    const bool swordVisible=amalur::knownLongswordModel(asset)&&selection==0&&weapon_control::physicalActor.load()!=0;
+    if(!enabled&&!chargeVisible&&!swordVisible){trail.hide();return;}
     auto now=GetTickCount64();if(!frame||frame>now||now-frame>=100||selection>1||selection!=motion_controls::viewControls().selectedWeapon){
+        trail.hide();
         waiting("tracked-weapon-pose",asset);return;
     }
     const auto* profile=amalur::capturedContactProfile(asset);if(!profile){waiting("uncaptured-model",asset);return;}
@@ -88,7 +103,7 @@ inline void draw(IDXGISwapChain* chain,const float* vp,bool valid){
         for(double v:clip)if(!std::isfinite(v))return false;
         return clip[3]>.1&&clip[2]>=0&&clip[2]<=clip[3]&&std::abs(clip[0])<4*clip[3]&&std::abs(clip[1])<4*clip[3];
     };
-    auto line=[&](mgs5vr::Vec3 a,mgs5vr::Vec3 b,unsigned hand,float intensity,int axis=-1){
+    auto line=[&](mgs5vr::Vec3 a,mgs5vr::Vec3 b,unsigned hand,float intensity,int axis=-1,const amalur::LongswordTrailSegment* effect=nullptr){
         if(count+6>data.size())return;
         const auto delta=b-a;
         if(!visible(a)||!visible(b)||mgs5vr::dot(delta,delta)>2500.f){++rejected;return;}
@@ -97,14 +112,37 @@ inline void draw(IDXGISwapChain* chain,const float* vp,bool valid){
         if(mgs5vr::dot(side,side)<1e-10f)side=amalur::cross(delta,mgs5vr::Vec3{vp[2],vp[6],vp[10]});
         if(mgs5vr::dot(side,side)<1e-10f)side=amalur::cross(delta,mgs5vr::Vec3{0,0,1});
         const float length=std::sqrt(mgs5vr::dot(side,side));if(!std::isfinite(length)||length<1e-6f)return;
-        side=side*(.08f/length);
+        side=side*((effect?.08f*effect->width:axis>=3?.18f:.08f)/length);
         float red=hand?intensity:0.1f,green=hand?0.15f:intensity;
         float blue=intensity;
         if(axis>=0){red=axis==0?intensity:0.1f;green=axis==1?intensity:0.1f;blue=axis==2?intensity:0.1f;}
-        auto vertex=[&](mgs5vr::Vec3 p){data[count++]={p.x,p.y,p.z,red,green,blue,1};};
+        if(axis==3){red=intensity;green=.65f*intensity;blue=.12f;}
+        if(axis==4){red=.2f;green=intensity;blue=.35f;}
+        if(effect){red=effect->red;green=effect->green;blue=effect->blue;}
+        auto vertex=[&](mgs5vr::Vec3 p){data[count++]={p.x,p.y,p.z,red,green,blue,effect?effect->alpha:1};};
         vertex(a-side);vertex(a+side);vertex(b+side);vertex(a-side);vertex(b+side);vertex(b-side);
     };
-    for(unsigned h=0;h<(dual?2u:1u);++h){if(!ticks[h]||ticks[h]>now||now-ticks[h]>=100||!mgs5vr::valid(poses[h]))continue;
+    const bool trailEligible=swordVisible&&ticks[0]&&ticks[0]<=now&&now-ticks[0]<100&&mgs5vr::valid(poses[0]);
+    if(trailEligible){
+        const amalur::LongswordTrailIdentity id{weapon_control::physicalActor.load(),owner,generation,strike.serial};
+        if(strike.weapon==owner&&strike.generation==generation&&strike.tick&&strike.tick<=frame&&strike.tick<=now&&now-strike.tick<250)
+            trail.begin(id,strike.attackAsset,strike.tick);
+        const auto base=amalur::contactCenter(*profile,0,poses[0]);
+        const auto tip=amalur::contactCenter(*profile,profile->count-1,poses[0]);
+        trail.sample(id,frame,true,base,tip);
+        amalur::LongswordTrailSegment segments[amalur::LongswordTrail::maxSegments];
+        const auto n=trail.segments(now,segments,amalur::LongswordTrail::maxSegments);
+        for(unsigned i=0;i<n;++i)line(segments[i].a,segments[i].b,0,1,-1,&segments[i]);
+    }else trail.hide();
+    if(chargeVisible&&ticks[0]&&ticks[0]<=now&&now-ticks[0]<100&&mgs5vr::valid(poses[0])){
+        const unsigned pieces=unsigned(charge*48);
+        for(unsigned n=0;n<pieces;++n){
+            auto point=[&](unsigned j){const float a=float(j)*6.28318530718f/48;
+                return mgs5vr::compose(poses[0],mgs5vr::Pose{{},{6.f*cosf(a),6.f*sinf(a),18.f}}).position;};
+            line(point(n),point(n+1),0,1,chargeReady?4:3);
+        }
+    }
+    for(unsigned h=0;enabled&&h<(dual?2u:1u);++h){if(!ticks[h]||ticks[h]>now||now-ticks[h]>=100||!mgs5vr::valid(poses[h]))continue;
         if(asset==1689){
             // Solid positive axes; dashed negative axes. Guides only, no hits.
             const mgs5vr::Vec3 axes[]{{30,0,0},{0,30,0},{0,0,30}};
@@ -127,7 +165,7 @@ inline void draw(IDXGISwapChain* chain,const float* vp,bool valid){
     static bool traced=false;const bool trace=!traced;
     auto phase=[&](const char* name){if(trace)log("Melee overlay first draw: %s\n",name);};
     phase("resources");
-    static uint64_t lastGeometryLog{};if(now-lastGeometryLog>2000){lastGeometryLog=now;
+    static uint64_t lastGeometryLog{};if(enabled&&now-lastGeometryLog>2000){lastGeometryLog=now;
         log("Melee overlay geometry: vertices=%u clippedSegments=%u right=%.2f,%.2f,%.2f left=%.2f,%.2f,%.2f\n",count,rejected,poses[0].position.x,poses[0].position.y,poses[0].position.z,poses[1].position.x,poses[1].position.y,poses[1].position.z);
         FILETIME wall;GetSystemTimeAsFileTime(&wall);
         log("VR capture clock tick=%llu utcFileTime=%llu\n",now,(uint64_t(wall.dwHighDateTime)<<32)|wall.dwLowDateTime);
@@ -153,7 +191,7 @@ inline void draw(IDXGISwapChain* chain,const float* vp,bool valid){
     {
     Pipeline saved(c);
     c->SetPredication(nullptr,FALSE);c->GSSetShader(nullptr,nullptr,0);c->HSSetShader(nullptr,nullptr,0);c->DSSetShader(nullptr,nullptr,0);
-    c->OMSetBlendState(nullptr,nullptr,0xffffffffu);
+    c->OMSetBlendState(blend.Get(),nullptr,0xffffffffu);
     auto rt=target.Get();c->OMSetRenderTargets(1,&rt,nullptr);c->OMSetDepthStencilState(depth.Get(),0);
     c->RSSetState(raster.Get());D3D11_VIEWPORT viewport{0,0,float(desc.Width),float(desc.Height),0,1};c->RSSetViewports(1,&viewport);
     c->IASetInputLayout(layout.Get());c->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
