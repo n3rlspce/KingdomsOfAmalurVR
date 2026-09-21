@@ -1,5 +1,9 @@
 # Kingdoms of Amalur VR
 
+**[⬇ Download latest release (.zip)](https://github.com/n3rlspce/KingdomsOfAmalurVR/releases/latest/download/KingdomsOfAmalurVR.zip)** — Coming soon.
+
+<!-- Publish the release asset as KingdomsOfAmalurVR.zip to activate this stable direct-download URL. -->
+
 ![Kingdoms of Amalur: Re-Reckoning VR — square battle poster with matching gold VR lettering and a gold-trimmed headset on the warrior](docs/amalur-vr-hero.png)
 
 **[Quest controls guide](CONTROLS.md)**
