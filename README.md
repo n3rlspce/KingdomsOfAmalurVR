@@ -1,6 +1,6 @@
 # Kingdoms of Amalur VR
 
-![Kingdoms of Amalur: Re-Reckoning VR — gold title lettering over fantasy battle artwork](docs/amalur-vr-hero.png)
+![Kingdoms of Amalur: Re-Reckoning VR — square battle poster with matching gold VR lettering and a gold-trimmed headset on the warrior](docs/amalur-vr-hero.png)
 
 **[Quest controls guide](CONTROLS.md)**
 
