@@ -1,5 +1,7 @@
 # Kingdoms of Amalur VR
 
+**[Quest controls guide](CONTROLS.md)**
+
 Experimental VR mod for **Kingdoms of Amalur: Re-Reckoning**, targeting **Quest 3 + Virtual Desktop (VDXR)**. Work in progress; no ready-to-install release.
 
 ## Current work
@@ -28,4 +30,4 @@ Build the diagnostic DLL with CMake and Visual Studio using -A Win32. Keep AMALU
 
 The source under src/ is the integrated baseline. Diagnostic checks are CMake targets; run D3D/WARP checks from a directory without the proxy d3d11.dll to avoid DLL shadowing. Generated binaries, original game files, research dumps and workstation settings are excluded from version control. Never replace the game's geo11 d3d11.dll with the diagnostic output; the established installation name is amalur_camera.dll.
 
-See [Quest controls](CONTROLS.md) and [developer tools](tools/developer/README.md). Developer commands can alter a save; use a dedicated development save.
+See [developer tools](tools/developer/README.md). Developer commands can alter a save; use a dedicated development save.
