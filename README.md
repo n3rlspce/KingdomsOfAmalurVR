@@ -1,8 +1,12 @@
 # Kingdoms of Amalur VR
 
+![Kingdoms of Amalur: Re-Reckoning VR — gold title lettering over fantasy battle artwork](docs/amalur-vr-hero.png)
+
 **[Quest controls guide](CONTROLS.md)**
 
 Experimental VR mod for **Kingdoms of Amalur: Re-Reckoning**, targeting **Quest 3 + Virtual Desktop (VDXR)**. Work in progress; no ready-to-install release.
+
+<sub>Unofficial fan mod. Banner adapted from THQ Nordic's official artwork and logo; [artwork credits](docs/ARTWORK.md).</sub>
 
 ![Quest 3 Touch Plus controller diagram: left stick moves; Y selects weapon; X attacks primary; left trigger blocks; left grip supports. Right stick snap turns; A dodges; B interacts or sprints; right trigger attacks selected weapon; right grip modifies abilities.](docs/quest-3-controls.svg)
 
