@@ -25,18 +25,25 @@ inline bool stabilizeBody(const RigBone* native,RigBone* output,unsigned count,
     }
     memcpy(output,result,count*sizeof(RigBone));return true;
 }
+struct BodyReferenceKey {
+    uint32_t root{},owner{},asset{},blob{},center{};
+    bool operator==(const BodyReferenceKey& other)const{
+        return root==other.root&&owner==other.owner&&asset==other.asset&&blob==other.blob&&center==other.center;
+    }
+};
 struct BodyReference {
     mgs5vr::Pose relative[64]{};
     uint32_t ids[64]{};int16_t parents[64]{};
     bool upper[64]{};unsigned count{};bool ready{};
     mgs5vr::Vec3 anchor{},initialOffset{};
+    BodyReferenceKey key{};uint64_t revision{};
 };
 // First-person torso must share the tracked arms' stable reference. Replaying
 // jog sway in the chest while IK fixes the shoulders makes their seams shake.
 // Retain the native lower-body animation, with one stable translation, and
 // replace the spine subtree with its calibrated pose before solving the hands.
 inline bool stabilizeTrackedBody(const RigBone* native,RigBone* output,unsigned count,
-    const int16_t* parents,const uint32_t* ids,mgs5vr::Vec3 anchor,BodyReference& reference){
+    const int16_t* parents,const uint32_t* ids,mgs5vr::Vec3 anchor,BodyReference& reference,BodyReferenceKey key={}){
     using namespace mgs5vr;
     if(!native||!output||!parents||!ids||count<3||count>64||!valid(Pose{{},anchor}))return false;
     unsigned spine=count,head=count;
@@ -47,10 +54,15 @@ inline bool stabilizeTrackedBody(const RigBone* native,RigBone* output,unsigned 
     }
     if(spine==count||head==count)return false;
     BodyReference next=reference;
+    // Rebuild in a local candidate. A bad transition must neither discard the
+    // last valid reference nor partially write the caller's output.
+    if(next.ready&&(!(next.key==key)||next.count!=count
+        ||memcmp(next.ids,ids,count*sizeof(uint32_t))
+        ||memcmp(next.parents,parents,count*sizeof(int16_t))))next={};
     if(!next.ready){
         RigBone initial[64];
         if(!stabilizeBody(native,initial,count,parents,ids,anchor))return false;
-        next={};next.count=count;next.anchor=anchor;
+        next={};next.count=count;next.anchor=anchor;next.key=key;next.revision=reference.revision+1;
         next.initialOffset=initial[head].position-native[head].position;
         for(unsigned i=0;i<count;++i){
             next.ids[i]=ids[i];next.parents[i]=parents[i];
@@ -76,4 +88,25 @@ inline bool stabilizeTrackedBody(const RigBone* native,RigBone* output,unsigned 
     }
     memcpy(output,result,count*sizeof(RigBone));reference=next;return true;
 }
+// Restore native arm animation relative to each stabilized shoulder parent.
+// This keeps native hands moving even when the chest reference stays frozen.
+inline bool restoreNativeArmAnimation(const RigBone* native,RigBone* stable,unsigned count,
+    const int16_t* parents,const uint32_t* ids){
+    for(auto side:{ArmSide::Right,ArmSide::Left}){
+        unsigned shoulder,elbow,wrist;
+        if(!armIndices(side,count,parents,ids,shoulder,elbow,wrist)||parents[shoulder]<0)return false;
+        const auto parent=parents[shoulder];
+        const auto correction=mgs5vr::compose(bonePose(stable[parent]),mgs5vr::inverse(bonePose(native[parent])));
+        bool arm[64]{};
+        for(unsigned i=0;i<count;++i){
+            arm[i]=i==shoulder||(parents[i]>=0&&arm[parents[i]]);
+            if(!arm[i])continue;
+            const auto original=bonePose(native[i]);if(!mgs5vr::valid(original))return false;
+            const auto pose=mgs5vr::compose(correction,original);
+            stable[i].position=pose.position;stable[i].orientation=nativeQuaternion(pose.orientation);
+        }
+    }
+    return true;
+}
+
 }

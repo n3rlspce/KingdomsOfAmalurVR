@@ -15,7 +15,8 @@ int main(){
     if(s.developerAction!=1)return 4;
     s.developerAction=-1;s.poll();if(s.developerAction!=-1)return 5;
     s.held[VK_DOWN]=false;s.held[VK_RETURN]=false;s.poll();
-    s.developerRow=VrSettings::developerPanelRows-1;s.held[VK_DOWN]=true;s.poll();
+    s.developerRow=0;s.held[VK_UP]=true;s.poll();if(s.developerRow<=0)return 54;
+    s.held[VK_UP]=false;s.held[VK_DOWN]=true;s.poll();
     if(s.developerRow!=0)return 6;
     s.held[VK_ESCAPE]=true;s.poll();if(s.developerVisible)return 7;
     s.held[VK_ESCAPE]=false;s.poll();s.developerTogglePending=true;s.poll();
@@ -38,9 +39,9 @@ int main(){
     amalur::TouchInput t;
     auto update=[&](uint64_t now,bool busy=false,bool active=true){return c.pollDeveloperControllers(t,active,busy,now);};
     update(0);t.leftClick=t.rightClick=true;
-    if(!update(10)||c.developerVisible)return 16;
-    update(659);if(c.developerVisible)return 17;
-    update(660);if(!c.developerVisible)return 18;
+    if(!update(10)||!c.developerVisible)return 16;
+    update(11);if(!c.developerVisible)return 17;
+    update(100);if(!c.developerVisible)return 18;
     update(1500);if(!c.developerVisible)return 19; // held chord cannot close again
     t={};update(1600);
     t.leftY=-1;update(1700);if(c.developerRow!=1)return 20;
@@ -70,6 +71,21 @@ int main(){
     t={};t.leftClick=t.rightClick=true;t.leftX=1;
     if(input.update(t,true,false,false,1000).capture)return 36;
     if(input.update(t,true,false,false,2000).toggle)return 37;
+    t.leftX=0;if(input.update(t,true,false,false,2001).toggle)return 48;
+    // First click works without an initial neutral frame, even while gripping
+    // naturally and nudging the sticks as their switches depress.
+    amalur::DeveloperPanelInput firstClick;
+    t={};t.leftGrip=t.rightGrip=1;t.leftClick=t.rightClick=true;
+    t.leftX=.4f;t.rightY=-.5f;
+    if(!firstClick.update(t,true,false,false,0).toggle)return 49;
+    if(firstClick.update(t,true,true,false,1).toggle)return 50;
+    t.leftClick=false;firstClick.update(t,true,true,false,2);
+    t.leftClick=true;if(firstClick.update(t,true,true,false,3).toggle)return 51;
+    t.leftClick=t.rightClick=false;t.leftX=t.rightY=0;
+    firstClick.update(t,true,true,false,4);
+    t.a=true;if(!firstClick.update(t,true,true,false,5).activate)return 52;
+    t.a=false;t.leftClick=t.rightClick=true;
+    if(!firstClick.update(t,true,true,false,6).toggle)return 53;
     amalur::TouchMapper mapper;mapper.map({},true);t={};t.rightTrigger=1;
     auto blocked=mapper.map(t,false);if(blocked.active||blocked.buttons)return 38;
     auto held=mapper.map(t,true);if(held.buttons)return 39;

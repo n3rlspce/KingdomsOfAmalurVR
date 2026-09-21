@@ -66,7 +66,7 @@ inline DWORD WINAPI getState(DWORD index,XINPUT_STATE* state){
         state->Gamepad.bRightTrigger>XINPUT_GAMEPAD_TRIGGER_THRESHOLD,GetTickCount64());
     static DWORD lastInput=~0u;
     DWORD current=static_cast<DWORD>(state->Gamepad.wButtons)|(static_cast<DWORD>(state->Gamepad.bLeftTrigger)<<16)|(static_cast<DWORD>(state->Gamepad.bRightTrigger)<<24);
-    if(current!=lastInput){log("Touch XInput active=%d buttons=%04x LT=%u RT=%u\n",active,state->Gamepad.wButtons,state->Gamepad.bLeftTrigger,state->Gamepad.bRightTrigger);lastInput=current;}
+    if(current!=lastInput){log("Touch XInput tick=%llu active=%d buttons=%04x LT=%u RT=%u\n",GetTickCount64(),active,state->Gamepad.wButtons,state->Gamepad.bLeftTrigger,state->Gamepad.bRightTrigger);lastInput=current;}
 
     state->dwPacketNumber=++packetNumber;
     ReleaseSRWLockExclusive(&lock);

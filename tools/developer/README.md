@@ -1,5 +1,83 @@
 # Developer commands
 
+## Framework direct-to-save startup
+
+`install-startup.ps1 -GameDirectory <game> -SkipLogos` installs two owned startup
+mod files and disables the Kaiko/THQ publisher videos while the game is closed.
+Original videos remain alongside them with `.amalur-startup-disabled` appended;
+rename them back to restore them. Story cinematics are unchanged.
+The framework wraps `splash_win.on_update_event` and `main_menu.on_update_event`.
+After the original callback, it advances native profile acquisition once when
+the splash is visible and system UI is clear, then calls the game's normal
+`main_menu.continue_last_save()` once the menu is initialized with a valid latest
+slot. Save compatibility checks remain in the native Continue flow. A missing
+save leaves the normal menu available. An error disables startup automation for
+that process; returning to the menu does not trigger another load.
+
+The original archive remains untouched. Remove `mods/amalur_startup.json` to
+disable this feature on the next launch. `check_startup.py` exercises the real
+Lua module under Lua 5.1. Process 62528 logged Continue slot 20 and loaded gameplay,
+but the user confirmed they still saw logos and pressed a button first. This
+validated automatic Continue only, NOT unattended startup. The splash framework
+hook was installed only after main_menu loaded, too late for the initial prompt.
+Renaming the loose videos did not establish a publisher-screen skip.
+
+`build-early-startup.py` and `install-early-startup.ps1` are EXPERIMENTAL and NOT
+installed. They stage an exact-revision two-byte native logo sequence bypass and
+five existing splash instructions in both asset lookup paths. The live test
+stopped before main_menu finished loading (last framework script reported was
+pc_profile_select_win); no native Lua error was logged. Original executable,
+archive, and publisher videos were restored before handing off the user's next
+launch. Do not describe this candidate as working or reinstall without further
+diagnosis. Evidence is in `build/early-startup-v3` (local only).
+
+Further investigation found another splash copy in `initial_0.pak`. The builder
+now accepts `--archive initial_0.pak`, checks that archive's exact revision, and
+verifies the loose splash as well as the embedded batch after repacking. The
+installer records which archive it owns and applies the same backup/rollback
+checks to either supported archive. This is a diagnostic candidate, not a
+validated fix: native code mounts both initial and patch archives, so finding
+the initial copy does not establish that it wins resource lookup. No new package
+was installed during the active VR playtest. Main-menu bytecode remains original;
+the tested framework Continue callback remains the save-loading mechanism.
+
+Online research: the [No Logos author's description](https://www.nexusmods.com/kingdomsofamalurrereckoning/mods/4)
+explicitly excludes the splash and Press Any Button screens. A video replacement
+alone therefore cannot provide unattended startup. Do not infer full startup
+success from that mod or from an offline bytecode round trip.
+
+The user tested the initial-archive candidate (v4): a long black screen remained,
+followed by Press Any Button; manual input then automatically loaded the save.
+That candidate failed unattended startup. Do not reuse it as a working fix.
+
+`build-native-startup.py <original-exe> <fresh-output>` stages v5 without changing
+archives. Its ASLR-safe relative trampoline runs inside native profile update
+at RVA `0xb42917`. When state is -1, the callback is installed, and the platform
+context/user table exist, it calls the game's begin-acquisition routine at RVA
+`0xafae20`. The original asynchronous authentication, DLC readiness, and completion
+callback remain in place. The original logo-sequence completion patch is retained.
+This is still experimental: genuine asset loading may account for black-screen
+time, and offline execution cannot verify platform initialization in the game.
+
+`check_native_startup.py <package>` executes the actual staged machine code and
+native begin routine under Unicorn, stubbing only the platform acquisition call.
+It checks readiness guards, state transitions, stack preservation, no repeated
+request on the next update, and three relocated image bases. To install, undo v4
+first, then use `install-native-startup.ps1` with the game closed. Both archives
+must match their originals. Its `-Undo` restores the original executable.
+
+V5 reached the menu without the initial prompt, but the user reported a controller
+disconnected alert and manual Continue. The framework console showed no main_menu
+require trigger, so automatic Continue was never attached in this startup path.
+The current candidate also checks XInputGetState(0) before starting acquisition;
+the virtual pad must be connected, but no button press is required. The import
+ordinal is checked against the installed 32-bit DLL (GetState=2).
+The Lua module now starts from UI_State_MGR and temporarily observes window
+creation to find the preloaded menu. It removes that observer once the normal
+menu update wrapper is attached. Loading still occurs only during menu update,
+after system UI is clear, and at most once. Offline tests cover this preloaded
+menu path and disconnected-controller guarding; live results remain pending.
+
 ## Direct startup (independent of the Lua framework)
 
 **Runtime failure: disabled.** A menu crash with `function expected instead of
@@ -37,14 +115,30 @@ The builder also verifies lossless asset parsing and archive round trips.
 
 ## F11 panel and game-update dispatch
 
+Spell actions: **Max Sorcery** (action 63) raises the 25 base Sorcery abilities to
+their normal maximum ranks, using the same `character_data.grant_actual_ability`
+loop as the game's built-in max-abilities cheat. It checks every ID and rank
+before modifying anything, preserves already higher ranks, and verifies each
+rank increase. It does not spend the player's unallocated ability points.
+**Equip spell test set** (action 64) assigns Storm Bolt, Ice Barrage, Healing Surge,
+and Meteor to Magic slots 1–4 using the game's spell-item and slot helpers, then
+reads back each native slot. Run Max Sorcery first. This replaces the four spell
+bindings, leaving primary/secondary weapon slots alone. Hold right grip and use
+A/B/X/Y to cast through the existing VR ability controls; the HUD identifies each
+button's spell. Other unlocked spells can be mapped from the Abilities menu.
+`check_spells.py` checks dispatch restrictions, preflight validation, repeated
+grants, slot assignment, and stopping after partial failures. Live validation is
+still required; commands never run automatically when the module loads.
+
 Build `tools/developer/build.ps1`, then build the XR bridge into the same output
 directory. With the game closed, run `install-dispatch.ps1 -GameDirectory <game>`
 to install the three owned mod files. This does not activate the framework DLLs.
 The dispatcher uses the framework's `minimap_win` script trigger to wrap the
 original `on_update_event`, preserving its arguments and running requests after it.
 
-Hold both thumbstick clicks with both sticks centered for 0.65 seconds to open
-or close the headset panel. Release the controls after opening. Flick the left
+Click both thumbsticks together to open or close the headset panel immediately.
+Small stick deflection while pressing is tolerated, and holding the grips does
+not block opening or navigation. Release the clicks after opening. Flick the left
 stick up/down to select a row and left/right to choose the weapon destination.
 A or the right trigger runs the selected action once; B closes the panel.
 The panel connects automatically once fresh telemetry reports loaded, unpaused

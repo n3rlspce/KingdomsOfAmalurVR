@@ -1,6 +1,8 @@
 #pragma once
 #include "arm_rig.hpp"
 #include "rig_status.hpp"
+#include "shield_control.hpp"
+#include "skin_root_pair.hpp"
 // Reversible discovery probe, not controller IK. Only the verified local-player
 // armor child is eligible; NPCs and opaque bone bytes are untouched.
 namespace rig_probe {
@@ -13,7 +15,8 @@ inline BoneWorld originalWorld{};
 inline void adjustSocket(uintptr_t root,unsigned index,amalur::RigBone* output){
     __try {
         if(!output||root!=playerRoot()||index>=player_rig::word(root+0x38))return;
-        arm_rig::Scratch scratch;if(!arm_rig::solveUnsafe(root,scratch))return;
+        arm_rig::Scratch scratch;const bool solved=arm_rig::solveUnsafe(root,scratch,true,amalur::skin_audit::Getter);
+        scratch.trace.slot=index;arm_rig::finishAudit(scratch,solved);if(!solved)return;
         auto native=reinterpret_cast<const amalur::RigBone*>(player_rig::word(root+0x34));
         if(index>=64||!mgs5vr::valid(amalur::bonePose(native[index]))||!mgs5vr::valid(amalur::bonePose(*output)))return;
         if(!memcmp(&native[index],&scratch.bones[index],sizeof(amalur::RigBone)))return;
@@ -23,13 +26,15 @@ inline void adjustSocket(uintptr_t root,unsigned index,amalur::RigBone* output){
         auto after=mgs5vr::compose(world,amalur::bonePose(scratch.bones[index]));
         auto delta=mgs5vr::compose(after,mgs5vr::inverse(before));
         auto result=mgs5vr::compose(delta,amalur::bonePose(*output));if(!mgs5vr::valid(result))return;
+        const auto originalPose=*output;
         output->position=result.position;output->orientation=amalur::nativeQuaternion(result.orientation);
+        amalur::publishRigOverrides(&originalPose,output,1);
         static unsigned logs=0;if(logs++<12)log("Tracked native socket bone=%u\n",index);
     } __except(EXCEPTION_EXECUTE_HANDLER){}
 }
 inline uintptr_t __fastcall boneWorld(void* self,void*,unsigned index,amalur::RigBone* output,uintptr_t offset){
     auto result=originalWorld(self,index,output,offset);
-    if(arm_rig::enabled.load()&&headTracking.load())adjustSocket(reinterpret_cast<uintptr_t>(self),index,output);
+    if(arm_rig::enabled.load()&&headTracking.load()&&!amalur::bodyDebug.enabled(amalur::skipRigSockets))adjustSocket(reinterpret_cast<uintptr_t>(self),index,output);
     return result;
 }
 inline SRWLOCK lock=SRWLOCK_INIT;
@@ -136,6 +141,15 @@ inline void traceRemap(uintptr_t object,uintptr_t output,uintptr_t slot,bool sol
                     memcpy(&trace.objectWorld.position,reinterpret_cast<void*>(object+0x124),12);
                     memcpy(&trace.objectWorld.orientation,reinterpret_cast<void*>(object+0x134),16);
                     trace.objectWorld=amalur::nativePose(trace.objectWorld);
+                    if(scratch.audit){
+                        auto& a=*scratch.audit;a.childAsset=assetId;a.childBuffer=buffer;a.childCount=count;
+                        memcpy(&a.childWorldBefore,reinterpret_cast<void*>(object+0x124),sizeof(a.childWorldBefore));
+                        memcpy(a.child,reinterpret_cast<void*>(buffer),count*sizeof(amalur::RigBone));
+                        memcpy(a.childIds,reinterpret_cast<void*>(blob+0x20+offset),count*sizeof(uint32_t));
+                        const auto po=player_rig::word(blob+0x1c);
+                        if(po&&po<=65536)memcpy(a.childParents,reinterpret_cast<void*>(blob+0x1c+po),count*sizeof(int16_t));
+                        a.childHash=amalur::skin_audit::hash(a.child,count*sizeof(amalur::RigBone));
+                    }
                     for(unsigned i=0;i<count;++i){
                         const auto id=player_rig::word(blob+0x20+offset+i*4);
                         if(id!=0x88d0eb&&id!=0x87c3ed)continue;
@@ -152,23 +166,33 @@ inline void traceRemap(uintptr_t object,uintptr_t output,uintptr_t slot,bool sol
         }
     } __except(EXCEPTION_EXECUTE_HANDLER){trace.flags|=64u;}
     arm_trace::publish(trace);
-    skin_trace::remap(trace);
+    arm_rig::finishAudit(scratch,solved);
 }
 inline void __fastcall evaluateBones(void* mapper,void*,uintptr_t slot,uintptr_t source,
     uintptr_t output,uintptr_t skeleton,uintptr_t extra,uintptr_t flags){
     auto object=output>=0x34?output-0x34:0;
     beforeEvaluation(object);
+    weapon_control::observeNativeWeaponSlot(mapper,slot,source,output);
     arm_rig::Scratch scratch;
     const bool solved=arm_rig::prepare(source,output,scratch);
-    const auto input=solved?reinterpret_cast<uintptr_t>(scratch.descriptor):source;
+    // Ablation: retain the solve and its state changes, but publish native mesh
+    // input. Socket behavior is controlled independently by skipRigSockets.
+    const bool nativeMesh=amalur::bodyDebug.enabled(amalur::nativeMeshInput);
+    if(nativeMesh)scratch.trace.flags|=256u;
+    const auto input=solved&&!nativeMesh?reinterpret_cast<uintptr_t>(scratch.descriptor):source;
     const auto renderSlot=arm_rig::trackedWeaponSlot(mapper,slot,output,solved);
     weapon_control::restoreHeldTranslation(object);
+    shield_control::restore(object);
     originalBones(mapper,renderSlot,input,output,skeleton,extra,flags);
-    if(solved&&arm_rig::enabled.load())weapon_control::translateHeld(object,renderSlot,source,input);
+    if(!nativeMesh&&!amalur::bodyDebug.enabled(amalur::nativeMeshRotations)&&arm_rig::enabled.load()&&!amalur::bodyDebug.enabled(amalur::nativeArms))shield_control::apply(object,source,solved);
+    if(solved&&!nativeMesh&&!amalur::bodyDebug.enabled(amalur::nativeMeshPositions)&&arm_rig::enabled.load()&&!amalur::bodyDebug.enabled(amalur::nativeArms))weapon_control::translateHeld(object,renderSlot,source,input);
+    if(solved&&arm_rig::enabled.load()&&!amalur::bodyDebug.enabled(amalur::nativeArms))support_grip::record(object,renderSlot,scratch.trace.rootWorld);
     traceRemap(object,output,renderSlot,solved,scratch);
-    if(solved&&renderSlot==7)weapon_control::recordBlades(object);
+    if(solved&&renderSlot==7&&!amalur::bodyDebug.enabled(amalur::nativeArms))weapon_control::recordBlades(object);
+    if(solved&&arm_rig::enabled.load()&&!amalur::bodyDebug.enabled(amalur::nativeArms))weapon_control::recordHeld(object,renderSlot,scratch.trace.rootWorld);
     rig_status::attachment(mapper,renderSlot,source,output,slot);
     afterEvaluation(object);
+    skin_root_pair::remember(object,scratch.trace.root,solved&&!nativeMesh&&!amalur::bodyDebug.enabled(amalur::nativeMeshPositions),scratch.locomotion);
 }
 inline void disable(){
     enabled.store(false);AcquireSRWLockExclusive(&lock);restore();ReleaseSRWLockExclusive(&lock);
@@ -185,5 +209,6 @@ inline void install(){
         &&!memcmp(world+0x85,worldTail,sizeof(worldTail)))
         hook(world,reinterpret_cast<void*>(&boneWorld),reinterpret_cast<void**>(&originalWorld),"Tracked player bone world sockets");
     weapon_control::installHeldVisibility();
+    skin_root_pair::install();
 }
 }

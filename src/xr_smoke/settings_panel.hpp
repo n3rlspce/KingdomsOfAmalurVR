@@ -25,23 +25,28 @@ public:
         auto text=[&](int x,int y,const std::wstring& value){TextOutW(dc,x,y,value.c_str(),static_cast<int>(value.size()));};
         if(s.developerVisible&&developer){
             text(42,28,L"AMALUR VR  /  DEVELOPER");SelectObject(dc,font);
-            SetTextColor(dc,RGB(116,194,217));text(42,95,L"Hold both stick clicks: open / close    B: close");
+            SetTextColor(dc,RGB(116,194,217));text(42,95,L"Click both sticks: open / close    B: close");
             text(42,132,L"Left stick: select / destination    A / right trigger: run");
             SetTextColor(dc,RGB(220,228,237));
             text(42,174,L"Dev save actions. F11, arrows and Enter also work.");
             for(int i=0;i<VrSettings::developerPanelRows;++i){
-                int y=220+i*40;
-                if(i==s.developerRow){RECT row{24,y-5,width-24,y+37};HBRUSH h=CreateSolidBrush(RGB(34,67,88));FillRect(dc,&row,h);DeleteObject(h);}
-                SetTextColor(dc,(developer->busy()&&i!=amalur::developer::panelRows)?RGB(130,143,156):RGB(227,235,244));
-                std::wstring label=i==amalur::developer::panelRows?(VrSettings::meleeDebug.enabled()?L"Dagger collision overlay: ON":L"Dagger collision overlay: OFF"):i==0?L"Reconnect (connection is automatic)":i==1?L"Spawn one wolf":i==amalur::developer::rows?L"Dev character: level 40":i==amalur::developer::rows+1?L"Enable invincibility":std::wstring(amalur::developer::weapons[i-2].label);
+                int y=220+i*29;
+                if(i==s.developerRow){RECT row{24,y-5,width-24,y+28};HBRUSH h=CreateSolidBrush(RGB(34,67,88));FillRect(dc,&row,h);DeleteObject(h);}
+                SetTextColor(dc,(developer->busy()&&i<amalur::developer::panelRows)?RGB(130,143,156):RGB(227,235,244));
+                std::wstring label;
+                if(i>=VrSettings::ablationFirstRow&&i<=VrSettings::ablationResetRow){
+                    static const wchar_t* names[]{L"TEST: Skip socket corrections",L"TEST: Skip root smoothing",L"TEST: Native mesh input (keep VR solve)",L"TEST: Native mesh positions (VR rotations)",L"TEST: Native mesh rotations (VR positions)"};
+                    label=i==VrSettings::ablationResetRow?L"Reset jitter experiments (all OFF)":
+                        std::wstring(names[i-VrSettings::ablationFirstRow])+(amalur::bodyDebug.enabled(VrSettings::ablationBits[i-VrSettings::ablationFirstRow])?L": ON":L": OFF");
+                }else label=i==amalur::developer::panelRows+4?(amalur::bodyDebug.enabled(amalur::nativeCamera)?L"Native game camera (VR arms kept): ON":L"Native game camera (VR arms kept): OFF"):i==VrSettings::mapPanelRow?(s.mapPanelPrototype?L"Map panel prototype: ON":L"Map panel prototype: OFF"):i==amalur::developer::panelRows+2?(amalur::bodyDebug.enabled(amalur::nativeTorso)?L"Native upper-body animation: ON":L"Native upper-body animation: OFF"):i==amalur::developer::panelRows+3?(amalur::bodyDebug.enabled(amalur::nativeArms)?L"Native arms and wrists: ON":L"Native arms and wrists: OFF"):i==amalur::developer::panelRows+1?(VrSettings::thirdPersonCamera.enabled()?L"Third-person camera (1 m): ON":L"Third-person camera (1 m): OFF"):i==amalur::developer::panelRows?(!amalur::meleeDebugAvailable?L"Weapon collisions: disabled (crash investigation)":VrSettings::meleeDebug.enabled()?L"Weapon collisions: ON":L"Weapon collisions: OFF"):amalur::developer::panelLabel(i);
                 text(44,y,label);
             }
             SetTextColor(dc,RGB(159,177,195));
             const wchar_t* destinations[]={L"Give to inventory",L"Give + equip primary",L"Give + equip secondary",L"Equip existing primary",L"Equip existing secondary"};
-            text(42,850,s.developerRow==amalur::developer::panelRows?L"A / trigger / left-right: toggle collision overlay":s.developerRow>=2&&s.developerRow<amalur::developer::rows?std::wstring(L"Weapon destination: ")+destinations[s.developerDestination]:L"Single action - destination applies to weapon rows only");
-            text(42,895,L"Independent left / right weapons are not available yet.");
+            text(42,1045,s.developerRow>=VrSettings::ablationFirstRow?L"Try one experiment at a time; reset before the next.":s.developerRow==VrSettings::mapPanelRow?L"Paused-screen prototype: enable, close this panel, open Map.":s.developerRow>=amalur::developer::panelRows+2?L"A / trigger / left-right: toggle (both can be ON)":s.developerRow==amalur::developer::panelRows+1?L"A / trigger / left-right: toggle third-person camera":s.developerRow==amalur::developer::panelRows?L"A / trigger / left-right: toggle collision overlay":s.developerRow>=2&&s.developerRow<amalur::developer::rows?std::wstring(L"Weapon destination: ")+destinations[s.developerDestination]:L"Single action - destination applies to weapon rows only");
+            text(42,1090,VrSettings::meleeDebug.enabled()?L"Weapon collisions: ON (stays on when switching weapons)":L"Weapon collisions: OFF");
             SetTextColor(dc,RGB(116,194,217));
-            RECT statusRect{42,925,width-42,1080};
+            RECT statusRect{42,1125,width-42,1265};
             DrawTextW(dc,developer->status.c_str(),-1,&statusRect,DT_LEFT|DT_WORDBREAK|DT_NOPREFIX);
         }else{
         text(42,28,L"AMALUR VR  /  SETTINGS");SelectObject(dc,font);text(810,42,s.selectedWeapon?L"SECONDARY":L"PRIMARY");SetTextColor(dc,RGB(116,194,217));text(42,90,L"*: open / close    Arrows: select / adjust (panel only)");
@@ -50,7 +55,7 @@ public:
         swprintf_s(line,L"Source / eye: %u x %u     XR / eye: %u x %u",sourceWidth,sourceHeight,eyeWidth,eyeHeight);text(42,234,line);
         const wchar_t* labels[]={L"HUD size",L"Stereo depth strength",L"Convergence (game units)",L"Infinity alignment at 20% depth",L"World units per metre",L"Game horizontal FOV",L"XR render scale",L"Sharpening",L"Reverse source eyes",L"Hand grip pitch (degrees)",L"Hand grip yaw (degrees)",L"Hand grip roll (degrees)",L"Interface View (Ctrl + I)",L"Fullscreen menu size",L"Dagger outward (+) / inward (-), cm",L"Dagger forward (+) / back (-), cm",L"Dagger up (+) / down (-), cm"};
         float values[]={s.hudSize*100,s.depth,s.convergence,s.alignment*100,s.scale,s.fov,s.renderScale*100,s.sharpness*100,s.swap?1.f:0.f,s.gripPitch,s.gripYaw,s.gripRoll,s.interfaceView?1.f:0.f,s.interfaceScale*100,s.weaponX,s.weaponY,s.weaponZ};
-        for(int i=0;i<VrSettings::rowCount;++i){int y=302+i*43;if(i==s.selected){RECT row{24,y-6,width-24,y+37};HBRUSH h=CreateSolidBrush(RGB(34,67,88));FillRect(dc,&row,h);DeleteObject(h);}SetTextColor(dc,RGB(227,235,244));text(44,y,labels[i]);if(i==8||i==12)swprintf_s(line,L"%s",values[i]>0?L"ON":L"OFF");else swprintf_s(line,(i==0||i==13)?L"%.0f%%":L"%.2f",values[i]);text(850,y,line);}
+        for(int i=0;i<VrSettings::rowCount;++i){int y=302+i*43;if(i==s.selected){RECT row{24,y-6,width-24,y+28};HBRUSH h=CreateSolidBrush(RGB(34,67,88));FillRect(dc,&row,h);DeleteObject(h);}SetTextColor(dc,RGB(227,235,244));text(44,y,labels[i]);if(i==8||i==12)swprintf_s(line,L"%s",values[i]>0?L"ON":L"OFF");else swprintf_s(line,(i==0||i==13)?L"%.0f%%":L"%.2f",values[i]);text(850,y,line);}
         static_assert(sizeof(labels)/sizeof(labels[0])==VrSettings::rowCount);
         static_assert(sizeof(values)/sizeof(values[0])==VrSettings::rowCount);
         // Keyboard-operated slider, matching the panel's existing arrow controls.

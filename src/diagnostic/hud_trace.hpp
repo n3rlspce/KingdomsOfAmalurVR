@@ -56,7 +56,7 @@ static void sample(ID3D11DeviceContext* context,const Tag& t){
     }
 }
 static void anchorMenu(){
-    if(fullscreenMenuView.load()&&!interfaceView.load())hud_size::menuRotation.update(render_pose::currentDrawn());
+    if(fullscreenMenuView.load()&&!interfaceView.load()&&!mapPanelView.load())hud_size::menuRotation.update(render_pose::currentDrawn());
     else hud_size::menuRotation.reset();
 }
 using Draw=void(STDMETHODCALLTYPE*)(ID3D11DeviceContext*,UINT,UINT);
@@ -64,10 +64,10 @@ using Indexed=void(STDMETHODCALLTYPE*)(ID3D11DeviceContext*,UINT,UINT,INT);
 using Instanced=void(STDMETHODCALLTYPE*)(ID3D11DeviceContext*,UINT,UINT,UINT,UINT);
 using IndexedInstanced=void(STDMETHODCALLTYPE*)(ID3D11DeviceContext*,UINT,UINT,UINT,INT,UINT);
 static Draw draw;static Indexed indexed;static Instanced instanced;static IndexedInstanced indexedInstanced;
-static void STDMETHODCALLTYPE onDraw(ID3D11DeviceContext* c,UINT n,UINT first){render_pose::draw(c);camera_audit::draw(c);skin_trace::draw(c,n);auto t=inspect(c);anchorMenu();hud_size::Binding hud(c,t.sizeControl!=0||t.candidate!=0,interfaceView.load(),motion_controls::dialogueActive.load()&&firstPerson.load()&&headTracking.load(),fullscreenMenuView.load());sample(c,t);draw(c,n,first);}
-static void STDMETHODCALLTYPE onIndexed(ID3D11DeviceContext* c,UINT n,UINT first,INT base){render_pose::draw(c);camera_audit::draw(c);skin_trace::draw(c,n);auto t=inspect(c);anchorMenu();hud_size::Binding hud(c,t.sizeControl!=0||t.candidate!=0,interfaceView.load(),motion_controls::dialogueActive.load()&&firstPerson.load()&&headTracking.load(),fullscreenMenuView.load());sample(c,t);indexed(c,n,first,base);}
-static void STDMETHODCALLTYPE onInstanced(ID3D11DeviceContext* c,UINT n,UINT instances,UINT first,UINT start){render_pose::draw(c);camera_audit::draw(c);skin_trace::draw(c,n);auto t=inspect(c);anchorMenu();hud_size::Binding hud(c,t.sizeControl!=0||t.candidate!=0,interfaceView.load(),motion_controls::dialogueActive.load()&&firstPerson.load()&&headTracking.load(),fullscreenMenuView.load());sample(c,t);instanced(c,n,instances,first,start);}
-static void STDMETHODCALLTYPE onIndexedInstanced(ID3D11DeviceContext* c,UINT n,UINT instances,UINT first,INT base,UINT start){render_pose::draw(c);camera_audit::draw(c);skin_trace::draw(c,n);auto t=inspect(c);anchorMenu();hud_size::Binding hud(c,t.sizeControl!=0||t.candidate!=0,interfaceView.load(),motion_controls::dialogueActive.load()&&firstPerson.load()&&headTracking.load(),fullscreenMenuView.load());sample(c,t);indexedInstanced(c,n,instances,first,base,start);}
+static void STDMETHODCALLTYPE onDraw(ID3D11DeviceContext* c,UINT n,UINT first){render_pose::draw(c);camera_audit::draw(c);skin_trace::draw(c,n);auto t=inspect(c);anchorMenu();hud_size::Binding hud(c,t.sizeControl!=0||t.candidate!=0,interfaceView.load()||mapPanelView.load(),motion_controls::dialogueActive.load()&&firstPerson.load()&&headTracking.load(),fullscreenMenuView.load());sample(c,t);draw(c,n,first);}
+static void STDMETHODCALLTYPE onIndexed(ID3D11DeviceContext* c,UINT n,UINT first,INT base){render_pose::draw(c);camera_audit::draw(c);skin_trace::draw(c,n);auto t=inspect(c);anchorMenu();hud_size::Binding hud(c,t.sizeControl!=0||t.candidate!=0,interfaceView.load()||mapPanelView.load(),motion_controls::dialogueActive.load()&&firstPerson.load()&&headTracking.load(),fullscreenMenuView.load());sample(c,t);indexed(c,n,first,base);}
+static void STDMETHODCALLTYPE onInstanced(ID3D11DeviceContext* c,UINT n,UINT instances,UINT first,UINT start){render_pose::draw(c);camera_audit::draw(c);skin_trace::draw(c,n);auto t=inspect(c);anchorMenu();hud_size::Binding hud(c,t.sizeControl!=0||t.candidate!=0,interfaceView.load()||mapPanelView.load(),motion_controls::dialogueActive.load()&&firstPerson.load()&&headTracking.load(),fullscreenMenuView.load());sample(c,t);instanced(c,n,instances,first,start);}
+static void STDMETHODCALLTYPE onIndexedInstanced(ID3D11DeviceContext* c,UINT n,UINT instances,UINT first,INT base,UINT start){render_pose::draw(c);camera_audit::draw(c);skin_trace::draw(c,n);auto t=inspect(c);anchorMenu();hud_size::Binding hud(c,t.sizeControl!=0||t.candidate!=0,interfaceView.load()||mapPanelView.load(),motion_controls::dialogueActive.load()&&firstPerson.load()&&headTracking.load(),fullscreenMenuView.load());sample(c,t);indexedInstanced(c,n,instances,first,base,start);}
 static void install(void** vt){
     hook(vt[13],reinterpret_cast<void*>(onDraw),reinterpret_cast<void**>(&draw),"HUD Draw trace");
     hook(vt[12],reinterpret_cast<void*>(onIndexed),reinterpret_cast<void**>(&indexed),"HUD DrawIndexed trace");

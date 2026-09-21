@@ -1,11 +1,61 @@
 #include "camera_pose.hpp"
 #include "pose_channel.hpp"
+#include "tracking_snapshot.hpp"
+#include <atomic>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <thread>
 static void expect(bool value,const char* label){if(!value){printf("FAIL: %s\n",label);std::exit(1);}}
 static bool closeEnough(float a,float b){return std::abs(a-b)<.001f;}
+static void snapshotCheck(){
+    wchar_t map[96],mutex[96];
+    swprintf_s(map,L"Local\\AmalurSnapshotTest%lu",GetCurrentProcessId());
+    swprintf_s(mutex,L"Local\\AmalurSnapshotTestMutex%lu",GetCurrentProcessId());
+    amalur::TrackingSnapshotChannel writer(map,mutex),reader(map,mutex);
+    expect(writer.open(true)&&reader.open(false),"snapshot opens");
+    auto make=[](uint64_t sequence){
+        amalur::TrackingSnapshot s;s.sequence=sequence;s.session=123;s.predictedTime=sequence*10000000;
+        s.head.valid=s.left.valid=s.right.valid=1;
+        s.head.tick=s.left.tick=s.right.tick=GetTickCount64();
+        s.head.recenter=s.left.recenter=s.right.recenter=4;
+        s.head.position[0]=s.left.position[0]=s.right.position[0]=float(sequence);
+        return s;
+    };
+    amalur::TrackingSnapshot got;
+    expect(writer.publish(make(1))&&reader.read(got)&&got.sequence==1,"initial snapshot");
+    HANDLE locked=CreateEventW(nullptr,TRUE,FALSE,nullptr),release=CreateEventW(nullptr,TRUE,FALSE,nullptr);
+    std::thread contention([&]{
+        HANDLE h=OpenMutexW(SYNCHRONIZE|MUTEX_MODIFY_STATE,FALSE,mutex);
+        WaitForSingleObject(h,INFINITE);SetEvent(locked);WaitForSingleObject(release,INFINITE);ReleaseMutex(h);CloseHandle(h);
+    });
+    WaitForSingleObject(locked,INFINITE);
+    expect(!writer.publish(make(2)),"contention drops whole new transaction");
+    expect(reader.read(got)&&got.sequence==1&&got.left.position[0]==1&&got.right.position[0]==1,"contention retains whole previous transaction");
+    Sleep(260);expect(!reader.read(got)&&!got.head.valid&&!got.right.valid,"snapshot expiry clears output");
+    SetEvent(release);contention.join();CloseHandle(locked);CloseHandle(release);
+    std::atomic<bool> done{false};std::atomic<unsigned> writes{0};
+    std::thread producer([&]{for(uint64_t i=3;i<30000;++i){if(writer.publish(make(i)))++writes;if(i%64==0)SwitchToThread();}done=true;});
+    unsigned reads=0;
+    do {
+        if(reader.read(got)){
+            ++reads;
+            expect(got.head.position[0]==float(got.sequence)&&got.left.position[0]==float(got.sequence)
+                &&got.right.position[0]==float(got.sequence)&&got.predictedTime==int64_t(got.sequence*10000000)
+                &&got.head.tick==got.left.tick&&got.head.tick==got.right.tick,"concurrent reads never mix acquisition identities");
+        }
+    }while(!done.load());
+    producer.join();expect(writes>0&&reads>0,"concurrent snapshot transfer exercised");
+    auto value=make(30001);value.left.valid=0;
+    expect(writer.publish(value)&&reader.read(got)&&got.head.valid&&got.right.valid&&!got.left.valid,"independent hand tracking loss");
+    value=make(30002);value.right.recenter=99;
+    expect(writer.publish(value)&&reader.read(got)&&!got.right.valid&&got.left.valid,"mismatched hand recenter rejected");
+    value=make(30003);value.head.valid=0;
+    expect(writer.publish(value)&&!reader.read(got)&&!got.head.valid,"explicit HMD loss invalidates whole cached snapshot");
+    value=make(30004);value.version=99;
+    expect(writer.publish(value)&&!reader.read(got),"unknown snapshot schema rejected");
+    printf("PASS: atomic tracking snapshots (%u reads/%u writes), whole-frame fallback, expiry and independent hand validity\n",reads,writes.load());
+}
 int main(int argc,char** argv){
     if(argc==2&&std::strcmp(argv[1],"--read")==0){
         amalur::PoseChannel channel;amalur::PosePacket p;
@@ -60,6 +110,7 @@ int main(int argc,char** argv){
     expect(bodyHeading.get({200,0,0},fixed)&&closeEnough(fixed.x,1),"body yaw follows ordinary head turns without smoothing");
     bodyHeading.reset();expect(!bodyHeading.get({0,0,200},fixed),"uninitialized vertical heading rejected");
     if(argc==2&&std::strcmp(argv[1],"--math")==0){puts("PASS: camera axes, yaw, roll, level recenter, stable heading and invalid pose");return 0;}
+    snapshotCheck();
     const wchar_t* map=L"Local\\AmalurVRTestPose";const wchar_t* mutex=L"Local\\AmalurVRTestMutex";
     amalur::PoseChannel writer(map,mutex),reader(map,mutex);expect(writer.open(true)&&reader.open(false),"pose channel opens");
     amalur::PosePacket p;p.valid=1;p.tick=GetTickCount64();p.position[0]=.125f;writer.publish(p);

@@ -1,3 +1,4 @@
+#define NOMINMAX
 #include "motion_input.hpp"
 #include "weapon_pose.hpp"
 #include "camera_inputs.hpp"
@@ -31,7 +32,7 @@ int main(){
     auto padInput=map();padInput.tick=1000;
     check(amalur::validMotionInput(padInput,1100),"valid complete Touch packet");
     check((padInput.buttons&0xf000)==0xf000&&padInput.abilities==.9f&&padInput.selectedWeapon==0,"four spell slots do not change selected weapon");
-    check((padInput.buttons&XINPUT_GAMEPAD_LEFT_SHOULDER)&&padInput.block==.8f,"bank switch and Reckoning chord available");
+    check(!(padInput.buttons&XINPUT_GAMEPAD_LEFT_SHOULDER)&&padInput.supportGrip==1&&padInput.block==.8f,"left grip reserved for grabbing, Reckoning chord unchanged");
     touch={};map();touch.y=true;
     auto selected=map();check(selected.selectedWeapon==1&&selected.buttons==0,"Y selects secondary without attacking");
     check(map().selectedWeapon==1,"held Y selects only once");touch={};map();
@@ -70,6 +71,15 @@ int main(){
     touch.rightClick=true;touch.leftY=1;check(map().buttons==XINPUT_GAMEPAD_DPAD_UP,"later second click activates shifted D-pad");
     touch.leftClick=false;check((map().buttons&(XINPUT_GAMEPAD_BACK|XINPUT_GAMEPAD_RIGHT_SHOULDER))==0,"partial staggered chord release consumed");
     touch={};check(map().buttons==0,"last staggered chord release consumed");
+    amalur::TouchMapper wheelMapper;amalur::TouchInput wheel;
+    wheelMapper.map(wheel,true,true,1000);wheel.leftClick=true;
+    check(wheelMapper.map(wheel,true,true,1010).buttons==0,"wheel waits for hold");
+    check(wheelMapper.map(wheel,true,true,1359).buttons==0,"short hold cannot open wheel");
+    check(wheelMapper.map(wheel,true,true,1360).buttons==XINPUT_GAMEPAD_LEFT_SHOULDER,"350ms hold opens wheel");
+    wheel.leftY=1;auto wheelMove=wheelMapper.map(wheel,true,true,1400);check(wheelMove.moveY==1,"wheel selection keeps analog stick");
+    wheel={};check(wheelMapper.map(wheel,true,true,1410).buttons==0,"wheel release cannot also open map");
+    wheel.leftGrip=1;auto grab=wheelMapper.map(wheel,true,true,1420);check(grab.supportGrip==1&&!grab.buttons,"grip has no native menu action");
+    check(wheelMapper.map(wheel,false,true,1430).supportGrip==0,"focus loss releases grab");
     // A short XR pulse can be missed by a slower native poll. Keep exactly the
     // release action alive for 80ms, without repeating held-click actions.
     amalur::TouchMapper pulseMapper;amalur::TouchInput click;

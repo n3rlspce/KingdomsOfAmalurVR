@@ -13,6 +13,32 @@ static_assert(sizeof(RigBone)==48);
 inline mgs5vr::Quat nativeQuaternion(mgs5vr::Quat q){return {-q.x,-q.y,-q.z,q.w};}
 inline mgs5vr::Pose nativePose(mgs5vr::Pose p){p.orientation=nativeQuaternion(p.orientation);return p;}
 inline mgs5vr::Pose bonePose(const RigBone& b){return {nativeQuaternion(b.orientation),b.position};}
+// Native transform setters at RVA 6c6220/6c6460 mark translation (0x02)
+// and quaternion (0x1c) active at +0x2c. Consumers may otherwise substitute
+// zero translation / identity rotation even when the stored floats changed.
+inline void publishRigOverrides(const RigBone* original,RigBone* output,unsigned count){
+    if(!original||!output||count>64)return;
+    for(unsigned i=0;i<count;++i){
+        if(!mgs5vr::valid(bonePose(output[i])))continue;
+        auto& flags=output[i].opaque[12]; // RigBone + 0x2c; scale stays untouched.
+        if(memcmp(&original[i].position,&output[i].position,sizeof(mgs5vr::Vec3))){
+            output[i].positionW=1.f;flags|=0x02;
+        }
+        if(memcmp(&original[i].orientation,&output[i].orientation,sizeof(mgs5vr::Quat)))flags|=0x1c;
+    }
+}
+// Publication-only ablation in the native model space, AFTER root rebasing.
+// Restore the consumer's corresponding activation bits as well as the floats.
+inline void restoreNativeRigChannels(const RigBone* original,RigBone* output,unsigned count,
+    bool positions,bool rotations){
+    if(!original||!output||count>64)return;
+    for(unsigned i=0;i<count;++i){
+        if(positions){output[i].position=original[i].position;output[i].positionW=original[i].positionW;}
+        if(rotations)output[i].orientation=original[i].orientation;
+        const unsigned mask=(positions?0x02u:0u)|(rotations?0x1cu:0u);
+        output[i].opaque[12]=static_cast<unsigned char>((output[i].opaque[12]&~mask)|(original[i].opaque[12]&mask));
+    }
+}
 // Controller-local axes use +Y forward, +Z up. Apply roll about Y, then
 // pitch about X, then yaw about Z. This offset never samples an animation pose.
 inline bool gripAngleTrim(float pitch,float yaw,float roll,mgs5vr::Pose& out){

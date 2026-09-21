@@ -1,19 +1,23 @@
 #pragma once
-#include <d3d11_1.h>
+#include <d3d11.h>
+#include <vector>
+#include "../tracking/weapon_contact_profile.hpp"
+#include "melee_debug_pipeline.hpp"
 #include <d3dcompiler.h>
 #include "../tracking/melee_debug_settings.hpp"
 namespace melee_debug {
-inline constexpr float radius=4.f;
-inline mgs5vr::Vec3 offset(unsigned sample){return {0,0,float(sample)*10.f};}
-struct Sweep {mgs5vr::Vec3 from{},to{};uint64_t tick{};};
+inline constexpr unsigned capacity=16384;
+static_assert(capacity>=2*amalur::maxWeaponContactSamples*(3*24*6+6));
+
+struct Sweep {mgs5vr::Vec3 from{},to{};uint64_t tick{};uint32_t owner{};};
 inline SRWLOCK lock=SRWLOCK_INIT;
-inline Sweep sweeps[2][4]{};
-inline void record(unsigned hand,unsigned sample,mgs5vr::Vec3 from,mgs5vr::Vec3 to){
-    AcquireSRWLockExclusive(&lock);sweeps[hand][sample]={from,to,GetTickCount64()};ReleaseSRWLockExclusive(&lock);
+inline Sweep sweeps[2][amalur::maxWeaponContactSamples]{};
+inline void record(unsigned hand,unsigned sample,mgs5vr::Vec3 from,mgs5vr::Vec3 to,uint32_t owner=0){
+    if(hand>=2||sample>=amalur::maxWeaponContactSamples)return;
+    AcquireSRWLockExclusive(&lock);sweeps[hand][sample]={from,to,GetTickCount64(),owner};ReleaseSRWLockExclusive(&lock);
 }
 struct Vertex {float x,y,z,r,g,b,a;};
 inline ComPtr<ID3D11Device> device;
-inline ComPtr<ID3DDeviceContextState> state;
 inline ComPtr<ID3D11VertexShader> vs;
 inline ComPtr<ID3D11PixelShader> ps;
 inline ComPtr<ID3D11InputLayout> layout;
@@ -21,17 +25,15 @@ inline ComPtr<ID3D11Buffer> vertices,constants;
 inline ComPtr<ID3D11DepthStencilState> depth;
 inline ComPtr<ID3D11RasterizerState> raster;
 inline bool initialize(ID3D11Device* d){
-    if(device.Get()==d)return state&&vs&&ps&&layout&&vertices&&constants&&depth&&raster;
-    device=d;state.Reset();vs.Reset();ps.Reset();layout.Reset();vertices.Reset();constants.Reset();depth.Reset();raster.Reset();
-    ComPtr<ID3D11Device1> d1;if(FAILED(d->QueryInterface(IID_PPV_ARGS(&d1))))return false;
-    auto level=d->GetFeatureLevel();D3D_FEATURE_LEVEL chosen;
-    if(FAILED(d1->CreateDeviceContextState(0,&level,1,D3D11_SDK_VERSION,__uuidof(ID3D11Device),&chosen,&state)))return false;
+    if(device.Get()==d)return vs&&ps&&layout&&vertices&&constants&&depth&&raster;
+    device=d;vs.Reset();ps.Reset();layout.Reset();vertices.Reset();constants.Reset();depth.Reset();raster.Reset();
     const char* shader=R"(
 cbuffer Camera : register(b0) {row_major float4x4 vp;};
-Texture2D<float4> StereoParams : register(t125);
 struct V {float3 p:POSITION;float4 c:COLOR;};
 struct O {float4 p:SV_POSITION;float4 c:COLOR;};
-O VS(V v){O o;o.p=mul(float4(v.p,1),vp);float4 stereo=StereoParams.Load(int3(0,0,0));o.p.x+=stereo.x*(o.p.w-stereo.y);o.c=v.c;return o;}
+// Match native world shaders: geo-11 stereoizes SV_POSITION.
+// Do not add a second eye shift to the position here.
+O VS(V v){O o;o.p=mul(float4(v.p,1),vp);o.c=v.c;return o;}
 float4 PS(O v):SV_TARGET{return v.c;}
 )";
     ComPtr<ID3DBlob> v,p,error;
@@ -41,7 +43,7 @@ float4 PS(O v):SV_TARGET{return v.c;}
        FAILED(d->CreatePixelShader(p->GetBufferPointer(),p->GetBufferSize(),nullptr,&ps)))return false;
     D3D11_INPUT_ELEMENT_DESC elements[]={{"POSITION",0,DXGI_FORMAT_R32G32B32_FLOAT,0,0,D3D11_INPUT_PER_VERTEX_DATA,0},{"COLOR",0,DXGI_FORMAT_R32G32B32A32_FLOAT,0,12,D3D11_INPUT_PER_VERTEX_DATA,0}};
     if(FAILED(d->CreateInputLayout(elements,2,v->GetBufferPointer(),v->GetBufferSize(),&layout)))return false;
-    D3D11_BUFFER_DESC b{};b.ByteWidth=sizeof(Vertex)*4096;b.Usage=D3D11_USAGE_DYNAMIC;b.BindFlags=D3D11_BIND_VERTEX_BUFFER;b.CPUAccessFlags=D3D11_CPU_ACCESS_WRITE;
+    D3D11_BUFFER_DESC b{};b.ByteWidth=sizeof(Vertex)*capacity;b.Usage=D3D11_USAGE_DYNAMIC;b.BindFlags=D3D11_BIND_VERTEX_BUFFER;b.CPUAccessFlags=D3D11_CPU_ACCESS_WRITE;
     if(FAILED(d->CreateBuffer(&b,nullptr,&vertices)))return false;
     b.ByteWidth=64;b.BindFlags=D3D11_BIND_CONSTANT_BUFFER;if(FAILED(d->CreateBuffer(&b,nullptr,&constants)))return false;
     D3D11_DEPTH_STENCIL_DESC z{};z.DepthEnable=FALSE;z.DepthWriteMask=D3D11_DEPTH_WRITE_MASK_ZERO;z.DepthFunc=D3D11_COMPARISON_ALWAYS;
@@ -51,37 +53,94 @@ float4 PS(O v):SV_TARGET{return v.c;}
     log("Melee collision overlay initialized: cyan right, magenta left; toggle in F11 developer panel\n");return true;
 }
 inline void draw(IDXGISwapChain* chain,const float* vp,bool valid){
+    // Build-time emergency switch, independent of the user toggle.
+    if constexpr(!amalur::meleeDebugAvailable)return;
     static amalur::MeleeDebugSettings settings;
     const bool enabled=settings.enabled();
-    if(!enabled||!valid||!firstPerson.load()||!arm_rig::enabled.load()||interfaceView.load())return;
-    mgs5vr::Pose poses[2];uint64_t frame,ticks[2];Sweep recent[2][4];
+    static int loggedToggle=-1;
+    if(loggedToggle!=int(enabled)){
+        loggedToggle=int(enabled);log("Melee collision overlay toggle=%s\n",enabled?"ON":"OFF");
+    }
+    if(!enabled)return;
+    auto waiting=[](const char* reason,uint32_t model=0){
+        static uint64_t next{};const auto now=GetTickCount64();
+        if(now>=next){next=now+3000;log("Melee collision overlay ON waiting=%s model=%u\n",reason,model);}
+    };
+    if(!valid||!firstPerson.load()||!arm_rig::enabled.load()||interfaceView.load()){
+        waiting("gameplay-camera-or-arms");return;
+    }
+    mgs5vr::Pose poses[2];uint64_t frame,ticks[2];Sweep recent[2][amalur::maxWeaponContactSamples];uint32_t asset,owner,selection;bool dual;
     AcquireSRWLockShared(&weapon_control::poseLock);
-    poses[0]=weapon_control::bladeWorld[0];poses[1]=weapon_control::bladeWorld[1];frame=weapon_control::bladeTick;
+    poses[0]=weapon_control::visualPoses[0];poses[1]=weapon_control::visualPoses[1];frame=weapon_control::visualTick;
+    asset=weapon_control::visualAsset;owner=weapon_control::visualWeapon;dual=weapon_control::visualDual;selection=weapon_control::visualSelection;
     ticks[0]=weapon_control::tick;ticks[1]=weapon_control::leftTick;
     ReleaseSRWLockShared(&weapon_control::poseLock);
-    auto now=GetTickCount64();if(!frame||frame>now||now-frame>=100||motion_controls::viewControls().selectedWeapon!=0)return;
+    auto now=GetTickCount64();if(!frame||frame>now||now-frame>=100||selection>1||selection!=motion_controls::viewControls().selectedWeapon){
+        waiting("tracked-weapon-pose",asset);return;
+    }
+    const auto* profile=amalur::capturedContactProfile(asset);if(!profile){waiting("uncaptured-model",asset);return;}
+    const float radius=profile->radius;
     AcquireSRWLockShared(&lock);memcpy(recent,sweeps,sizeof(recent));ReleaseSRWLockShared(&lock);
-    std::array<Vertex,4096> data{};unsigned count=0;
-    auto line=[&](mgs5vr::Vec3 a,mgs5vr::Vec3 b,unsigned hand,float intensity){
-        if(count+2>data.size())return;
-        float red=hand?intensity:0.1f,green=hand?0.15f:intensity;
-        data[count++]={a.x,a.y,a.z,red,green,intensity,1};data[count++]={b.x,b.y,b.z,red,green,intensity,1};
+    std::vector<Vertex> data(capacity);unsigned count=0;
+    unsigned rejected=0;
+    auto visible=[&](mgs5vr::Vec3 p){
+        double clip[4];for(unsigned j=0;j<4;++j)clip[j]=double(p.x)*vp[j]+double(p.y)*vp[4+j]+double(p.z)*vp[8+j]+vp[12+j];
+        for(double v:clip)if(!std::isfinite(v))return false;
+        return clip[3]>.1&&clip[2]>=0&&clip[2]<=clip[3]&&std::abs(clip[0])<4*clip[3]&&std::abs(clip[1])<4*clip[3];
     };
-    for(unsigned h=0;h<2;++h){if(!ticks[h]||ticks[h]>now||now-ticks[h]>=100||!mgs5vr::valid(poses[h]))continue;
-        for(unsigned s=0;s<4;++s){auto center=mgs5vr::compose(poses[h],mgs5vr::Pose{{},offset(s)}).position;
+    auto line=[&](mgs5vr::Vec3 a,mgs5vr::Vec3 b,unsigned hand,float intensity,int axis=-1){
+        if(count+6>data.size())return;
+        const auto delta=b-a;
+        if(!visible(a)||!visible(b)||mgs5vr::dot(delta,delta)>2500.f){++rejected;return;}
+        // Thin camera-facing triangle ribbons avoid geo-11's line primitive path.
+        auto side=amalur::cross(delta,mgs5vr::Vec3{vp[3],vp[7],vp[11]});
+        if(mgs5vr::dot(side,side)<1e-10f)side=amalur::cross(delta,mgs5vr::Vec3{vp[2],vp[6],vp[10]});
+        if(mgs5vr::dot(side,side)<1e-10f)side=amalur::cross(delta,mgs5vr::Vec3{0,0,1});
+        const float length=std::sqrt(mgs5vr::dot(side,side));if(!std::isfinite(length)||length<1e-6f)return;
+        side=side*(.08f/length);
+        float red=hand?intensity:0.1f,green=hand?0.15f:intensity;
+        float blue=intensity;
+        if(axis>=0){red=axis==0?intensity:0.1f;green=axis==1?intensity:0.1f;blue=axis==2?intensity:0.1f;}
+        auto vertex=[&](mgs5vr::Vec3 p){data[count++]={p.x,p.y,p.z,red,green,blue,1};};
+        vertex(a-side);vertex(a+side);vertex(b+side);vertex(a-side);vertex(b+side);vertex(b-side);
+    };
+    for(unsigned h=0;h<(dual?2u:1u);++h){if(!ticks[h]||ticks[h]>now||now-ticks[h]>=100||!mgs5vr::valid(poses[h]))continue;
+        if(asset==1689){
+            // Solid positive axes; dashed negative axes. Guides only, no hits.
+            const mgs5vr::Vec3 axes[]{{30,0,0},{0,30,0},{0,0,30}};
+            auto world=[&](mgs5vr::Vec3 p){return mgs5vr::compose(poses[h],mgs5vr::Pose{{},p}).position;};
+            for(unsigned axis=0;axis<3;++axis){
+                line(world({}),world(axes[axis]),h,1.f,int(axis));
+                for(unsigned n=0;n<5;++n)line(world(axes[axis]*(-float(n)/5)),world(axes[axis]*(-float(n+.5f)/5)),h,.65f,int(axis));
+            }
+        }
+        for(unsigned s=0;s<profile->count;++s){auto center=amalur::contactCenter(*profile,s,poses[h]);
             for(unsigned plane=0;plane<3;++plane)for(unsigned n=0;n<24;++n){
                 auto point=[&](unsigned j){float a=float(j)*6.28318530718f/24,c=radius*cosf(a),v=radius*sinf(a);
                     return center+mgs5vr::Vec3{plane==0?0:c,plane==1?0:(plane==0?c:v),plane==2?0:v};};
                 line(point(n),point(n+1),h,0.7f);
             }
-            auto& sweep=recent[h][s];if(sweep.tick&&now>=sweep.tick&&now-sweep.tick<250)line(sweep.from,sweep.to,h,1.f);
+            auto& sweep=recent[h][s];if(asset==1520&&sweep.owner==owner&&sweep.tick&&now>=sweep.tick&&now-sweep.tick<250)line(sweep.from,sweep.to,h,1.f);
         }
     }
     if(!count)return;
+    static bool traced=false;const bool trace=!traced;
+    auto phase=[&](const char* name){if(trace)log("Melee overlay first draw: %s\n",name);};
+    phase("resources");
+    static uint64_t lastGeometryLog{};if(now-lastGeometryLog>2000){lastGeometryLog=now;
+        log("Melee overlay geometry: vertices=%u clippedSegments=%u right=%.2f,%.2f,%.2f left=%.2f,%.2f,%.2f\n",count,rejected,poses[0].position.x,poses[0].position.y,poses[0].position.z,poses[1].position.x,poses[1].position.y,poses[1].position.z);
+        FILETIME wall;GetSystemTimeAsFileTime(&wall);
+        log("VR capture clock tick=%llu utcFileTime=%llu\n",now,(uint64_t(wall.dwHighDateTime)<<32)|wall.dwLowDateTime);
+        for(unsigned h=0;h<(dual?2u:1u);++h){const auto& p=poses[h];
+            log("VR collision fit tick=%llu model=%u weapon=%08x selection=%u hand=%u count=%u radius=%.3f pose=%.5f,%.5f,%.5f,%.5f,%.4f,%.4f,%.4f vp=%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f\n",
+                now,asset,owner,selection,h,profile->count,radius,p.orientation.x,p.orientation.y,p.orientation.z,p.orientation.w,p.position.x,p.position.y,p.position.z,
+                vp[0],vp[1],vp[2],vp[3],vp[4],vp[5],vp[6],vp[7],vp[8],vp[9],vp[10],vp[11],vp[12],vp[13],vp[14],vp[15]);
+        }
+    }
     ComPtr<ID3D11Device> d;if(FAILED(chain->GetDevice(IID_PPV_ARGS(&d))))return;
-    if(!initialize(d.Get())){static bool warned=false;if(!warned){log("Melee overlay unavailable: D3D11.1 state or resources rejected\n");warned=true;}return;}
+    if(!initialize(d.Get())){static bool warned=false;if(!warned){log("Melee overlay unavailable: shader or resources rejected\n");warned=true;}return;}
     ComPtr<ID3D11DeviceContext> context;d->GetImmediateContext(&context);
-    ComPtr<ID3D11DeviceContext1> c;if(FAILED(context.As(&c)))return;
+    auto c=context.Get();if(!simpleOutput(c))return;
     ComPtr<ID3D11Texture2D> back;if(FAILED(chain->GetBuffer(0,IID_PPV_ARGS(&back))))return;
     ComPtr<ID3D11RenderTargetView> target;if(FAILED(d->CreateRenderTargetView(back.Get(),nullptr,&target)))return;
     D3D11_TEXTURE2D_DESC desc{};back->GetDesc(&desc);
@@ -90,19 +149,20 @@ inline void draw(IDXGISwapChain* chain,const float* vp,bool valid){
     memcpy(mapped.pData,data.data(),count*sizeof(Vertex));c->Unmap(vertices.Get(),0);
     if(FAILED(c->Map(constants.Get(),0,D3D11_MAP_WRITE_DISCARD,0,&mapped)))return;
     memcpy(mapped.pData,vp,64);c->Unmap(constants.Get(),0);
-    // Swap a complete pipeline state, including shader classes, UAVs and predication.
-    // Retain geo-11's stereo parameters for the same per-eye correction as world shaders.
-    ComPtr<ID3D11ShaderResourceView> stereo;c->VSGetShaderResources(125,1,&stereo);
-    ComPtr<ID3DDeviceContextState> previous;c->SwapDeviceContextState(state.Get(),&previous);
-    auto srv=stereo.Get();c->VSSetShaderResources(125,1,&srv);
+    phase("capture wrapped state");
+    {
+    Pipeline saved(c);
+    c->SetPredication(nullptr,FALSE);c->GSSetShader(nullptr,nullptr,0);c->HSSetShader(nullptr,nullptr,0);c->DSSetShader(nullptr,nullptr,0);
+    c->OMSetBlendState(nullptr,nullptr,0xffffffffu);
     auto rt=target.Get();c->OMSetRenderTargets(1,&rt,nullptr);c->OMSetDepthStencilState(depth.Get(),0);
     c->RSSetState(raster.Get());D3D11_VIEWPORT viewport{0,0,float(desc.Width),float(desc.Height),0,1};c->RSSetViewports(1,&viewport);
-    c->IASetInputLayout(layout.Get());c->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_LINELIST);
+    c->IASetInputLayout(layout.Get());c->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     auto vb=vertices.Get();UINT stride=sizeof(Vertex),start=0;c->IASetVertexBuffers(0,1,&vb,&stride,&start);
     c->VSSetShader(vs.Get(),nullptr,0);c->PSSetShader(ps.Get(),nullptr,0);auto cb=constants.Get();c->VSSetConstantBuffers(0,1,&cb);
-    c->Draw(count,0);
-    // Do not retain the swapchain buffer in our saved debug state across ResizeBuffers.
-    c->OMSetRenderTargets(0,nullptr,nullptr);ID3D11ShaderResourceView* empty=nullptr;c->VSSetShaderResources(125,1,&empty);
-    c->SwapDeviceContextState(previous.Get(),nullptr);
+    phase("draw");c->Draw(count,0);phase("restore wrapped state");
+    }
+    phase("complete");traced=true;
+    // Pipeline restores the wrapped state and releases the temporary backbuffer target.
+
 }
 }

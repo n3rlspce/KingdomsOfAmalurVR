@@ -1,5 +1,6 @@
 #pragma once
 #include <array>
+#include "../tracking/locomotion_frame.hpp"
 #include "../tracking/render_match.hpp"
 // Bind the source pose to the world matrix that actually reaches a draw. The
 // engine updates cameras ahead of rendering, on a different thread. Present
@@ -13,7 +14,7 @@ static Performance performance(){
     LARGE_INTEGER frequency;QueryPerformanceFrequency(&frequency);const double ms=1000.0/frequency.QuadPart;
     return {descriptorTicks.exchange(0)*ms,scanTicks.exchange(0)*ms,descriptorCalls.exchange(0),scanCalls.exchange(0),comparisons.exchange(0),matches.exchange(0)};
 }
-struct Camera {std::array<float,16> vp{};amalur::PosePacket pose;};
+struct Camera {std::array<float,16> vp{};amalur::PosePacket pose;amalur::LocomotionFrame locomotion;};
 static SRWLOCK lock=SRWLOCK_INIT;
 static std::array<Camera,128> history;
 static uint64_t cameraCount{};
@@ -30,9 +31,22 @@ static thread_local PendingMap mapping;
 static thread_local uint32_t acceptedEpoch{};
 static thread_local uint32_t testedEpoch{};
 static thread_local uint64_t testedSerial{};
-static void camera(const unsigned char* core,const amalur::PosePacket& pose){
-    Camera sample;memcpy(sample.vp.data(),core+0x104,64);sample.pose=pose;
+static void camera(const unsigned char* core,const amalur::PosePacket& pose,const amalur::LocomotionFrame& locomotion={}){
+    Camera sample;memcpy(sample.vp.data(),core+0x104,64);sample.pose=pose;sample.locomotion=locomotion;
     AcquireSRWLockExclusive(&lock);history[cameraCount++%history.size()]=sample;ReleaseSRWLockExclusive(&lock);
+}
+static bool locomotionForVP(const float* vp,amalur::LocomotionFrame& frame){
+    if(!vp)return false;bool found=false;
+    AcquireSRWLockShared(&lock);
+    for(uint64_t i=0;i<std::min<uint64_t>(cameraCount,history.size());++i){
+        const auto& c=history[(cameraCount-1-i)%history.size()];
+        if(c.pose.valid&&c.locomotion.valid&&!memcmp(vp,c.vp.data(),64)){
+            if(!found){frame=c.locomotion;found=true;}
+            else if(frame.owner!=c.locomotion.owner||frame.center!=c.locomotion.center
+                ||memcmp(&frame.pose,&c.locomotion.pose,sizeof(frame.pose))){found=false;break;}
+        }
+    }
+    ReleaseSRWLockShared(&lock);return found;
 }
 static bool candidate(ID3D11Resource* resource){
     Timer timer{descriptorTicks};++descriptorCalls;

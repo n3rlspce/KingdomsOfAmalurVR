@@ -56,7 +56,7 @@ if (hudControl.z < 0.5 && (vrHudGate.x > 0.5 || dialogueHud || menuHud) && vrHud
         float4 rawStereo = AmalurRawStereo.Load(0);
         if (o0.w != 1.0) o0.x -= (o0.w - rawStereo.y) * rawStereo.x * rawStereo.w;
     }
-} else {
+} else if (hudControl.z < 0.5) {
     o0.x += stereo.x * hud;
 }
 '@

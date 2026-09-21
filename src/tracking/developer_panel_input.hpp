@@ -7,39 +7,38 @@ struct DeveloperPanelEvents {
     bool toggle{}, close{}, activate{}, capture{};
     int row{}, destination{};
 };
-// Neutral hold avoids stealing the existing two-stick D-pad chord. Every
-// activation requires release; focus changes and panel exit require neutral.
+// A near-center double click opens immediately. Grips are not panel controls;
+// holding them must not swallow the first click or prevent panel navigation.
 class DeveloperPanelInput {
-    bool ready_{}, holding_{}, release_{}, seenVisible_{}, stickArmed_{true};
+    bool ready_{}, chordSeen_{}, chordCaptured_{}, release_{}, seenVisible_{}, stickArmed_{true};
     bool trigger_{}, confirm_{}, back_{};
-    uint64_t holdStart_{};
     static bool neutral(const TouchInput& t) {
         return std::abs(t.leftX)<.25f&&std::abs(t.leftY)<.25f&&
             std::abs(t.rightX)<.25f&&std::abs(t.rightY)<.25f&&
-            t.leftTrigger<.25f&&t.rightTrigger<.25f&&t.leftGrip<.25f&&t.rightGrip<.25f&&
-            !t.a&&!t.b&&!t.x&&!t.y&&!t.menu&&!t.leftClick&&!t.rightClick;
+            t.rightTrigger<.25f&&!t.a&&!t.b&&!t.leftClick&&!t.rightClick;
     }
 public:
-    DeveloperPanelEvents update(const TouchInput& t,bool active,bool visible,bool busy,uint64_t now) {
+    DeveloperPanelEvents update(const TouchInput& t,bool active,bool visible,bool busy,uint64_t) {
         DeveloperPanelEvents e;
         if(!active){*this={};e.capture=true;return e;}
+        if(!t.leftClick&&!t.rightClick){chordSeen_=chordCaptured_=false;}
+        if(t.leftClick&&t.rightClick&&!chordSeen_){
+            chordSeen_=true;
+            const bool centered=std::abs(t.leftX)<.6f&&std::abs(t.leftY)<.6f&&
+                std::abs(t.rightX)<.6f&&std::abs(t.rightY)<.6f;
+            if(centered){
+                chordCaptured_=true;ready_=true;release_=true;seenVisible_=!visible;
+                e.toggle=e.capture=true;return e;
+            }
+        }
+        if(chordCaptured_){e.capture=true;return e;}
         if(!ready_){ready_=neutral(t);e.capture=true;return e;}
         if(visible!=seenVisible_){release_=true;seenVisible_=visible;}
         if(release_){
             e.capture=true;
-            if(neutral(t)){release_=false;holding_=false;trigger_=confirm_=back_=false;stickArmed_=true;}
+            if(neutral(t)){release_=false;trigger_=confirm_=back_=false;stickArmed_=true;}
             return e;
         }
-        const bool centered=std::abs(t.leftX)<.25f&&std::abs(t.leftY)<.25f&&
-            std::abs(t.rightX)<.25f&&std::abs(t.rightY)<.25f;
-        const bool chord=t.leftClick&&t.rightClick&&centered;
-        if(chord){
-            e.capture=true;
-            if(!holding_){holding_=true;holdStart_=now;}
-            if(now-holdStart_>=650){e.toggle=true;release_=true;}
-            return e;
-        }
-        holding_=false;
         e.capture=visible;
         if(!visible)return e;
         bool trigger=t.rightTrigger>(trigger_?.35f:.7f);

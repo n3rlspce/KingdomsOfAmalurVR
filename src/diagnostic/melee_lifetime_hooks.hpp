@@ -12,6 +12,9 @@ inline amalur::MeleeLifetimeRegistry<128> keys;
 inline SRWLOCK lock=SRWLOCK_INIT;
 inline DWORD requestThread{};
 inline bool installed{};
+// Optional read-only recipe observer, installed before the hooks. It never
+// participates in the ownership registry or changes native initialization.
+inline void(*creationObserver)(uintptr_t,uint32_t,uint32_t,uint32_t,int,bool){};
 
 inline bool begin(){
     AcquireSRWLockExclusive(&lock);
@@ -72,6 +75,8 @@ inline void __fastcall reset(void* self,void*){
 }
 inline int __fastcall initialize(void* self,void*,const uint32_t* asset,uint32_t owner,
     uint32_t target,uint32_t related,uint32_t index,uint32_t extra){
+    uint32_t observedAsset=0;
+    if(creationObserver){__try{if(asset)observedAsset=*asset;}__except(EXCEPTION_EXECUTE_HANDLER){}}
     AcquireSRWLockExclusive(&lock);
     bool captured=requestThread==GetCurrentThreadId()&&observation.enter(reinterpret_cast<uintptr_t>(self));
     ReleaseSRWLockExclusive(&lock);
@@ -84,6 +89,10 @@ inline int __fastcall initialize(void* self,void*,const uint32_t* asset,uint32_t
             observation.complete(result==0);
             ReleaseSRWLockExclusive(&lock);
         }
+    }
+    if(creationObserver){
+        __try{creationObserver(reinterpret_cast<uintptr_t>(self),observedAsset,owner,index,result,captured);}
+        __except(EXCEPTION_EXECUTE_HANDLER){log("VR damage capture creation observer unavailable\n");}
     }
     return result;
 }

@@ -18,6 +18,7 @@
 #include <stdexcept>
 #include <string>
 #include <vector>
+#include "../tracking/tracking_snapshot.hpp"
 #include "../tracking/pose_channel.hpp"
 #include "../tracking/menu_view.hpp"
 #include "../tracking/motion_input.hpp"
@@ -41,6 +42,8 @@ static void xrcheck(XrResult r, const char* operation) {
 static void hrcheck(HRESULT r) { if(FAILED(r)) throw std::runtime_error("D3D failure: "+std::to_string(r)); }
 static XrPath path(const char* s) { XrPath p{}; XR(xrStringToPath(instance,s,&p)); return p; }
 #include "settings_panel.hpp"
+#include "map_panel.hpp"
+#include "../tracking/map_panel_settings.hpp"
 #include "../tracking/hud_settings.hpp"
 struct Resources {
     XrSession session{}; XrSpace local{},view{}; XrActionSet actions{};
@@ -90,6 +93,15 @@ int main(int argc,char** argv) {
         good=good&&std::isfinite(anchor.pose.position.x)&&std::abs(anchor.pose.orientation.y-std::sin(.4f))<1e-5f;
         std::cout<<(good?"PASS":"FAIL")<<": menu stays fixed, upright and eye-level across pitch/roll/yaw; recenter/reopening and vertical-look fallback pass\n";return good?0:1;
     }
+    if(argc==2&&std::string(argv[1])=="--map-panel-check"){
+        const auto name=L"Local\\AmalurMapPanelTest"+std::to_wstring(GetCurrentProcessId()),mutex=name+L"Mutex";
+        amalur::MapPanelSettings writer(name.c_str(),mutex.c_str()),reader(name.c_str(),mutex.c_str());
+        bool good=!reader.read();writer.publish(true);good=good&&reader.read();writer.publish(false);good=good&&!reader.read();
+        VrSettings settings;settings.developerVisible=true;settings.developerRow=VrSettings::mapPanelRow;good=good&&settings.mapPanelPrototype;
+        settings.held[VK_RETURN]=true;settings.poll();good=good&&!settings.mapPanelPrototype;
+        settings.held[VK_RETURN]=false;settings.poll();settings.held[VK_RETURN]=true;settings.poll();good=good&&settings.mapPanelPrototype;
+        std::cout<<(good?"PASS":"FAIL")<<": map prototype IPC and developer toggle on/off\n";return good?0:1;
+    }
     bool live=false,trackingMode=false,gameMode=false;
     // Measured at geo-11 separation=20: distant geometry has ~53 px disparity
     // across 2560 px eyes, with near disparity of the opposite depth sign.
@@ -112,6 +124,10 @@ int main(int argc,char** argv) {
     DeveloperTools developer;
     if(gameMode)settings.captureInput();
     amalur::PoseChannel poses;
+    amalur::TrackingSnapshotChannel trackingSnapshots;
+    uint64_t trackingSequence=0;
+    LARGE_INTEGER sessionCounter{};QueryPerformanceCounter(&sessionCounter);
+    const uint64_t trackingSession=static_cast<uint64_t>(sessionCounter.QuadPart)^ (uint64_t(GetCurrentProcessId())<<32);
     amalur::MotionInputChannel motionInput;
     amalur::TouchMapper touchMapper;
     amalur::RigStatusChannel rigStatus;amalur::RigStatus latestRig;
@@ -119,6 +135,8 @@ int main(int argc,char** argv) {
     amalur::PoseChannel rightHand(L"Local\\AmalurVRRightHandV3",L"Local\\AmalurVRRightHandMutexV3");
     StereoSource stereoSource;
     MenuAnchor menuAnchor;
+    MapPanel mapPanel;StereoSource backdrop;amalur::PosePacket backdropPose;bool haveBackdrop=false;
+    amalur::MapPanelSettings mapPanelSettings;
     try {
         uint32_t n{}; XR(xrEnumerateInstanceExtensionProperties(nullptr,0,&n,nullptr));
         std::vector<XrExtensionProperties> ext(n,{XR_TYPE_EXTENSION_PROPERTIES});
@@ -164,7 +182,7 @@ int main(int argc,char** argv) {
         XR(xrCreateReferenceSpace(r.session,&spaceInfo,&r.local));
         spaceInfo.referenceSpaceType=XR_REFERENCE_SPACE_TYPE_VIEW;
         XR(xrCreateReferenceSpace(r.session,&spaceInfo,&r.view));
-        if(trackingMode&&(!poses.open(true)||!leftHand.open(true)||!rightHand.open(true)||!motionInput.open(true)))throw std::runtime_error("Cannot create tracking channels");
+        if(trackingMode&&(!trackingSnapshots.open(true)||!poses.open(true)||!leftHand.open(true)||!rightHand.open(true)||!motionInput.open(true)))throw std::runtime_error("Cannot create tracking channels");
         XrActionSetCreateInfo asi{XR_TYPE_ACTION_SET_CREATE_INFO}; strcpy_s(asi.actionSetName,"smoke"); strcpy_s(asi.localizedActionSetName,"Smoke test"); XR(xrCreateActionSet(instance,&asi,&r.actions));
         std::array<XrPath,2> handPaths{path("/user/hand/left"),path("/user/hand/right")};
         auto action=[&](const char* name,XrActionType type) { XrActionCreateInfo ai{XR_TYPE_ACTION_CREATE_INFO}; ai.actionType=type; ai.countSubactionPaths=2; ai.subactionPaths=handPaths.data(); strcpy_s(ai.actionName,name); strcpy_s(ai.localizedActionName,name); XrAction a{}; XR(xrCreateAction(r.actions,&ai,&a)); return a; };
@@ -237,7 +255,7 @@ int main(int argc,char** argv) {
                 std::cout<<"Game process exited; closing VR bridge.\n";
                 break;
             }
-            if(gameMode){settings.poll();DWORD developerPid=GetTickCount()-latestRig.tick<1000?latestRig.pid:0;developer.poll(developerPid,developerPid&&latestRig.paused==0&&latestRig.weaponRemaps>0);if(settings.developerAction>=0){developer.submit(settings.developerAction,developerPid);settings.developerAction=-1;}if(gripSettings.open(true))gripSettings.publish(settings.gripPitch,settings.gripYaw,settings.gripRoll,settings.weaponX,settings.weaponY,settings.weaponZ);if(hudSettings.open(true))hudSettings.publish(settings.hudSize);if(menuSettings.open(true))menuSettings.publish(amalur::menuScale(settings.interfaceScale)*.8f);if(settings.renderScale!=activeRenderScale){createEyeChains();activeRenderScale=settings.renderScale;}}
+            if(gameMode){settings.poll();mapPanelSettings.publish(settings.mapPanelPrototype);DWORD developerPid=GetTickCount()-latestRig.tick<1000?latestRig.pid:0;developer.poll(developerPid,developerPid&&latestRig.paused==0&&latestRig.weaponRemaps>0);if(settings.developerAction>=0){developer.submit(settings.developerAction,developerPid);settings.developerAction=-1;}if(gripSettings.open(true))gripSettings.publish(settings.gripPitch,settings.gripYaw,settings.gripRoll,settings.weaponX,settings.weaponY,settings.weaponZ);if(hudSettings.open(true))hudSettings.publish(settings.hudSize);if(menuSettings.open(true))menuSettings.publish(amalur::menuScale(settings.interfaceScale)*.8f);if(settings.renderScale!=activeRenderScale){createEyeChains();activeRenderScale=settings.renderScale;}}
             XrEventDataBuffer event{XR_TYPE_EVENT_DATA_BUFFER};
             for(;;) {
                 auto result=xrPollEvent(instance,&event); if(result==XR_EVENT_UNAVAILABLE) break; xrcheck(result,"xrPollEvent");
@@ -253,16 +271,20 @@ int main(int argc,char** argv) {
             XrFrameWaitInfo wait{XR_TYPE_FRAME_WAIT_INFO};XrFrameState fs{XR_TYPE_FRAME_STATE};XR(xrWaitFrame(r.session,&wait,&fs));XrFrameBeginInfo begin{XR_TYPE_FRAME_BEGIN_INFO};XR(xrBeginFrame(r.session,&begin));
             XrViewLocateInfo locate{XR_TYPE_VIEW_LOCATE_INFO};locate.viewConfigurationType=XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO;locate.displayTime=fs.predictedDisplayTime;locate.space=r.local;
             XrViewState state{XR_TYPE_VIEW_STATE};std::array<XrView,2> views{{{XR_TYPE_VIEW},{XR_TYPE_VIEW}}};uint32_t count{};XR(xrLocateViews(r.session,&locate,&state,2,&count,views.data()));
+            amalur::TrackingSnapshot snapshot;
+            snapshot.sequence=++trackingSequence;snapshot.session=trackingSession;
+            snapshot.predictedTime=fs.predictedDisplayTime;
+            const uint64_t acquisitionTick=GetTickCount64();
             XrSpaceLocation head{XR_TYPE_SPACE_LOCATION};
             if(trackingMode){
                 XR(xrLocateSpace(r.view,r.local,fs.predictedDisplayTime,&head));
-                amalur::PosePacket packet;packet.tick=GetTickCount64();packet.gameMode=gameMode?(settings.interfaceView?3u:1u):0u;
+                amalur::PosePacket packet;packet.tick=acquisitionTick;packet.gameMode=gameMode?(settings.interfaceView?3u:1u):0u;
                 packet.depth=settings.depth;packet.convergence=settings.convergence;packet.worldScale=settings.scale;packet.horizontalFov=settings.fov;packet.recenter=settings.recenter;
                 constexpr XrSpaceLocationFlags required=XR_SPACE_LOCATION_ORIENTATION_VALID_BIT|XR_SPACE_LOCATION_POSITION_VALID_BIT|XR_SPACE_LOCATION_ORIENTATION_TRACKED_BIT|XR_SPACE_LOCATION_POSITION_TRACKED_BIT;
                 packet.valid=focused&&(head.locationFlags&required)==required;
                 packet.orientation[0]=head.pose.orientation.x;packet.orientation[1]=head.pose.orientation.y;packet.orientation[2]=head.pose.orientation.z;packet.orientation[3]=head.pose.orientation.w;
                 packet.position[0]=head.pose.position.x;packet.position[1]=head.pose.position.y;packet.position[2]=head.pose.position.z;
-                poses.publish(packet);
+                snapshot.head=packet;poses.publish(packet);
             }
             if(focused) {
                 XrActiveActionSet active{r.actions,XR_NULL_PATH};XrActionsSyncInfo sync{XR_TYPE_ACTIONS_SYNC_INFO};sync.countActiveActionSets=1;sync.activeActionSets=&active;XR(xrSyncActions(r.session,&sync));
@@ -294,28 +316,37 @@ int main(int argc,char** argv) {
                     if(trackingMode){
                         XrActionStateGetInfo gripInfo{XR_TYPE_ACTION_STATE_GET_INFO};gripInfo.action=pose;gripInfo.subactionPath=handPaths[i];
                         XrActionStatePose grip{XR_TYPE_ACTION_STATE_POSE};XR(xrGetActionStatePose(r.session,&gripInfo,&grip));
-                        amalur::PosePacket packet;packet.tick=GetTickCount64();packet.gameMode=gameMode?(settings.interfaceView?3u:1u):0u;
+                        amalur::PosePacket packet;packet.tick=acquisitionTick;packet.gameMode=gameMode?(settings.interfaceView?3u:1u):0u;
                         constexpr XrSpaceLocationFlags required=XR_SPACE_LOCATION_ORIENTATION_VALID_BIT|XR_SPACE_LOCATION_POSITION_VALID_BIT|XR_SPACE_LOCATION_ORIENTATION_TRACKED_BIT|XR_SPACE_LOCATION_POSITION_TRACKED_BIT;
                         packet.valid=!panelCapture&&!settings.developerVisible&&grip.isActive&&(hand.locationFlags&required)==required;
                         packet.orientation[0]=hand.pose.orientation.x;packet.orientation[1]=hand.pose.orientation.y;packet.orientation[2]=hand.pose.orientation.z;packet.orientation[3]=hand.pose.orientation.w;
                         packet.position[0]=hand.pose.position.x;packet.position[1]=hand.pose.position.y;packet.position[2]=hand.pose.position.z;
                         packet.worldScale=settings.scale;packet.recenter=settings.recenter;
+                        (i==0?snapshot.left:snapshot.right)=packet;
                         (i==0?leftHand:rightHand).publish(packet);
                     }
                     if(frames%90==0)std::cout<<"Hand="<<i<<" flags="<<hand.locationFlags<<" xyz="<<hand.pose.position.x<<','<<hand.pose.position.y<<','<<hand.pose.position.z<<"\n";
                 }
             } else {pressed={};settings.pollDeveloperControllers({},false,developer.busy());motionInput.publish(touchMapper.map({},false));if(trackingMode){amalur::PosePacket invalid;leftHand.publish(invalid);rightHand.publish(invalid);}}
             std::array<XrCompositionLayerProjectionView,2> projectionViews{};
+            if(trackingMode)trackingSnapshots.publish(snapshot);
             bool render=fs.shouldRender&&count==2&&(state.viewStateFlags&XR_VIEW_STATE_POSITION_VALID_BIT)&&(state.viewStateFlags&XR_VIEW_STATE_ORIENTATION_VALID_BIT);
             amalur::PosePacket gameFrame;
-            bool trackedGame=false;
+            bool trackedGame=false;bool mapPanelFrame=false;
             if(gameMode){
                 bool sourceReady=stereoSource.acquirePaired(device.Get(),context.Get(),gameFrame);
                 trackedGame=!settings.interfaceView&&sourceReady&&gameFrame.valid&&gameFrame.projectionX>0&&gameFrame.projectionY>0;
                 render=render&&sourceReady;
+                mapPanelFrame=sourceReady&&gameFrame.gameMode==5&&!settings.interfaceView;
+                if(sourceReady&&settings.mapPanelPrototype&&gameFrame.gameMode==1&&trackedGame){
+                    if(!haveBackdrop)hrcheck(backdrop.initialize(device.Get())?S_OK:E_FAIL);
+                    if(backdrop.freezeFrom(device.Get(),context.Get(),stereoSource)){backdropPose=gameFrame;haveBackdrop=true;}
+                }
+                if(mapPanelFrame)trackedGame=haveBackdrop;
+                if(!settings.mapPanelPrototype&&!mapPanelFrame)haveBackdrop=false;
             }
             if(gameMode&&render){
-                if(trackedGame)menuAnchor.close();
+                if(trackedGame&&!mapPanelFrame)menuAnchor.close();
                 else if((head.locationFlags&(XR_SPACE_LOCATION_ORIENTATION_VALID_BIT|XR_SPACE_LOCATION_POSITION_VALID_BIT))==(XR_SPACE_LOCATION_ORIENTATION_VALID_BIT|XR_SPACE_LOCATION_POSITION_VALID_BIT))menuAnchor.update(head.pose,settings.recenter);
                 else if(!menuAnchor.active)render=false;
             }
@@ -328,7 +359,10 @@ int main(int argc,char** argv) {
                     auto f=views[i].fov;
                     int sourceEye=settings.interfaceView?0:(settings.swap?1-i:i);
                     float bias=settings.alignment*(settings.depth/20.f);
-                    if(trackedGame)stereoSource.draw(context.Get(),sourceEye,std::tan(f.angleLeft),std::tan(f.angleRight),std::tan(f.angleDown),std::tan(f.angleUp),gameFrame.projectionX,gameFrame.projectionY,sourceEye==0?bias:-bias,settings.sharpness);
+                    if(mapPanelFrame){
+                        if(haveBackdrop)backdrop.draw(context.Get(),sourceEye,std::tan(f.angleLeft),std::tan(f.angleRight),std::tan(f.angleDown),std::tan(f.angleUp),backdropPose.projectionX,backdropPose.projectionY,sourceEye==0?bias:-bias,settings.sharpness);
+                    }
+                    else if(trackedGame)stereoSource.draw(context.Get(),sourceEye,std::tan(f.angleLeft),std::tan(f.angleRight),std::tan(f.angleDown),std::tan(f.angleUp),gameFrame.projectionX,gameFrame.projectionY,sourceEye==0?bias:-bias,settings.sharpness);
                     else stereoSource.draw(context.Get(),sourceEye,-1,1,-1,1,1,1,0,settings.sharpness);
                 }else{
                 auto p=views[i].pose;auto f=views[i].fov;auto world=XMMatrixRotationQuaternion(XMVectorSet(p.orientation.x,p.orientation.y,p.orientation.z,p.orientation.w))*XMMatrixTranslation(p.position.x,p.position.y,p.position.z);
@@ -343,23 +377,26 @@ int main(int argc,char** argv) {
                     // Attribute the image to the pose used by the game camera,
                     // not the newer predicted pose. Preserve eye-to-head offsets.
                     // The producer publishes metadata with a GPU-owned image.
-                    XrPosef rendered{{gameFrame.orientation[0],gameFrame.orientation[1],gameFrame.orientation[2],gameFrame.orientation[3]},
-                        {gameFrame.position[0],gameFrame.position[1],gameFrame.position[2]}};
+                    const auto& attributed=mapPanelFrame?backdropPose:gameFrame;
+                    XrPosef rendered{{attributed.orientation[0],attributed.orientation[1],attributed.orientation[2],attributed.orientation[3]},
+                        {attributed.position[0],attributed.position[1],attributed.position[2]}};
                     pv.pose=renderedEyePose(head.pose,views[i].pose,rendered);
                 }
             }
             XrCompositionLayerProjection layer{XR_TYPE_COMPOSITION_LAYER_PROJECTION};layer.space=r.local;layer.viewCount=2;layer.views=projectionViews.data();const XrCompositionLayerBaseHeader* layers[]={reinterpret_cast<XrCompositionLayerBaseHeader*>(&layer)};
             std::array<XrCompositionLayerQuad,2> menu{};
             const XrCompositionLayerBaseHeader* menuLayers[2]{};
-            if(gameMode&&!trackedGame&&render)for(int i=0;i<2;++i){
+            if(gameMode&&!trackedGame&&!mapPanelFrame&&render)for(int i=0;i<2;++i){
                 menu[i].type=XR_TYPE_COMPOSITION_LAYER_QUAD;menu[i].space=r.local;
                 menu[i].eyeVisibility=i==0?XR_EYE_VISIBILITY_LEFT:XR_EYE_VISIBILITY_RIGHT;
                 menu[i].subImage=projectionViews[i].subImage;menu[i].pose=menuAnchor.pose;
                 const float interfaceScale=amalur::menuScale(settings.interfaceScale);
                 menu[i].size={2.f*interfaceScale,1.125f*interfaceScale};menuLayers[i]=reinterpret_cast<const XrCompositionLayerBaseHeader*>(&menu[i]);
             }
+            XrCompositionLayerQuad mapLayer{};
+            if(render&&mapPanelFrame)mapLayer=mapPanel.draw(r.session,r.local,static_cast<DXGI_FORMAT>(format),device.Get(),context.Get(),stereoSource,menuAnchor.pose,amalur::menuScale(settings.interfaceScale),settings.sharpness);
             std::vector<const XrCompositionLayerBaseHeader*> submitted;
-            if(render){if(gameMode&&!trackedGame){submitted.push_back(menuLayers[0]);submitted.push_back(menuLayers[1]);}else submitted.push_back(layers[0]);}
+            if(render){if(mapPanelFrame){submitted.push_back(layers[0]);submitted.push_back(reinterpret_cast<const XrCompositionLayerBaseHeader*>(&mapLayer));}else if(gameMode&&!trackedGame){submitted.push_back(menuLayers[0]);submitted.push_back(menuLayers[1]);}else submitted.push_back(layers[0]);}
             XrCompositionLayerQuad settingsLayer{};
             if(gameMode&&(settings.visible||settings.developerVisible)&&fs.shouldRender){
                 auto a=views[0].pose.position,b=views[1].pose.position;

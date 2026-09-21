@@ -14,11 +14,12 @@ inline mgs5vr::Vec3 meleeTipRelative(mgs5vr::Pose grip,mgs5vr::Vec3 origin,
 // to the game adapter; this class never decides whether a swing hit anything.
 class MeleeSwing {
 public:
-    void reset(){count_=0;armed_=false;quiet_=fast_=false;speed_=0;hasFire_=false;}
+    void reset(){count_=0;armed_=false;quiet_=fast_=false;speed_=0;hasFire_=false;gate_="warming-up";}
     float speed() const{return speed_;}
+    const char* gate() const{return gate_;}
     bool sample(mgs5vr::Vec3 pointRelativeToHead,uint64_t tick,unsigned generation,bool eligible){
         if(!eligible||!std::isfinite(pointRelativeToHead.x)||!std::isfinite(pointRelativeToHead.y)||!std::isfinite(pointRelativeToHead.z)){
-            reset();return false;
+            reset();gate_="ineligible-or-invalid";return false;
         }
         if(count_){
             const auto& last=history_[count_-1];
@@ -51,11 +52,13 @@ public:
         // gates; only a reversal relative to the last fired slash can rearm.
         const bool returnSlash=hasFire_&&mgs5vr::dot(direction,lastDirection_)<-.25f;
         if((armed_||returnSlash)&&fast_&&tick-fastSince_>=30&&(!hasFire_||tick-lastFire_>=250)){
-            armed_=false;quiet_=false;lastFire_=tick;lastDirection_=direction;hasFire_=true;return true;
+            armed_=false;quiet_=false;lastFire_=tick;lastDirection_=direction;hasFire_=true;gate_="accepted";return true;
         }
+        gate_=speed_<.9f?"below-speed":!(armed_||returnSlash)?"needs-rearm":!fast_||tick-fastSince_<30?"too-brief":"cooldown";
         return false;
     }
 private:
+    const char* gate_="warming-up";
     struct Point {mgs5vr::Vec3 point;uint64_t tick;};
     Point history_[128]{};
     unsigned count_{},generation_{};

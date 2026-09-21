@@ -24,6 +24,19 @@ class StereoSource {
     amalur::StereoFrame pairedFrame_{};
     uint32_t openedProducer_{};uint64_t openedGeneration_{};
 public:
+    // Same-device private copy, frozen until the next explicit capture. Used
+    // only as a paused backdrop, never attributed to a newer camera pose.
+    bool freezeFrom(ID3D11Device* device,ID3D11DeviceContext* context,const StereoSource& source){
+        if(!source.copy_||!source.view_)return false;
+        D3D11_TEXTURE2D_DESC desc{},old{};source.copy_->GetDesc(&desc);if(copy_)copy_->GetDesc(&old);
+        if(!copy_||desc.Width!=old.Width||desc.Height!=old.Height||desc.Format!=old.Format){
+            Ptr<ID3D11Texture2D> copy;Ptr<ID3D11ShaderResourceView> view;
+            D3D11_SHADER_RESOURCE_VIEW_DESC srv{};source.view_->GetDesc(&srv);
+            if(FAILED(device->CreateTexture2D(&desc,nullptr,&copy))||FAILED(device->CreateShaderResourceView(copy.Get(),&srv,&view)))return false;
+            copy_=copy;view_=view;
+        }
+        context->CopyResource(copy_.Get(),source.copy_.Get());return true;
+    }
     unsigned sourceWidth()const{D3D11_TEXTURE2D_DESC d{};if(copy_)copy_->GetDesc(&d);return d.Width/2;}
     unsigned sourceHeight()const{D3D11_TEXTURE2D_DESC d{};if(copy_)copy_->GetDesc(&d);return d.Height;}
     explicit StereoSource(const wchar_t* name=L"Local\\KatangaMappedFile",

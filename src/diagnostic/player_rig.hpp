@@ -1,5 +1,6 @@
 #pragma once
 #include "../tracking/dodge_facing.hpp"
+#include "../tracking/fine_facing.hpp"
 // Re-Reckoning build 10619381 only. Resolve generation-checked engine handles;
 // never retain part pointers across a load. Facing uses the native script service.
 namespace player_rig {
@@ -8,6 +9,10 @@ using SetCamera=void(__thiscall*)(void*,void*);
 inline SetCamera originalSetCamera{};
 using SetFacing=void(__thiscall*)(void*,uint32_t,int);
 inline SetFacing nativeFacing{};
+// RVA b4fac0 takes pointers to yaw/pitch binary-angle deltas (ret8).
+// Same native accumulator and activation path used by script set_facing.
+using FineFacing=void(__thiscall*)(void*,const uint32_t*,const uint32_t*);
+inline FineFacing nativeFineFacing{};
 inline void __fastcall setCamera(void* self,void*,void* camera){
     originalSetCamera(self,camera);player.store(self);
     log("Player camera assigned: player=%p camera=%p\n",self,camera);
@@ -42,24 +47,21 @@ inline bool location(void* camera,mgs5vr::Vec3& position){
 inline void face(void* camera,mgs5vr::Vec3 forward){
     const auto now=GetTickCount64();
     if(amalur::dodgeFacing.suppress(now)||amalur::locomotionFacing.suppress(now))return;
-    if(!nativeFacing||!std::isfinite(forward.x)||!std::isfinite(forward.y)||forward.x*forward.x+forward.y*forward.y<.01f)return;
+    if(!nativeFineFacing||!std::isfinite(forward.x)||!std::isfinite(forward.y)||forward.x*forward.x+forward.y*forward.y<.01f)return;
     __try {
         mgs5vr::Vec3 position;if(!location(camera,position))return;
         auto p=reinterpret_cast<uintptr_t>(player.load());
         auto owner=static_cast<uint32_t>(word(p+0x1ec)),entity=resolve(owner);
         auto loc=part(entity,6,owner,0x1355cdc),motion=part(entity,42,owner,0x13561e4);
         if(!loc||!motion||!(word(loc+0x20)&1)||!(word(motion+0x20)&1))return;
-        // Native set_facing uses the world XY heading from world +X.
-        // PartLocation+b0 is an unsigned full-turn angle; PartMotion receives
-        // the requested delta and performs the actual simulation rotation.
-        int degrees=static_cast<int>(std::lround(std::atan2(forward.y,forward.x)*57.2957795131f));
-        if(degrees<0)degrees+=360;
-        float current=static_cast<float>(static_cast<double>(static_cast<uint32_t>(word(loc+0xb0)))*(360.0/4294967296.0));
-        if(std::abs(std::remainder(static_cast<float>(degrees)-current,360.f))<1.5f)return;
+        const auto current=static_cast<uint32_t>(word(loc+0xb0));
+        uint32_t delta{},zero{};
+        if(!amalur::fineFacingDelta(forward.x,forward.y,current,delta))return;
         static unsigned lastFrame=~0u;auto frame=presents.load();if(lastFrame==frame)return;lastFrame=frame;
-        nativeFacing(nullptr,owner,degrees);
-        static unsigned logged=0;if(logged++<8)log("Head facing: native=%.2f requested=%d\n",current,degrees);
-    } __except(EXCEPTION_EXECUTE_HANDLER){nativeFacing=nullptr;log("Native head facing disabled after invalid state\n");}
+        nativeFineFacing(reinterpret_cast<void*>(motion),&delta,&zero);
+        static unsigned logged=0;if(logged++<8)log("Fine head facing: current=%.6f requested=%.6f deltaBits=%08x\n",
+            double(current)*(360.0/4294967296.0),double(uint32_t(current+delta))*(360.0/4294967296.0),delta);
+    } __except(EXCEPTION_EXECUTE_HANDLER){nativeFineFacing=nullptr;log("Native head facing disabled after invalid state\n");}
 }
 inline void install(){
     auto target=reinterpret_cast<unsigned char*>(gameBase+0x9c6670);
@@ -71,6 +73,14 @@ inline void install(){
     const unsigned char tail[]={0x83,0xc4,0x1c,0xc2,0x08,0x00};
     if(!memcmp(facing,prefix,sizeof(prefix))&&word(reinterpret_cast<uintptr_t>(facing)+6)==gameBase+0x15fec38
        &&!memcmp(facing+0x11a,tail,sizeof(tail)))nativeFacing=reinterpret_cast<SetFacing>(facing);
-    log("Native head facing %s\n",nativeFacing?"available":"signature mismatch");
+    auto fine=reinterpret_cast<unsigned char*>(gameBase+0xb4fac0);
+    const unsigned char finePrefix[]={0x83,0xec,0x08,0x8b,0x44,0x24,0x0c,0x56,0x8b,0xf1,0x50,0x8d,0x4e,0x30,0xe8};
+    const unsigned char fineTail[]={0x83,0xc4,0x08,0xc2,0x08,0x00};
+    const auto yawCall=gameBase+0xb4fad3+*reinterpret_cast<const int32_t*>(fine+0xf);
+    const auto pitchCall=gameBase+0xb4fae0+*reinterpret_cast<const int32_t*>(fine+0x1c);
+    if(nativeFacing&&!memcmp(fine,finePrefix,sizeof(finePrefix))&&!memcmp(fine+0x56,fineTail,sizeof(fineTail))
+        &&yawCall==gameBase+0x6b8e50&&pitchCall==gameBase+0x6b8e50)
+        nativeFineFacing=reinterpret_cast<FineFacing>(fine);
+    log("Fine native head facing %s (binary-angle delta, no degree rounding/deadband)\n",nativeFineFacing?"available":"signature mismatch");
 }
 }

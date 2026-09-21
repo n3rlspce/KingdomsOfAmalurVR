@@ -12,11 +12,18 @@ inline uintptr_t resolve(uint32_t){std::abort();}
 inline uint32_t word(uintptr_t){std::abort();}
 }
 inline bool hook(void*,void*,void**,const char*){std::abort();}
+inline void log(const char*,...){}
 #include "../diagnostic/melee_lifetime_hooks.hpp"
 void check(bool value,const char* message){if(!value){std::fprintf(stderr,"FAIL: %s\n",message);std::exit(1);}}
 namespace test {
 unsigned resetCalls{},initCalls{},eraseCalls{};
 bool doubleReset{},throwInit{};
+unsigned observed{};bool observerThrows{},observedOwned{};
+void observe(uintptr_t runtime,uint32_t asset,uint32_t owner,uint32_t index,int result,bool owned){
+    check(runtime==0x1000&&asset==199&&owner==7&&index==1&&result==0,"observer receives copied native result identity");
+    ++observed;observedOwned=owned;
+    if(observerThrows)RaiseException(0xe0004321,0,0,nullptr);
+}
 void __fastcall reset(void*,void*){++resetCalls;}
 void __fastcall erase(void*,void*,uint32_t key){check(key==99,"erase ABI preserves key");++eraseCalls;}
 int __fastcall initialize(void* self,void*,const uint32_t* asset,uint32_t owner,
@@ -73,5 +80,10 @@ int main(){
     auto replacement=h::claimKey(0x3000,99);
     check(replacement!=keyGeneration&&!h::matchesKey(0x3000,99,keyGeneration),"reused key cannot resurrect old token");
     check(test::initCalls==5&&test::resetCalls==7,"native calls execute once per hook invocation");
+    h::creationObserver=&test::observe;
+    check(h::initialize(runtime,nullptr,&asset,7,0,7,1,0)==0&&test::observed==1&&!test::observedOwned,"native unowned initialization also captured");
+    test::observerThrows=true;check(h::begin(),"begin with failing observer");
+    check(h::initialize(runtime,nullptr,&asset,7,0,7,1,0)==0,"observer exception cannot change native result");
+    check(h::finish(true).valid&&test::observed==2&&test::observedOwned&&test::initCalls==7,"observer cannot alter ownership or duplicate native call");
     std::puts("PASS: Win32 hook ABI, other-thread construction, runtime/key invalidation and reentrant reset");
 }

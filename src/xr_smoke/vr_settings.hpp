@@ -7,6 +7,8 @@
 #include <stdexcept>
 #include "../tracking/developer_commands.hpp"
 #include "../tracking/melee_debug_settings.hpp"
+#include "../tracking/developer_camera.hpp"
+#include "../tracking/body_debug_settings.hpp"
 #include "../tracking/developer_panel_input.hpp"
 
 struct VrSettings {
@@ -19,17 +21,34 @@ struct VrSettings {
     bool swap=true,visible=false;int selected=0;unsigned recenter=0;
     bool developerVisible=false,developerTogglePending=false;
     inline static amalur::MeleeDebugSettings meleeDebug;
-    static constexpr int developerPanelRows=amalur::developer::panelRows+1;
+    inline static amalur::DeveloperCameraSettings thirdPersonCamera;
+    static constexpr int ablationFirstRow=amalur::developer::panelRows+5;
+    static constexpr int ablationResetRow=ablationFirstRow+5;
+    static constexpr int developerPanelRows=ablationResetRow+1;
+    static constexpr int mapPanelRow=developerPanelRows; // retain currently hidden prototype row
+    static constexpr LONG ablationBits[]{amalur::skipRigSockets,amalur::skipRootSmoothing,amalur::nativeMeshInput,amalur::nativeMeshPositions,amalur::nativeMeshRotations};
+    bool ablationAction(int row,bool activate){
+        if(row<ablationFirstRow||row>ablationResetRow)return false;
+        if(activate){if(row==ablationResetRow)amalur::bodyDebug.resetAblations();else amalur::bodyDebug.toggle(ablationBits[row-ablationFirstRow]);}
+        return true;
+    }
+    bool mapPanelPrototype=true;
     int developerRow=0,developerAction=-1,developerDestination=0;
     amalur::DeveloperPanelInput developerControllers;
     bool pollDeveloperControllers(const amalur::TouchInput& touch,bool active,bool busy,uint64_t now=GetTickCount64()){
-        const auto event=developerControllers.update(touch,active,developerVisible,busy&&developerRow!=amalur::developer::panelRows,now);
+        const auto event=developerControllers.update(touch,active,developerVisible,busy&&developerRow<amalur::developer::panelRows,now);
         if(event.toggle){developerVisible=!developerVisible;visible=false;}
         if(event.close)developerVisible=false;
         if(developerVisible){
             developerRow=(developerRow+event.row+developerPanelRows)%developerPanelRows;
             developerDestination=(developerDestination+event.destination+amalur::developer::destinations)%amalur::developer::destinations;
-            if(developerRow==amalur::developer::panelRows){if(event.activate||event.destination)meleeDebug.toggle();}
+            if(ablationAction(developerRow,event.activate||event.destination)){}
+            else if(developerRow==amalur::developer::panelRows){if(event.activate||event.destination)meleeDebug.toggle();}
+            else if(developerRow==amalur::developer::panelRows+1){if(event.activate||event.destination)thirdPersonCamera.toggle();}
+            else if(developerRow==amalur::developer::panelRows+2){if(event.activate||event.destination)amalur::bodyDebug.toggle(amalur::nativeTorso);}
+            else if(developerRow==amalur::developer::panelRows+3){if(event.activate||event.destination)amalur::bodyDebug.toggle(amalur::nativeArms);}
+            else if(developerRow==mapPanelRow){if(event.activate||event.destination)mapPanelPrototype=!mapPanelPrototype;}
+            else if(developerRow==amalur::developer::panelRows+4){if(event.activate||event.destination)amalur::bodyDebug.toggle(amalur::nativeCamera);}
             else if(event.activate)developerAction=amalur::developer::panelAction(developerRow,developerDestination);
         }
         return event.capture;
@@ -85,7 +104,13 @@ struct VrSettings {
             if(escape){developerVisible=false;return;}
             if(up)developerRow=(developerRow+developerPanelRows-1)%developerPanelRows;
             if(down)developerRow=(developerRow+1)%developerPanelRows;
+            if(ablationAction(developerRow,enter||left||right))return;
             if(developerRow==amalur::developer::panelRows){if(enter||left||right)meleeDebug.toggle();return;}
+            if(developerRow==amalur::developer::panelRows+1){if(enter||left||right)thirdPersonCamera.toggle();return;}
+            if(developerRow==amalur::developer::panelRows+2){if(enter||left||right)amalur::bodyDebug.toggle(amalur::nativeTorso);return;}
+            if(developerRow==amalur::developer::panelRows+3){if(enter||left||right)amalur::bodyDebug.toggle(amalur::nativeArms);return;}
+            if(developerRow==mapPanelRow){if(enter||left||right)mapPanelPrototype=!mapPanelPrototype;return;}
+            if(developerRow==amalur::developer::panelRows+4){if(enter||left||right)amalur::bodyDebug.toggle(amalur::nativeCamera);return;}
             if(left)developerDestination=(developerDestination+amalur::developer::destinations-1)%amalur::developer::destinations;
             if(right)developerDestination=(developerDestination+1)%amalur::developer::destinations;
             if(enter)developerAction=amalur::developer::panelAction(developerRow,developerDestination);

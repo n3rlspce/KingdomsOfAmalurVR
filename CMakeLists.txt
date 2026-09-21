@@ -1,5 +1,8 @@
 cmake_minimum_required(VERSION 3.20)
 project(AmalurVRDiagnostics LANGUAGES C CXX)
+add_executable(skin_audit_check src/tracking/skin_audit_check.cpp)
+target_compile_features(skin_audit_check PRIVATE cxx_std_17)
+target_link_libraries(skin_audit_check PRIVATE mgs5vr_core d3d11 dxgi)
 if(NOT WIN32 OR NOT CMAKE_SIZEOF_VOID_P EQUAL 4)
   message(FATAL_ERROR "Configure with Visual Studio -A Win32; Amalur is x86")
 endif()
@@ -98,3 +101,63 @@ target_compile_features(melee_hit_identity_check PRIVATE cxx_std_17)
 
 add_executable(melee_debug_check src/tracking/melee_debug_check.cpp)
 target_link_libraries(melee_debug_check PRIVATE mgs5vr_core d3d11 dxgi d3dcompiler)
+
+add_executable(support_grip_check src/tracking/support_grip_check.cpp)
+target_link_libraries(support_grip_check PRIVATE mgs5vr_core)
+
+add_executable(weapon_contact_profile_check src/tracking/weapon_contact_profile_check.cpp)
+target_link_libraries(weapon_contact_profile_check PRIVATE mgs5vr_core)
+
+add_executable(dagger_orientation_check src/tracking/dagger_orientation_check.cpp)
+target_link_libraries(dagger_orientation_check PRIVATE mgs5vr_core)
+
+add_executable(held_weapon_profile_check src/tracking/held_weapon_profile_check.cpp)
+target_compile_features(held_weapon_profile_check PRIVATE cxx_std_17)
+
+add_executable(shield_orientation_check src/tracking/shield_orientation_check.cpp)
+target_link_libraries(shield_orientation_check PRIVATE mgs5vr_core)
+
+add_executable(ablation_check src/tracking/ablation_check.cpp)
+target_link_libraries(ablation_check PRIVATE mgs5vr_core user32)
+
+add_executable(feedback_check src/tracking/feedback_check.cpp)
+target_link_libraries(feedback_check PRIVATE mgs5vr_core user32)
+
+add_executable(fine_facing_check src/tracking/fine_facing_check.cpp)
+target_link_libraries(fine_facing_check PRIVATE mgs5vr_core user32)
+
+add_executable(locomotion_frame_check src/tracking/locomotion_frame_check.cpp)
+target_link_libraries(locomotion_frame_check PRIVATE mgs5vr_core user32)
+
+add_executable(skin_root_pair_check src/tracking/skin_root_pair_check.cpp)
+target_link_libraries(skin_root_pair_check PRIVATE mgs5vr_core user32)
+
+add_executable(melee_swing_event_check src/tracking/melee_swing_event_check.cpp)
+target_link_libraries(melee_swing_event_check PRIVATE mgs5vr_core user32)
+
+add_executable(native_weapon_slot_check src/tracking/native_weapon_slot_check.cpp)
+target_link_libraries(native_weapon_slot_check PRIVATE mgs5vr_core user32)
+
+add_executable(physical_melee_recipe_check src/tracking/physical_melee_recipe_check.cpp)
+target_link_libraries(physical_melee_recipe_check PRIVATE mgs5vr_core user32)
+
+add_executable(damage_capture_check src/tracking/damage_capture_check.cpp)
+target_link_libraries(damage_capture_check PRIVATE mgs5vr_core user32)
+
+add_executable(damage_capture_policy_check src/tracking/damage_capture_policy_check.cpp)
+target_link_libraries(damage_capture_policy_check PRIVATE mgs5vr_core user32)
+
+target_include_directories(ablation_check PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+
+target_include_directories(feedback_check PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+
+target_include_directories(fine_facing_check PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+
+target_include_directories(locomotion_frame_check PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+
+target_include_directories(skin_root_pair_check PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+
+target_link_libraries(melee_debug_check PRIVATE user32)
+
+
+target_link_libraries(render_pose_check PRIVATE mgs5vr_core)

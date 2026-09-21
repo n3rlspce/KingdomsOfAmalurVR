@@ -7,6 +7,8 @@ inline Register original{};
 using Generate=void(__thiscall*)(void*,uintptr_t,uintptr_t,uintptr_t);
 inline Generate originalGenerate{};
 inline std::atomic<unsigned> samples{0};
+inline std::atomic<uint64_t> sampleSecond{0};
+inline std::atomic<unsigned> droppedSamples{0};
 inline bool local(uintptr_t component){
     auto player=reinterpret_cast<uintptr_t>(player_rig::player.load());if(!player)return false;
     if(player_rig::word(player)!=gameBase+0x1359f14&&player_rig::word(player)!=gameBase+0x1359e94)return false;
@@ -16,12 +18,40 @@ inline bool local(uintptr_t component){
 }
 inline void observe(uintptr_t component,uintptr_t event,uintptr_t a,uintptr_t b,uintptr_t d){
     __try{
-        if(samples.load()>=96||!local(component)||player_rig::word(event)!=gameBase+0x13295ec)return;
-        if(samples.fetch_add(1)>=96)return;
+        if(!local(component)||player_rig::word(event)!=gameBase+0x13295ec)return;
+        const auto now=GetTickCount64(),second=now/1000;
+        if(sampleSecond.exchange(second)!=second)samples.store(0);
+        if(samples.fetch_add(1)>=24){++droppedSamples;return;}
+        const auto dropped=droppedSamples.exchange(0);
         auto n=player_rig::word(event+0x18),ids=player_rig::word(event+0x1c);
-        log("Melee event tick=%llu id=%08x shapes=%u flag=%u times=%u,%u context=%08x active=%u\n",
-            GetTickCount64(),player_rig::word(event+0x28),n,player_rig::word(event+0x24),unsigned(a),unsigned(b),unsigned(d),player_rig::word(component+0x2e4));
+        log("Melee event tick=%llu id=%08x shapes=%u flag=%u times=%u,%u context=%08x active=%u dropped=%u\n",
+            now,player_rig::word(event+0x28),n,player_rig::word(event+0x24),unsigned(a),unsigned(b),unsigned(d),player_rig::word(component+0x2e4),dropped);
         if(n<=16)for(unsigned i=0;i<n;++i)log("Melee shape index=%u id=%08x\n",i,player_rig::word(ids+i*4));
+        // Synchronous flags/key observation complements the 50ms external
+        // resource capture, which can miss very short native attack windows.
+        auto count=player_rig::word(component+0x2e4),entries=player_rig::word(component+0x2e0);
+        if(count>32||(!entries&&count))return;
+        for(unsigned i=0;i<count;++i){auto e=entries+i*0x34;
+            if(player_rig::word(e)!=player_rig::word(event+0x28))continue;
+            log("Melee attack recipe tick=%llu owner=%08x event=%08x flags=%08x runtimeIndex=%u key=%08x\n",
+                GetTickCount64(),player_rig::word(component+0x18),player_rig::word(e),player_rig::word(e+0x14),
+                player_rig::word(e+0x2c),player_rig::word(e+0x30));
+            const auto owner=player_rig::word(component+0x18),index=player_rig::word(e+0x2c);
+            const auto manager=player_rig::word(gameBase+0x15fec38);
+            const auto size=player_rig::word(manager+0xd4),table=player_rig::word(manager+0xd0);
+            uint32_t asset=0;bool runtimeValid=false;
+            if(table&&index&&index<size&&size<=1048576){
+                const auto runtime=player_rig::word(table+index*4);
+                if(runtime&&player_rig::word(runtime+0x24)==owner&&player_rig::word(runtime+0x20)==index
+                    &&(player_rig::word(runtime+0x1c)&1)){asset=player_rig::word(runtime+4);runtimeValid=true;}
+            }
+            uint32_t model;uint64_t poseTick;
+            AcquireSRWLockShared(&weapon_control::poseLock);model=weapon_control::visualAsset;poseTick=weapon_control::visualTick;
+            ReleaseSRWLockShared(&weapon_control::poseLock);
+            log("VR native combo event tick=%llu owner=%08x event=%08x key=%08x attackAsset=%u runtimeValid=%d flags=%u observedModel=%u modelFresh=%d selection=%u\n",
+                now,owner,player_rig::word(e),player_rig::word(e+0x30),asset,runtimeValid,player_rig::word(e+0x14),model,
+                poseTick&&poseTick<=now&&now-poseTick<100,motion_controls::viewControls().selectedWeapon);
+        }
     }__except(EXCEPTION_EXECUTE_HANDLER){}
 }
 inline uintptr_t __fastcall registration(void* self,void*,uintptr_t event,uintptr_t a,uintptr_t b,uintptr_t c,uintptr_t d){

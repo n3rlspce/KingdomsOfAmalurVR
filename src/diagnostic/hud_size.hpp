@@ -1,18 +1,21 @@
 #pragma once
 #include "../tracking/hud_settings.hpp"
 #include "../tracking/menu_rotation.hpp"
+#include "../tracking/map_panel_settings.hpp"
 
 namespace hud_size {
 static amalur::HudSettingsChannel channel;
 static amalur::HudSettingsChannel menuChannel{L"Local\\AmalurMenuSettingsV1",L"Local\\AmalurMenuSettingsMutexV1"};
 static float requested=.8f,uploaded=-1;
 static float requestedMenu=.8f;
+static amalur::MapPanelSettings mapPanelChannel;
+static bool mapPanelRequested=false;
 static bool uploadedInterface{},uploadedDialogue{},uploadedMenu{};
 static amalur::MenuRotation menuRotation;
 static std::array<float,12> uploadedRotation{};
 static ComPtr<ID3D11Texture1D> texture;
 static ComPtr<ID3D11ShaderResourceView> view;
-static void poll(){if(channel.open(false))channel.read(requested);if(menuChannel.open(false))menuChannel.read(requestedMenu);}
+static void poll(){if(channel.open(false))channel.read(requested);if(menuChannel.open(false))menuChannel.read(requestedMenu);mapPanelRequested=mapPanelChannel.read();}
 // Bind only around our four replacement shaders and restore the caller's slot.
 // Never patch geo-11's own parameter texture or reload its config per adjustment.
 class Binding {

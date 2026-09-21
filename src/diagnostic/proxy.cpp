@@ -11,7 +11,10 @@
 #include <cstdarg>
 #include <cstdio>
 #include "MinHook.h"
+#include "../tracking/tracking_snapshot.hpp"
 #include "../tracking/pose_channel.hpp"
+#include "../tracking/body_debug_settings.hpp"
+#include "../tracking/developer_camera.hpp"
 #include "../tracking/camera_pose.hpp"
 #include "../tracking/camera_inputs.hpp"
 #include "../tracking/menu_view.hpp"
@@ -54,8 +57,10 @@ static ULONG_PTR gameBase{};
 static std::atomic<unsigned> cameraLogs{0};
 static std::atomic<bool> headTracking{true};
 static std::atomic<bool> firstPerson{true};
+static amalur::DeveloperCameraSettings developerCamera;
 static std::atomic<bool> interfaceView{false};
 static std::atomic<bool> fullscreenMenuView{false};
+static std::atomic<bool> mapPanelView{false};
 static std::atomic<bool> coherentCamera{true};
 static amalur::CameraInputs cameraInputs;
 static void restoreCameraInputs(){
@@ -63,6 +68,7 @@ static void restoreCameraInputs(){
 }
 static std::atomic<unsigned> recenterGeneration{0};
 static amalur::PoseChannel poseChannel;
+static amalur::TrackingSnapshotChannel trackingSnapshots;
 static amalur::PoseChannel frameChannel{true};
 static std::atomic<int> stereoStatus{-1};
 static ComPtr<ID3D11Device> captureDevice;
@@ -170,6 +176,7 @@ static bool hook(void* target,void* detour,void** original,const char* name) {
 #include "body_visibility.hpp"
 #include "rig_probe.hpp"
 #include "melee_probe.hpp"
+#include "melee_feedback.hpp"
 #include "melee_contact.hpp"
 #include "dialogue_camera.hpp"
 static bool isCameraCore(unsigned char* core) {
@@ -211,15 +218,27 @@ static void __fastcall onRebuildCamera(void* camera,void*) {
     static bool hadTrackedCamera=false;
     amalur::PosePacket packet;
     bool tracked=false;
-    amalur::CameraPose originalCamera{},adjusted{};
+    amalur::LocomotionFrame locomotion;
+    amalur::CameraPose originalCamera{},adjusted{},untrackedInspection{};
     memcpy(&originalCamera.eye,core+4,sizeof(mgs5vr::Vec3));
     memcpy(&originalCamera.target,core+0x14,sizeof(mgs5vr::Vec3));
     memcpy(&originalCamera.up,core+0x1c0,sizeof(mgs5vr::Vec3));
+    untrackedInspection=originalCamera;
     if(headTracking.load()) {
         auto now=GetTickCount64();
-        if(now-lastOpenAttempt>1000){poseChannel.open(false);lastOpenAttempt=now;}
+        if(now-lastOpenAttempt>1000){poseChannel.open(false);trackingSnapshots.open(false);lastOpenAttempt=now;}
         const auto currentPresent=presents.load();
-        if(sampledPresent!=currentPresent){renderPose={};poseChannel.read(renderPose);weapon_control::sampleHands();sampledPresent=currentPresent;}
+        if(sampledPresent!=currentPresent){
+            amalur::TrackingSnapshot snapshot;renderPose={};
+            if(trackingSnapshots.read(snapshot))renderPose=snapshot.head;
+            else {
+                // Preserve legacy desktop camera probes only. Live tracked arms
+                // never fall back to separately acquired head/hand packets.
+                amalur::PosePacket legacy;
+                if(poseChannel.read(legacy)&&legacy.gameMode==2)renderPose=legacy;
+            }
+            weapon_control::sampleHands(snapshot);sampledPresent=currentPresent;
+        }
         packet=renderPose;
         const bool objectInterface=packet.valid&&packet.tick<=now&&now-packet.tick<250&&packet.gameMode==3;
         interfaceView.store(objectInterface);
@@ -252,10 +271,16 @@ static void __fastcall onRebuildCamera(void* camera,void*) {
                         handCamera.eye=playerPosition+mgs5vr::Vec3{0,0,195}+heading*25.f;
                         handCamera.target=handCamera.eye+heading*200.f;handCamera.up={0,0,1};
                         if(!bodyHeading.valid){mgs5vr::Vec3 seed;bodyHeading.get(heading,seed);}
-                        weapon_control::sample(handCamera,origin,packet.worldScale,centeredGeneration+bridgeCenter,{packet.position[0],packet.position[1],packet.position[2]});
+                        const float yaw=std::atan2(-heading.x,heading.y);
+                        locomotion.pose={{0,0,std::sin(yaw*.5f),std::cos(yaw*.5f)},handCamera.eye};
+                        locomotion.owner=uint32_t(player_rig::word(reinterpret_cast<uintptr_t>(owner)+0x1ec));
+                        locomotion.center=centeredGeneration+bridgeCenter;locomotion.tick=GetTickCount64();
+                        locomotion.valid=useFirstPerson&&packet.gameMode==1;
+                        weapon_control::sample(handCamera,origin,packet.worldScale,centeredGeneration+bridgeCenter,{packet.position[0],packet.position[1],packet.position[2]},locomotion);
                         if(useFirstPerson)baseCamera=handCamera;
                     }
                 }
+                untrackedInspection=baseCamera;
                 tracked=!desktopPose&&amalur::trackedCamera(baseCamera,relative,packet.worldScale,adjusted);
             }
         }
@@ -270,6 +295,19 @@ static void __fastcall onRebuildCamera(void* camera,void*) {
     // Keep the collar/shoulders behind the eyes without moving the camera with gait.
     auto anchor=adjusted.eye-bodyForward*18.f;
     arm_rig::sampleBody(anchor,bodyHeadingValid&&packet.gameMode?packet.tick:0);
+    // Inspection camera only: compute tracking/arm/body anchors above from
+    // the normal eye so pulling the view back cannot drag the avatar with it.
+    const bool nativeInspection=tracked&&firstPerson.load()&&packet.gameMode==1&&amalur::bodyDebug.enabled(amalur::nativeCamera);
+    const bool thirdPersonInspection=tracked&&firstPerson.load()&&packet.gameMode==1&&bodyHeadingValid&&developerCamera.enabled();
+    if(nativeInspection)adjusted=thirdPersonInspection?untrackedInspection:originalCamera;
+    if(thirdPersonInspection){
+        auto inspectionForward=nativeInspection?untrackedInspection.target-untrackedInspection.eye:bodyForward;
+        inspectionForward.z=0;
+        if(amalur::normalize(inspectionForward)){
+            const auto retreat=inspectionForward*packet.worldScale;
+            adjusted.eye=adjusted.eye-retreat;adjusted.target=adjusted.target-retreat;
+        }
+    }
     if(tracked){
         if(firstPerson.load()&&bodyHeadingValid&&packet.gameMode&&motion_controls::gameFocused())
             player_rig::face(camera,bodyForward);
@@ -293,7 +331,7 @@ static void __fastcall onRebuildCamera(void* camera,void*) {
     // A wide symmetric image is cropped to each runtime eye's asymmetric FOV.
     if(tracked&&packet.gameMode&&dirty)*reinterpret_cast<float*>(core+0x2c)=packet.horizontalFov;
     else if(enabled&&dirty)*reinterpret_cast<float*>(core+0x2c)=original*.85f;
-    {near_clip::Scope near(camera,tracked&&selectedPlayerValid&&firstPerson.load()&&!interfaceView.load()&&packet.gameMode==1);
+    {near_clip::Scope near(camera,!nativeInspection&&tracked&&selectedPlayerValid&&firstPerson.load()&&!interfaceView.load()&&packet.gameMode==1);
     realRebuildCamera(camera);}
     camera_status::publish(packet,tracked,selectedPlayerValid,selectedPlayerPosition,originalCamera,tracked?adjusted:originalCamera,core);
     camera_audit::camera(core,packet);
@@ -305,7 +343,7 @@ static void __fastcall onRebuildCamera(void* camera,void*) {
     }
     auto renderedPacket=packet;if(!tracked||!packet.gameMode)renderedPacket.valid=0;
     trackedCameraAvailable.store(renderedPacket.valid!=0);
-    render_pose::camera(core,renderedPacket);
+    render_pose::camera(core,renderedPacket,locomotion);
     const bool retainInputs=tracked&&packet.gameMode&&firstPerson.load()&&coherentCamera.load();
     if(retainInputs){
         cameraInputs={core,originalCamera,adjusted,original,*reinterpret_cast<float*>(core+0x2c)};
@@ -337,6 +375,7 @@ static void installCameraProbe() {
     body_visibility::install();
     rig_probe::install();
     melee_probe::install();
+    melee_feedback::install();
     melee_contact::install();
     motion_controls::install();
     hook(target,reinterpret_cast<void*>(&onRebuildCamera),reinterpret_cast<void**>(&realRebuildCamera),"CameraRebuild (F9 FOV probe)");
@@ -417,8 +456,12 @@ static HRESULT STDMETHODCALLTYPE onPresent(IDXGISwapChain* chain,UINT sync,UINT 
     auto presentedPose=(flags&DXGI_PRESENT_TEST)?amalur::PosePacket{}:render_pose::beginPresent(meleeVP);
     if(!(flags&DXGI_PRESENT_TEST)){
         const bool menu=amalur::fullscreenMenu(game_pause::sample(true),motion_controls::dialogueActive.load());
+        const bool panelRendered=mapPanelView.load();
+        mapPanelView.store(menu&&hud_size::mapPanelRequested&&!interfaceView.load());
         fullscreenMenuView.store(menu&&presentedPose.valid&&headTracking.load()&&!interfaceView.load());
         amalur::presentAsMenu(presentedPose,menu);
+        // Only advertise images drawn with the untransformed panel UI.
+        if(menu&&panelRendered)presentedPose.gameMode=5;
     }
     hud_size::poll();
     source_resolution::apply(chain);
@@ -462,6 +505,7 @@ static HRESULT STDMETHODCALLTYPE onPresent(IDXGISwapChain* chain,UINT sync,UINT 
     if(count%120==0){const auto p=render_pose::performance();log("Render pose /120 frames: descriptors=%llu %.3fms scans=%llu %.3fms candidates=%llu matched=%llu\n",p.descriptors,p.descriptorMs,p.scans,p.scanMs,p.candidates,p.matched);}
     // Native inputs are restored only by their owning camera-update thread.
     // Restoring here raced the next native camera rebuild on another thread.
+    if(count%600==0)log("Skin/root pairs captured=%u matched=%u rejected=%u advanced=%u rigid=%u/%u/%u\n",skin_root_pair::captured.load(),skin_root_pair::matched.load(),skin_root_pair::rejected.load(),skin_root_pair::advanced.load(),skin_root_pair::rigidCaptured.load(),skin_root_pair::rigidMatched.load(),skin_root_pair::rigidAdvanced.load());
     if(count%600==0 || (FAILED(result)&&count<=10))log("Present #%lu result=0x%08lx\n",count,static_cast<unsigned long>(result));
     return result;
 }

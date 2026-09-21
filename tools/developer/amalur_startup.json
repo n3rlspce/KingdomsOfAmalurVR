@@ -1,0 +1,7 @@
+{
+  "scripts": [
+    {"trigger": "UI_State_MGR", "path": ".\\mods\\amalur_startup.lua"},
+    {"trigger": "splash_win", "path": ".\\mods\\amalur_startup.lua"},
+    {"trigger": "main_menu", "path": ".\\mods\\amalur_startup.lua"}
+  ]
+}

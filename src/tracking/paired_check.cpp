@@ -62,6 +62,7 @@ int main(int argc,char** argv){
         auto p=static_cast<unsigned char*>(m.pData)+m.RowPitch*2+8;
         check(i%2?(p[0]>250&&p[1]<5):(p[1]>250&&p[0]<5),"GPU pixel matches paired pose");cc->Unmap(read.Get(),0);
     }
+    StereoSource frozen;check(frozen.initialize(consumer.Get())&&frozen.freezeFrom(consumer.Get(),cc.Get(),source),"capture independent map backdrop");
     // Deliberately different eye colours expose cross-eye bilinear/sharpen taps.
     for(unsigned y=0;y<4;++y)for(unsigned x=0;x<8;++x)pixels[y*8+x]=x<4?0xff202040:0xff804020;
     pc->UpdateSubresource(input.Get(),0,nullptr,pixels,32,0);
@@ -70,6 +71,10 @@ int main(int argc,char** argv){
     amalur::PosePacket edgeGot;uint64_t edgeSeq=last;edgeStart=GetTickCount64();
     while((!source.acquirePaired(consumer.Get(),cc.Get(),edgeGot,&edgeSeq)||edgeSeq==last)&&GetTickCount64()-edgeStart<1000)Sleep(1);
     check(edgeSeq>last,"edge fixture acquired");last=edgeSeq;
+    {D3D11_VIEWPORT vp{0,0,4,4,0,1};cc->RSSetViewports(1,&vp);auto rt=rtv.Get();cc->OMSetRenderTargets(1,&rt,nullptr);
+    frozen.draw(cc.Get(),0,-1,1,-1,1,1,1);cc->OMSetRenderTargets(0,nullptr,nullptr);cc->CopyResource(read.Get(),output.Get());
+    D3D11_MAPPED_SUBRESOURCE m{};check(SUCCEEDED(cc->Map(read.Get(),0,D3D11_MAP_READ,0,&m)),"frozen backdrop readback");
+    auto p=static_cast<unsigned char*>(m.pData)+m.RowPitch*2+8;check(p[1]>250&&p[0]<5,"backdrop retains gameplay pixels after source changes to menu");cc->Unmap(read.Get(),0);}
     for(int eye:{0,1})for(float sharpness:{0.f,.6f}){
         D3D11_VIEWPORT vp{0,0,4,4,0,1};cc->RSSetViewports(1,&vp);auto rt=rtv.Get();cc->OMSetRenderTargets(1,&rt,nullptr);
         source.draw(cc.Get(),eye,eye?-1.25f:-.75f,eye?.75f:1.25f,-1,1,1,1,0,sharpness);

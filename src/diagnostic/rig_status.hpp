@@ -1,11 +1,13 @@
 #pragma once
 #include "../tracking/rig_status.hpp"
 #include "game_pause.hpp"
+#include "weapon_survey.hpp"
 namespace rig_status {
 inline SRWLOCK lock=SRWLOCK_INIT;
 inline amalur::RigStatus current;
 inline amalur::RigStatusChannel channel;
 inline void attachment(void* mapper,uintptr_t slot,uintptr_t source,uintptr_t output,uintptr_t nativeSlot){
+    weapon_survey::attachment(mapper,slot,source,output,nativeSlot);
     __try {
         auto root=rig_probe::playerRoot();if(!root||source!=root+0x34||output<0x34||slot>=32)return;
         auto object=output-0x34;bool daggers=weapon_control::isPlayerDaggers(object);

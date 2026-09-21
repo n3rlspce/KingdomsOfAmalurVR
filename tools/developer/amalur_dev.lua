@@ -102,6 +102,73 @@ function dev.prepare_test_character()
     return 'developer character level: ' .. tostring(after)
 end
 
+-- Ability IDs from character_data's Sorcery tree. Grant one rank at a time,
+-- using the same helper as the game's own max-abilities cheat (cheats #288).
+local sorcery = {
+    'StaffMastery','SceptreMastery','ConservativeCasting','ChakramMastery',
+    'ArcaneWeaponry01','StormBolt','HealingSurge','IceBarrage','MarkOfFlame',
+    'SphereOfProtection','Summon','ArcaneWeaponry02','ChainLightning','Tempest',
+    'ElementalRage','SummonUpgrade1','SummonUpgrade2','ArcaneWeaponry03',
+    'ArcaneWeaponry04','Frostshackle','WintersEmbrace','Smolder','Meteor',
+    'SphereOfReprisal','SphereOfRetribution'
+}
+
+function dev.max_sorcery()
+    require_dispatch()
+    local resolve = require_function(ABILITY_ID, 'ABILITY_ID')
+    local data = character_data
+    local grant = require_function(data and data.grant_actual_ability, 'character_data.grant_actual_ability')
+    local rank = require_function(data.get_current_ability_level, 'character_data.get_current_ability_level')
+    local maximum = require_function(ABILITY and ABILITY.get_ability_max_rank, 'ABILITY.get_ability_max_rank')
+    local plan = {}
+    -- Validate every ID/rank before the first mutation.
+    for _, name in ipairs(sorcery) do
+        local id = resolve('Sorcery_' .. name)
+        if not id or id == 0 or not data.m_lookup_by_ability or not data.m_lookup_by_ability[id] then
+            fail('unknown Sorcery ability: ' .. name)
+        end
+        local target = integer(maximum(id), 1, 20, 'maximum ability rank')
+        local current = integer(rank(id), 0, 30, 'current ability rank')
+        plan[#plan + 1] = {id=id, name=name, target=target, current=current}
+    end
+    local added = 0
+    for _, ability in ipairs(plan) do
+        for level = ability.current + 1, ability.target do
+            grant(ability.id, false)
+            if rank(ability.id) < level then
+                fail('rank did not advance for ' .. ability.name .. '; partial grant, not retried')
+            end
+            added = added + 1
+        end
+    end
+    return 'Sorcery maxed: 25 abilities; ' .. added .. ' ranks added. Assign spells in Abilities or use the spell test set.'
+end
+
+function dev.equip_spell_test_set()
+    require_dispatch()
+    local resolve = require_function(ABILITY_ID, 'ABILITY_ID')
+    local data = character_data
+    local rank = require_function(data and data.get_current_ability_level, 'character_data.get_current_ability_level')
+    local setup = require_function(data.setup_magic_weapon, 'character_data.setup_magic_weapon')
+    local init = require_function(data.init_ability_slots_from_equipment, 'character_data.init_ability_slots_from_equipment')
+    local equip = require_function(data.equip_ability_in_slot, 'character_data.equip_ability_in_slot')
+    local current = require_function(PLAYER and PLAYER.get_equipped_object_from_equip_type_and_slot, 'PLAYER.get_equipped_object_from_equip_type_and_slot')
+    local ids = {}
+    local names = {'StormBolt','IceBarrage','HealingSurge','Meteor'}
+    for i, name in ipairs(names) do
+        ids[i] = resolve('Sorcery_' .. name)
+        if not ids[i] or ids[i] == 0 or rank(ids[i]) < 1 then fail('use Max Sorcery first: ' .. name .. ' is locked') end
+    end
+    init()
+    for slot, id in ipairs(ids) do
+        local item = setup(id)
+        if item == nil or item == false or item == -1 then fail('spell item unavailable; partial setup, not retried') end
+        equip(item, slot) -- character_data uses 1-based slots; PLAYER uses 0-based.
+        if current('Magic', slot - 1) ~= item then fail('spell slot not confirmed; not retried') end
+    end
+    return 'Spell slots 1-4: Storm Bolt / Ice Barrage / Healing Surge / Meteor'
+end
+
 -- One actor per call. Distance is in game units, not meters.
 function dev.spawn(name, distance)
     require_dispatch()
