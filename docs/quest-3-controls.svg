@@ -1,0 +1,91 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="660" viewBox="0 0 1280 660" role="img" aria-labelledby="title desc">
+  <title id="title">Kingdoms of Amalur VR — Quest 3 controls</title>
+  <desc id="desc">Schematic of left and right Touch Plus controllers, viewed from above with triggers shown behind the top edge. Left: stick moves, quick click and release opens map, hold 350 milliseconds opens quick access; Y selects weapon, X attacks with primary, trigger blocks, grip supports a weapon, menu opens game menu. Right: stick snap turns 30 degrees, click and release toggles stealth; B interacts or sprints and goes back in menus, A dodges or confirms, trigger attacks with selected weapon, grip modifies abilities, thumbrest touch enables D-pad with left stick. Combinations and gesture details are in the README legend and CONTROLS.md.</desc>
+  <defs>
+    <linearGradient id="shell" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#ffffff"/><stop offset="1" stop-color="#b9c8d8"/>
+    </linearGradient>
+    <linearGradient id="face" x1="0" y1="0" x2="0" y2="1">
+      <stop stop-color="#34465a"/><stop offset="1" stop-color="#182738"/>
+    </linearGradient>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif; }
+      .label { fill: #f0f5fc; font-size: 23px; font-weight: 650; }
+      .action { fill: #bdccdc; font-size: 21px; }
+      .small { fill: #91a6bd; font-size: 18px; }
+      .wire { fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+      .left { stroke: #5edbc6; } .right { stroke: #eac17b; }
+      .button { fill: #0c1724; stroke: #667b90; stroke-width: 2; }
+      .glyph { fill: #f5f9ff; font-size: 23px; font-weight: 600; text-anchor: middle; }
+    </style>
+  </defs>
+  <rect width="1280" height="660" rx="24" fill="#0c1522"/>
+  <text x="32" y="48" fill="#f4f7fc" font-size="30" font-weight="700">QUEST 3 · TOUCH PLUS</text>
+  <text x="32" y="80" class="action">Kingdoms of Amalur VR / First-person gameplay</text>
+  <text x="1248" y="48" text-anchor="end" class="small">TOP VIEW · SCHEMATIC</text>
+  <rect x="20" y="108" width="610" height="488" rx="18" fill="#132131" stroke="#294354"/>
+  <rect x="650" y="108" width="610" height="488" rx="18" fill="#132131" stroke="#443d32"/>
+  <text x="42" y="147" fill="#5edbc6" font-size="23" font-weight="700">LEFT HAND</text>
+  <text x="672" y="147" fill="#eac17b" font-size="23" font-weight="700">RIGHT HAND</text>
+
+  <!-- Ringless Touch Plus shells. Trigger and inner grip are exposed schematically. -->
+  <g stroke="#8499ae" stroke-width="2">
+    <path d="M269 240 Q260 201 285 194 Q313 193 324 237" fill="#8095a8"/>
+    <path d="M222 305 Q204 343 229 405 L245 523 Q250 558 283 555 Q319 552 323 518 L349 400 Q387 361 373 299Z" fill="url(#shell)"/>
+    <path d="M351 361 Q372 358 372 384 L361 436 Q355 452 340 441Z" fill="#8298ac"/>
+    <path d="M211 288 Q217 232 278 228 Q347 222 374 277 Q394 325 359 363 Q327 392 258 373 Q208 357 211 288Z" fill="url(#face)"/>
+    <path d="M985 240 Q994 201 969 194 Q941 193 930 237" fill="#8095a8"/>
+    <path d="M1032 305 Q1050 343 1025 405 L1009 523 Q1004 558 971 555 Q935 552 931 518 L905 400 Q867 361 881 299Z" fill="url(#shell)"/>
+    <path d="M903 361 Q882 358 882 384 L893 436 Q899 452 914 441Z" fill="#8298ac"/>
+    <path d="M1043 288 Q1037 232 976 228 Q907 222 880 277 Q860 325 895 363 Q927 392 996 373 Q1046 357 1043 288Z" fill="url(#face)"/>
+  </g>
+  <!-- Left face: stick outside, Y above X inside, menu below stick. -->
+  <circle cx="251" cy="278" r="29" fill="#0b1420" stroke="#657b90" stroke-width="3"/>
+  <circle cx="251" cy="278" r="21" fill="#314459" stroke="#5edbc6" stroke-width="2"/>
+  <circle cx="322" cy="270" r="20" class="button"/><text x="322" y="278" class="glyph">Y</text>
+  <circle cx="342" cy="321" r="20" class="button"/><text x="342" y="329" class="glyph">X</text>
+  <circle cx="270" cy="344" r="15" class="button"/>
+  <path d="M263 340 H277 M263 344 H277 M263 348 H277" stroke="#f0f5fc" stroke-width="2"/>
+  <!-- Right face mirrors the left; thumbrest is the unbuttoned inner pad. -->
+  <circle cx="1003" cy="278" r="29" fill="#0b1420" stroke="#657b90" stroke-width="3"/>
+  <circle cx="1003" cy="278" r="21" fill="#314459" stroke="#eac17b" stroke-width="2"/>
+  <circle cx="932" cy="270" r="20" class="button"/><text x="932" y="278" class="glyph">B</text>
+  <circle cx="912" cy="321" r="20" class="button"/><text x="912" y="329" class="glyph">A</text>
+  <circle cx="984" cy="344" r="15" class="button"/>
+  <ellipse cx="984" cy="344" rx="8" ry="5" fill="none" stroke="#94a5b7" stroke-width="2"/>
+  <ellipse cx="947" cy="359" rx="16" ry="9" fill="#42566b" stroke="#eac17b"/>
+
+  <g class="wire left">
+    <path d="M200 197 H243 L285 210"/><path d="M191 272 H220"/>
+    <path d="M343 270 H409 L426 251"/><path d="M363 321 H426"/>
+    <path d="M200 423 H220 L263 358"/><path d="M364 413 H407 L426 422"/>
+  </g>
+  <g>
+    <text x="42" y="186" class="label">Trigger</text><text x="42" y="213" class="action">Block</text>
+    <text x="42" y="265" class="label">Left stick</text><text x="42" y="294" class="action">Move</text>
+    <text x="42" y="326" class="small">Quick click + release:</text><text x="42" y="350" class="action">Map</text>
+    <text x="42" y="378" class="small">Hold 350 ms: wheel*</text>
+    <text x="428" y="246" class="label">Y</text><text x="428" y="274" class="action">Select weapon</text><text x="428" y="299" class="small">Primary / secondary</text>
+    <text x="428" y="336" class="label">X</text><text x="428" y="364" class="action">Primary attack</text>
+    <text x="42" y="447" class="label">Menu button</text><text x="42" y="475" class="action">Game menu</text>
+    <text x="428" y="426" class="label">Grip</text><text x="428" y="454" class="action">Support grab*</text>
+    <text x="42" y="574" class="small">*Quick-access wheel / supported weapon handle</text>
+  </g>
+  <g class="wire right">
+    <path d="M853 197 H898 L968 210"/>
+    <path d="M849 251 H894 L911 263"/><path d="M849 324 H890"/>
+    <path d="M1034 278 H1070"/>
+    <path d="M848 424 H869 L890 413"/><path d="M947 369 V473 H1070"/>
+  </g>
+  <g>
+    <text x="672" y="186" class="label">Trigger</text><text x="672" y="213" class="action">Selected attack</text>
+    <text x="672" y="257" class="label">B</text><text x="672" y="285" class="action">Interact / sprint</text><text x="672" y="310" class="small">Back in menus</text>
+    <text x="672" y="346" class="label">A</text><text x="672" y="374" class="action">Dodge / confirm</text>
+    <text x="1074" y="253" class="label">Right stick</text><text x="1074" y="282" class="action">30° snap turn</text><text x="1074" y="308" class="small">Left / right; center</text><text x="1074" y="331" class="small">between turns</text>
+    <text x="1074" y="367" class="small">Click + release:</text><text x="1074" y="392" class="action">Stealth</text>
+    <text x="672" y="442" class="label">Grip</text><text x="672" y="470" class="action">Ability modifier</text><text x="672" y="495" class="small">Hold + A / B / X / Y</text>
+    <text x="1074" y="469" class="label">Thumbrest</text><text x="1074" y="498" class="action">Touch for D-pad</text><text x="1074" y="523" class="small">Use with left stick</text>
+    <text x="672" y="574" class="small">Small system button: Quest menu (system control)</text>
+  </g>
+  <text x="32" y="631" class="action">Combinations, support grip and experimental gestures: see the legend below and the full controls guide.</text>
+</svg>

@@ -4,6 +4,21 @@
 
 Experimental VR mod for **Kingdoms of Amalur: Re-Reckoning**, targeting **Quest 3 + Virtual Desktop (VDXR)**. Work in progress; no ready-to-install release.
 
+![Quest 3 Touch Plus controller diagram: left stick moves; Y selects weapon; X attacks primary; left trigger blocks; left grip supports. Right stick snap turns; A dodges; B interacts or sprints; right trigger attacks selected weapon; right grip modifies abilities.](docs/quest-3-controls.svg)
+
+| Combination / gesture | Action |
+| --- | --- |
+| Right grip held + A / B / X / Y | Native ability modifier + corresponding face-button ability slot. |
+| Left trigger + right grip | Reckoning mode. |
+| Right thumbrest touch + left stick | D-pad: **left** health, **right** mana, **up** aggressive mode. Center the stick after leaving D-pad mode. |
+| Both stick clicks held + left stick | D-pad fallback. Deflect the left stick **before** clicking both; clicking both while centered opens the developer panel instead. |
+| Hold left stick click for 350 ms | Quick-access wheel; use the left stick to select. A quick click and release opens the map. |
+| Left grip near a supported free-offhand weapon handle | Hand-only support grab; release to detach. |
+| Both sticks clicked while centered | Open / close the developer panel (also F11). Release controls before navigating. |
+| Physical weapon swings / raised-blade charge | **Experimental, disabled in default builds.** Verified first-person longswords support linked swings and a stable, upright shoulder-height hold of about one second to charge; green signals readiness. See the guide for supported weapons, opt-in requirements and limitations. |
+
+In menus, use the game's gamepad UI: face buttons keep native actions and the right stick navigates. Release controls after opening or closing menus/panels. Y selects a weapon without attacking; the right trigger attacks that selection. Tracked bow drawing/aiming is not implemented. **[Full controls, keyboard shortcuts and gesture details →](CONTROLS.md)**
+
 ## Current work
 
 - Stereo VR, head tracking, first-person camera and Touch controls.
