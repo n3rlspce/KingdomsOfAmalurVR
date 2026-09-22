@@ -18,32 +18,29 @@ Experimental VR mod for **Kingdoms of Amalur: Re-Reckoning**, targeting **Quest 
 | --- | --- |
 | Right grip held + A / B / X / Y | Native ability modifier + corresponding face-button ability slot. |
 | Left trigger + right grip | Reckoning mode. |
-| Right thumbrest touch + left stick | D-pad: **left** health, **right** mana, **up** aggressive mode. Center the stick after leaving D-pad mode. |
-| Both stick clicks held + left stick | D-pad fallback. Deflect the left stick **before** clicking both; clicking both while centered opens the developer panel instead. |
+| Both stick clicks held + left stick | D-pad: **left** health, **right** mana, **up** aggressive mode. Deflect the left stick **before** clicking both; clicking both while centered opens the developer panel instead. |
 | Hold left stick click for 350 ms | Quick-access wheel; use the left stick to select. A quick click and release opens the map. |
 | Left grip near a supported free-offhand weapon handle | Hand-only support grab; release to detach. |
 | Both sticks clicked while centered | Open / close the developer panel (also F11). Release controls before navigating. |
-| Physical weapon swings / raised-blade charge | **Experimental, disabled in default builds.** Verified first-person longswords support linked swings and a stable, upright shoulder-height hold of about one second to charge; green signals readiness. See the guide for supported weapons, opt-in requirements and limitations. |
+| Physical weapon swings / raised-blade charge | **Experimental, disabled in default builds.** Verified first-person longswords support linked swings and a one-second shoulder/overhead or right-grip charge; green signals readiness. See the guide for supported weapons, opt-in requirements and limitations. |
 
 In menus, use the game's gamepad UI: face buttons keep native actions and the right stick navigates. Release controls after opening or closing menus/panels. Y selects a weapon without attacking; the right trigger attacks that selection. Tracked bow drawing/aiming is not implemented. **[Full controls, keyboard shortcuts and gesture details →](CONTROLS.md)**
 
 ## Current work
 
-- Stereo VR, head tracking, first-person camera and Touch controls.
-- Both-arm IK, tracked held weapons, body/render-root pairing and weapon orientation corrections.
-- HUD and menu adjustments, first-person dialogue, and developer camera/animation isolation toggles.
-- Free-offhand support grip for captured weapon models, plus primary/secondary held-weapon visibility.
-- Experimental physical damage paths for verified primary daggers, longsword and greatsword; deliberate swing gates and shared collision previews.
-- Longsword V3: physical three-strike sequence, raised-hand charge, captured native audio and custom trails for verified regular/rusty models; scoped physical hit-stop suppression.
-- Native third-person mode, hold-to-scroll settings, health/weapon-move cheats, and native attack/effect diagnostics.
-- Cinematic camera and dialogue-gaze experiments with Lua letterbox removal.
-- Developer panel inventory tools, Sorcery unlock and spell test loadout, with bounded labels fixing the spell-row bridge crash.
-- Revision-checked startup tools, automatic Continue with autosave disabled before loading, and a UI pause-recovery action.
-- The VR bridge closes when the game exits.
+- Stereo VR and Touch input, first/third-person modes, snap turning, physical crouch and seated settings.
+- Tracked arms and weapons, head-height/arm-thickness controls, and pelvis/body attachment corrections.
+- Experimental physical melee with native weapon selection and activation recovery, family feedback, and back-grip sheath/draw.
+- Longsword charge by raised hand or right grip, a compact charge gauge, optional debug readout, and measured rusty-longsword scale preservation.
+- Experimental staff attack-facing alignment.
+- Transparent native UI capture, controller menu handling, wrist HUD and independent bottom-HUD placement.
+- Realtime cutscenes in Full VR or Window mode, resizable cinematic screens, dialogue facing and letterbox adjustments.
+- Developer inventory, health, spell and weapon-skill tools, native pause recovery, and process-once automatic Continue with autosave disabled.
+- VR bridge lifecycle follows the game.
 
 ## Known limitations
 
-Weapon jitter and VR session loss remain under investigation. Body stabilization has improved in live tests, but this is not complete visual or stability acceptance. Collision shapes are provisional; faeblades use fitting guides and thrown chakrams remain unsupported. Staff magic is observed for diagnostics, not enabled as physical contact damage. Longsword audio and custom trails are experimental; native trail ownership and broader weapon combo/effect playback remain unfinished.
+Weapon jitter and VR session loss remain under investigation. Body stabilization has improved in live tests, but this is not complete visual or stability acceptance. Collision shapes are provisional; faeblades use fitting guides and thrown chakrams remain unsupported. Staff magic is observed for diagnostics, not enabled as physical contact damage. Family feedback and custom trails are experimental; full native combos/heavies for every weapon, bow-arrow offset and general weapon-scale preservation remain unfinished. Latest staff aiming, wrist capture and body changes still require headset validation.
 
 **Experimental physical contacts have caused simulation freezes and can stop after death/reload.** They are compiled out by default. The opt-in build and marker are for controlled diagnostics. Native contact acceptance logs are not proof of enemy health loss. Finger curl, broad weapon-model coverage and startup/pause reliability are unfinished. Cinematic scene coverage, dialogue gaze and the latest hit-stop change need headset validation.
 
@@ -51,6 +48,6 @@ Weapon jitter and VR session loss remain under investigation. Body stabilization
 
 Build the diagnostic DLL with CMake and Visual Studio using -A Win32. Keep AMALUR_OWNED_MELEE=OFF for normal builds. Build the bridge using tools/build-xr-smoke.ps1 with -OpenXrSdk pointing to an OpenXR.Loader package; build the developer helper with tools/developer/build.ps1.
 
-The source under src/ is the integrated baseline. Diagnostic checks are CMake targets; run D3D/WARP checks from a directory without the proxy d3d11.dll to avoid DLL shadowing. Generated binaries, original game files, research dumps and workstation settings are excluded from version control. Never replace the game's geo11 d3d11.dll with the diagnostic output; the established installation name is amalur_camera.dll.
+The source under `src/diagnostic` and `src/tracking` is the integrated game baseline. The bridge uses `src/xr_smoke` and its separately preserved `src/bridge_tracking` headers; these snapshots currently differ, so do not substitute one for the other. HUD replacement sources are under `shaders/ShaderFixes` (see `shaders/README.md`). Diagnostic checks are CMake targets; run D3D/WARP checks from a directory without the proxy d3d11.dll to avoid DLL shadowing. Generated binaries, original game files, research dumps and workstation settings are excluded from version control. Never replace the game's geo11 d3d11.dll with the diagnostic output; the established installation name is amalur_camera.dll.
 
 See [developer tools](tools/developer/README.md). Developer commands can alter a save; use a dedicated development save.

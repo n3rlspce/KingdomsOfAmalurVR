@@ -1,5 +1,6 @@
 #pragma once
 #include <Xinput.h>
+#include "controller_ui_mode.hpp"
 #include "../tracking/motion_input.hpp"
 #include "../tracking/dodge_facing.hpp"
 #include "../tracking/movement_basis.hpp"
@@ -16,6 +17,9 @@ inline std::atomic<bool> dialogueActive{false};
 inline std::atomic<uint64_t> daggerSeen{},swingUntil{};
 inline std::atomic<bool> meleeContextReady{false};
 inline std::atomic<uint64_t> primaryAttackUntil{};
+inline amalur::MeleeSpellSequence spellSequence;
+inline std::atomic<uint64_t> explicitSpellUntil{};
+inline bool explicitSpellActive(uint64_t now){return now<explicitSpellUntil.load();}
 inline amalur::MovementBasis movementBasis;
 inline void sampleMovementBasis(mgs5vr::Vec3 nativeForward,mgs5vr::Vec3 headForward,bool enabled,uint64_t tick){
     AcquireSRWLockExclusive(&lock);
@@ -37,6 +41,19 @@ inline ViewControls viewControls(){
     return result;
 }
 inline bool gameFocused(){DWORD pid{};GetWindowThreadProcessId(GetForegroundWindow(),&pid);return pid==GetCurrentProcessId();}
+// Native ACTOR.get_active_interact_target reads Globals+3C5C (RVA A40B40).
+// Validate the entity generation so loads/stale handles fail closed.
+inline uint32_t nativeInteractionTarget(){
+    __try {
+        const auto word=player_rig::word;
+        const auto globals=word(gameBase+0x15fe9c4);if(!globals)return 0;
+        const auto handle=static_cast<uint32_t>(word(globals+0x3c5c));
+        if(!handle)return 0;
+        const auto entity=player_rig::resolve(handle);
+        if(!entity||!(word(entity+0x10c)&1)||word(globals+0x3c5c)!=handle)return 0;
+        return handle;
+    } __except(EXCEPTION_EXECUTE_HANDLER){return 0;}
+}
 inline DWORD WINAPI getState(DWORD index,XINPUT_STATE* state){
     DWORD result=original(index,state);
     if(index||!state)return result;
@@ -45,28 +62,38 @@ inline DWORD WINAPI getState(DWORD index,XINPUT_STATE* state){
     amalur::MotionInputPacket motion;
     AcquireSRWLockExclusive(&lock);
     bool connected=channel.open(false);
-    if(!connected){ReleaseSRWLockExclusive(&lock);return result;}
+    if(!connected){controller_ui_mode::update(false);spellSequence.reset();explicitSpellUntil.store(0);staff_aim::observe(0,0,false,GetTickCount64());ReleaseSRWLockExclusive(&lock);return result;}
     bool active=gameFocused()&&channel.read(motion);
+    controller_ui_mode::update(active&&headTracking.load()&&!interfaceView.load());
     if(result!=ERROR_SUCCESS)*state={};
+    const auto inputNow=GetTickCount64();
+    const bool physicalMelee=active&&contactEnabled.load()&&firstPerson.load()
+        &&!interfaceView.load()&&!dialogueActive.load();
+    if(!physicalMelee){spellSequence.reset();explicitSpellUntil.store(0);}
     if(active){
         // Item radial directions belong to its screen-space selector, not the
         // world. Rotate virtual locomotion only; keep physical pads untouched.
         if(!dialogueActive.load()&&!(motion.buttons&XINPUT_GAMEPAD_LEFT_SHOULDER))
             movementBasis.transform(motion.moveX,motion.moveY,GetTickCount64());
+        spellSequence.sample(motion,inputNow,physicalMelee);
+        if(physicalMelee&&spellSequence.active())explicitSpellUntil.store(inputNow+250);
         amalur::mergeMotion(state->Gamepad,motion);
         if(!dialogueActive.load()&&contactEnabled.load()&&(state->Gamepad.wButtons&XINPUT_GAMEPAD_X)&&state->Gamepad.bRightTrigger<XINPUT_GAMEPAD_TRIGGER_THRESHOLD)
             primaryAttackUntil.store(GetTickCount64()+2000);
     }
+    staff_aim::observe(state->Gamepad.wButtons,state->Gamepad.bRightTrigger,
+        active&&firstPerson.load()&&!interfaceView.load()&&!dialogueActive.load()&&!explicitSpellActive(inputNow),inputNow);
     amalur::locomotionFacing.observe(gameFocused()&&!dialogueActive.load(),state->Gamepad.sThumbLX,
         state->Gamepad.sThumbLY,GetTickCount64());
     // Observe the final merged pad so a physical controller gets the same dodge
     // protection. RT+A is an ability, not a dodge; don't seize native facing.
+    const auto interactionTarget=active&&!dialogueActive.load()?nativeInteractionTarget():0;
     amalur::dodgeFacing.observe(gameFocused()&&!dialogueActive.load(),
         (state->Gamepad.wButtons&XINPUT_GAMEPAD_A)!=0,
-        state->Gamepad.bRightTrigger>XINPUT_GAMEPAD_TRIGGER_THRESHOLD,GetTickCount64());
+        state->Gamepad.bRightTrigger>XINPUT_GAMEPAD_TRIGGER_THRESHOLD,GetTickCount64(),interactionTarget!=0);
     static DWORD lastInput=~0u;
     DWORD current=static_cast<DWORD>(state->Gamepad.wButtons)|(static_cast<DWORD>(state->Gamepad.bLeftTrigger)<<16)|(static_cast<DWORD>(state->Gamepad.bRightTrigger)<<24);
-    if(current!=lastInput){log("Touch XInput tick=%llu active=%d buttons=%04x LT=%u RT=%u\n",GetTickCount64(),active,state->Gamepad.wButtons,state->Gamepad.bLeftTrigger,state->Gamepad.bRightTrigger);lastInput=current;}
+    if(current!=lastInput){log("Touch XInput tick=%llu active=%d buttons=%04x LT=%u RT=%u interact=%08x\n",GetTickCount64(),active,state->Gamepad.wButtons,state->Gamepad.bLeftTrigger,state->Gamepad.bRightTrigger,interactionTarget);lastInput=current;}
 
     state->dwPacketNumber=++packetNumber;
     ReleaseSRWLockExclusive(&lock);

@@ -1,5 +1,6 @@
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
+#define AMALUR_ATTACK_PANEL_MAPPING L"Local\\AmalurAttackPanelGaugeRendererCheck"
 #define AMALUR_MELEE_DEBUG_MAPPING L"Local\\AmalurMeleeDebugIsolatedRendererCheck"
 #include <windows.h>
 #include <d3d11.h>
@@ -11,12 +12,14 @@
 #include <cstring>
 #include "weapon_pose.hpp"
 #include "melee_swing_event.hpp"
+#include "longsword_debug_view.hpp"
 using Microsoft::WRL::ComPtr;
 static void log(const char* text,...){std::printf("%s",text);}
 static std::atomic<bool> firstPerson{true},interfaceView{false};
 namespace arm_rig {static std::atomic<bool> enabled{true};}
-namespace motion_controls {inline bool focused=true;inline bool gameFocused(){return focused;}struct Controls {int selectedWeapon{};};inline Controls viewControls(){return {};}}
+namespace motion_controls {inline bool focused=true;inline bool gameFocused(){return focused;}struct Controls {unsigned selectedWeapon{};};inline Controls controls;inline Controls viewControls(){return controls;}}
 namespace weapon_control {static SRWLOCK poseLock=SRWLOCK_INIT;static mgs5vr::Pose visualPoses[2];static uint64_t visualTick,tick,leftTick;static uint32_t visualAsset=1520,visualWeapon=123,visualSelection=0;static bool visualDual=true;inline float longswordCharge{};inline bool longswordReady{};inline unsigned generation{};inline amalur::MeleeSwingEvent swingEvents[2];inline std::atomic<uint32_t> physicalActor{0};}
+namespace weapon_control {inline amalur::LongswordDebugStatus longswordDebug;}
 #include "../diagnostic/melee_debug.hpp"
 static void check(bool b,const char* message){if(!b){std::fprintf(stderr,"FAIL: %s\n",message);std::exit(1);}}
 int main(){
@@ -27,14 +30,15 @@ int main(){
         check(!melee_debug::device,"disabled overlay never enters D3D path");
         std::puts("PASS: overlay quarantined; panel cannot enable; no graphics access");return 0;
     }
+    amalur::AttackPanelSettings attackPanel;check(!attackPanel.enabled(),"attack panel defaults off");
     amalur::MeleeDebugSettings toggle;check(!toggle.enabled(),"overlay defaults off");check(toggle.toggle(),"explicit enable");
     for(const auto model:{2478u,1250u,1323u,1689u,1520u}){
         weapon_control::visualAsset=model;
         amalur::MeleeDebugSettings panel;
         check(panel.enabled()&&toggle.enabled(),"weapon changes and panel reconnection preserve ON");
     }
-    auto window=CreateWindowExW(0,L"STATIC",L"overlay-check",WS_OVERLAPPEDWINDOW,0,0,256,256,nullptr,nullptr,GetModuleHandleW(nullptr),nullptr);
-    DXGI_SWAP_CHAIN_DESC sd{};sd.BufferDesc.Width=256;sd.BufferDesc.Height=256;sd.BufferDesc.Format=DXGI_FORMAT_R8G8B8A8_UNORM;sd.SampleDesc.Count=1;sd.BufferUsage=DXGI_USAGE_RENDER_TARGET_OUTPUT;sd.BufferCount=1;sd.OutputWindow=window;sd.Windowed=TRUE;
+    auto window=CreateWindowExW(0,L"STATIC",L"overlay-check",WS_OVERLAPPEDWINDOW,0,0,1024,1024,nullptr,nullptr,GetModuleHandleW(nullptr),nullptr);
+    DXGI_SWAP_CHAIN_DESC sd{};sd.BufferDesc.Width=1024;sd.BufferDesc.Height=1024;sd.BufferDesc.Format=DXGI_FORMAT_R8G8B8A8_UNORM;sd.SampleDesc.Count=1;sd.BufferUsage=DXGI_USAGE_RENDER_TARGET_OUTPUT;sd.BufferCount=1;sd.OutputWindow=window;sd.Windowed=TRUE;
     ComPtr<ID3D11Device> d;ComPtr<ID3D11DeviceContext> c;ComPtr<IDXGISwapChain> chain;D3D_FEATURE_LEVEL level;
     check(SUCCEEDED(D3D11CreateDeviceAndSwapChain(nullptr,D3D_DRIVER_TYPE_WARP,nullptr,0,nullptr,0,D3D11_SDK_VERSION,&sd,&chain,&d,&level,&c)),"WARP swapchain");
     ComPtr<ID3D11Device> wrapped;check(SUCCEEDED(chain->GetDevice(IID_PPV_ARGS(&wrapped))),"swapchain device");d=wrapped;c.Reset();d->GetImmediateContext(&c);
@@ -56,7 +60,7 @@ int main(){
     D3D11_TEXTURE2D_DESC td;back->GetDesc(&td);td.Usage=D3D11_USAGE_STAGING;td.BindFlags=0;td.CPUAccessFlags=D3D11_CPU_ACCESS_READ;ComPtr<ID3D11Texture2D> staging;
     check(SUCCEEDED(d->CreateTexture2D(&td,nullptr,&staging)),"readback texture");c->CopyResource(staging.Get(),back.Get());D3D11_MAPPED_SUBRESOURCE map;
     check(SUCCEEDED(c->Map(staging.Get(),0,D3D11_MAP_READ,0,&map)),"readback");unsigned cyan=0,magenta=0,edgePixels=0;
-    for(unsigned y=0;y<256;++y)for(unsigned x=0;x<256;++x){auto p=static_cast<unsigned char*>(map.pData)+y*map.RowPitch+x*4;if((x<8||x>=248)&&(p[0]>100||p[1]>100||p[2]>100))++edgePixels;if(p[1]>100&&p[2]>100&&p[0]<60)++cyan;if(p[0]>100&&p[2]>100&&p[1]<60)++magenta;}
+    for(unsigned y=0;y<1024;++y)for(unsigned x=0;x<1024;++x){auto p=static_cast<unsigned char*>(map.pData)+y*map.RowPitch+x*4;if((x<8||x>=1016)&&(p[0]>100||p[1]>100||p[2]>100))++edgePixels;if(p[1]>100&&p[2]>100&&p[0]<60)++cyan;if(p[0]>100&&p[2]>100&&p[1]<60)++magenta;}
     c->Unmap(staging.Get(),0);check(edgePixels==0,"in-view rings cannot streak to screen edges");check(cyan>20&&magenta>20,"both hand wireframes visible in rendered pixels");
     vp[10]=.004f;
     for(const auto model:{2478u,1250u,1323u,1689u,1520u}){
@@ -69,15 +73,45 @@ int main(){
     }
     check(toggle.toggle()&&!toggle.enabled(),"explicit disable");
     weapon_control::visualAsset=2478;weapon_control::visualDual=false;
-    weapon_control::longswordCharge=1;weapon_control::longswordReady=true;
-    weapon_control::visualTick=weapon_control::tick=GetTickCount64();
-    c->ClearRenderTargetView(rt.Get(),black);melee_debug::draw(chain.Get(),vp,true);
-    c->CopyResource(staging.Get(),back.Get());check(SUCCEEDED(c->Map(staging.Get(),0,D3D11_MAP_READ,0,&map)),"charge readback");
-    unsigned green=0;for(unsigned y=0;y<256;++y)for(unsigned x=0;x<256;++x){auto p=static_cast<unsigned char*>(map.pData)+y*map.RowPitch+x*4;if(p[1]>150&&p[0]<100&&p[2]<120)++green;}
-    c->Unmap(staging.Get(),0);check(green>10,"ready indicator visible with collision debug OFF");
+    auto now=GetTickCount64();weapon_control::visualTick=weapon_control::tick=now;
+    weapon_control::longswordDebug={};weapon_control::longswordDebug.active=true;weapon_control::longswordDebug.tick=now;
+    auto countPixels=[&](bool checkRight=false){
+        c->CopyResource(staging.Get(),back.Get());check(SUCCEEDED(c->Map(staging.Get(),0,D3D11_MAP_READ,0,&map)),"gauge readback");
+        unsigned count=0;int minX=1024,maxX=-1,minY=1024,maxY=-1;
+        for(int y=0;y<1024;++y)for(int x=0;x<1024;++x){auto pixel=static_cast<unsigned char*>(map.pData)+y*map.RowPitch+x*4;
+            if(pixel[0]>100||pixel[1]>100||pixel[2]>100){++count;minX=std::min(minX,x);maxX=std::max(maxX,x);minY=std::min(minY,y);maxY=std::max(maxY,y);}}
+        c->Unmap(staging.Get(),0);
+        if(checkRight)check(minX>512&&maxX-minX<12&&maxY-minY<65,"gauge is narrow, right of centre and compact");
+        return count;
+    };
+    auto drawGauge=[&](){c->ClearRenderTargetView(rt.Get(),black);melee_debug::draw(chain.Get(),vp,true);};
+    drawGauge();check(countPixels()==0,"idle sword has no debug panel or gauge");
+    weapon_control::longswordDebug.height=true;drawGauge();const auto empty=countPixels(true);check(empty>0,"pose alone shows minimal gauge");
+    weapon_control::longswordCharge=.5f;drawGauge();const auto half=countPixels(true);check(half>empty,"charge fills gauge upward");
+    weapon_control::longswordCharge=1;weapon_control::longswordReady=true;drawGauge();check(countPixels(true)>half,"ready gauge fills fully");
+    c->CopyResource(staging.Get(),back.Get());check(SUCCEEDED(c->Map(staging.Get(),0,D3D11_MAP_READ,0,&map)),"ready readback");
+    unsigned green=0;for(unsigned y=0;y<1024;++y)for(unsigned x=0;x<1024;++x){auto pixel=static_cast<unsigned char*>(map.pData)+y*map.RowPitch+x*4;if(pixel[1]>150&&pixel[0]<100&&pixel[2]<120)++green;}
+    c->Unmap(staging.Get(),0);check(green>10,"ready gauge turns green");
+    weapon_control::visualAsset=5457;drawGauge();check(countPixels(true)>half,"rusty sword gauge supported");
+    weapon_control::visualSelection=motion_controls::controls.selectedWeapon=1;
+    drawGauge();check(countPixels(true)>half,"secondary rusty sword has the same ready gauge");
+    motion_controls::controls.selectedWeapon=0;
+    drawGauge();check(countPixels()==0,"old slot gauge disappears immediately when selection changes");
+    weapon_control::visualSelection=2;motion_controls::controls.selectedWeapon=2;
+    drawGauge();check(countPixels()==0,"unsupported slot cannot show charge gauge");
+    weapon_control::visualSelection=motion_controls::controls.selectedWeapon=0;
+    weapon_control::longswordCharge=0;weapon_control::longswordReady=false;weapon_control::longswordDebug.height=false;
+    drawGauge();check(countPixels()==0,"leaving pose removes gauge");
+    attackPanel.toggle();amalur::AttackPanelSettings peer;check(peer.enabled(),"dev toggle shared; new instance preserves choice");
+    drawGauge();check(countPixels()>100,"explicit developer toggle restores full panel");
+    attackPanel.toggle();drawGauge();check(countPixels()==0,"dev toggle hides only full panel");
+    weapon_control::longswordDebug.height=true;weapon_control::longswordCharge=.5f;
+    weapon_control::longswordDebug.tick=now-300;drawGauge();check(countPixels()==0,"stale charge state hides gauge");
+    weapon_control::longswordDebug.tick=now;weapon_control::visualAsset=1520;drawGauge();check(countPixels()==0,"other weapons hide longsword gauge");
+    weapon_control::visualAsset=2478;
     motion_controls::focused=false;c->ClearRenderTargetView(rt.Get(),black);melee_debug::draw(chain.Get(),vp,true);
     c->CopyResource(staging.Get(),back.Get());check(SUCCEEDED(c->Map(staging.Get(),0,D3D11_MAP_READ,0,&map)),"cancel readback");
-    unsigned lit=0;for(unsigned y=0;y<256;++y)for(unsigned x=0;x<256;++x){auto p=static_cast<unsigned char*>(map.pData)+y*map.RowPitch+x*4;if(p[0]||p[1]||p[2])++lit;}
+    unsigned lit=0;for(unsigned y=0;y<1024;++y)for(unsigned x=0;x<1024;++x){auto p=static_cast<unsigned char*>(map.pData)+y*map.RowPitch+x*4;if(p[0]||p[1]||p[2])++lit;}
     c->Unmap(staging.Get(),0);check(!lit,"focus loss hides charge and trail");
     restored.Reset();rt.Reset();back.Reset();c->OMSetRenderTargets(0,nullptr,nullptr);
     check(SUCCEEDED(chain->ResizeBuffers(1,128,128,DXGI_FORMAT_UNKNOWN,0)),"overlay does not retain backbuffer after drawing");

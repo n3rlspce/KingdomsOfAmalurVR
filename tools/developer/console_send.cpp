@@ -5,8 +5,8 @@
 #include <fstream>
 #include <algorithm>
 #include <cstdio>
-#include "../../src/tracking/developer_commands.hpp"
-#include "../../src/tracking/rig_status.hpp"
+#include "../../src/bridge_tracking/developer_commands.hpp"
+#include "../../src/bridge_tracking/rig_status.hpp"
 
 static std::string quote(const std::wstring& path){
     std::string out="'";

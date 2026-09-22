@@ -34,7 +34,8 @@ public:
                 if(i==s.developerRow){RECT row{24,y-5,width-24,y+28};HBRUSH h=CreateSolidBrush(RGB(34,67,88));FillRect(dc,&row,h);DeleteObject(h);}
                 SetTextColor(dc,(developer->busy()&&i<amalur::developer::panelRows)?RGB(130,143,156):RGB(227,235,244));
                 std::wstring label;
-                if(i>=VrSettings::ablationFirstRow&&i<=VrSettings::ablationResetRow){
+                if(i==VrSettings::attackPanelRow)label=VrSettings::attackPanel.enabled()?L"Attack detection panel: ON":L"Attack detection panel: OFF";
+                else if(i>=VrSettings::ablationFirstRow&&i<=VrSettings::ablationResetRow){
                     static const wchar_t* names[]{L"TEST: Skip socket corrections",L"TEST: Skip root smoothing",L"TEST: Native mesh input (keep VR solve)",L"TEST: Native mesh positions (VR rotations)",L"TEST: Native mesh rotations (VR positions)"};
                     label=i==VrSettings::ablationResetRow?L"Reset jitter experiments (all OFF)":
                         std::wstring(names[i-VrSettings::ablationFirstRow])+(amalur::bodyDebug.enabled(VrSettings::ablationBits[i-VrSettings::ablationFirstRow])?L": ON":L": OFF");
@@ -43,7 +44,7 @@ public:
             }
             SetTextColor(dc,RGB(159,177,195));
             const wchar_t* destinations[]={L"Give to inventory",L"Give + equip primary",L"Give + equip secondary",L"Equip existing primary",L"Equip existing secondary"};
-            text(42,1045,s.developerRow>=VrSettings::ablationFirstRow?L"Try one experiment at a time; reset before the next.":s.developerRow==VrSettings::mapPanelRow?L"Paused-screen prototype: enable, close this panel, open Map.":s.developerRow>=amalur::developer::panelRows+2?L"A / trigger / left-right: toggle (both can be ON)":s.developerRow==amalur::developer::panelRows+1?L"A / trigger / left-right: toggle third-person camera":s.developerRow==amalur::developer::panelRows?L"A / trigger / left-right: toggle collision overlay":s.developerRow>=2&&s.developerRow<amalur::developer::rows?std::wstring(L"Weapon destination: ")+destinations[s.developerDestination]:L"Single action - destination applies to weapon rows only");
+            text(42,1045,s.developerRow==VrSettings::attackPanelRow?L"A / trigger / left-right: show or hide attack readout":s.developerRow>=VrSettings::ablationFirstRow?L"Try one experiment at a time; reset before the next.":s.developerRow==VrSettings::mapPanelRow?L"Paused-screen prototype: enable, close this panel, open Map.":s.developerRow>=amalur::developer::panelRows+2?L"A / trigger / left-right: toggle (both can be ON)":s.developerRow==amalur::developer::panelRows+1?L"A / trigger / left-right: toggle third-person camera":s.developerRow==amalur::developer::panelRows?L"A / trigger / left-right: toggle collision overlay":s.developerRow>=2&&s.developerRow<amalur::developer::rows?std::wstring(L"Weapon destination: ")+destinations[s.developerDestination]:L"Single action - destination applies to weapon rows only");
             text(42,1090,VrSettings::meleeDebug.enabled()?L"Weapon collisions: ON (stays on when switching weapons)":L"Weapon collisions: OFF");
             SetTextColor(dc,RGB(116,194,217));
             RECT statusRect{42,1125,width-42,1265};
@@ -53,17 +54,31 @@ public:
         text(42,130,L"Hold stick up/down: scroll    Left/right: adjust    Y: reset");
         wchar_t line[256];swprintf_s(line,L"Headset IPD: %.1f mm (runtime)   |   %s",ipd,s.interfaceView?L"Interface View":(tracking?L"6DoF active":L"Menu view - F10 enables tracking"));SetTextColor(dc,RGB(200,208,220));text(42,195,line);
         swprintf_s(line,L"Source / eye: %u x %u     XR / eye: %u x %u",sourceWidth,sourceHeight,eyeWidth,eyeHeight);text(42,234,line);
-        const wchar_t* labels[]={L"Play mode",L"HUD size",L"Stereo depth strength",L"Convergence (game units)",L"Infinity alignment at 20% depth",L"World units per metre",L"Game horizontal FOV",L"XR render scale",L"Sharpening",L"Reverse source eyes",L"Hand grip pitch (degrees)",L"Hand grip yaw (degrees)",L"Hand grip roll (degrees)",L"Interface View (Ctrl + I)",L"Fullscreen menu size",L"Dagger outward (+) / inward (-), cm",L"Dagger forward (+) / back (-), cm",L"Dagger up (+) / down (-), cm",L"Open pause menu (A / right trigger)",L"Recenter view (A / right trigger)"};
-        float values[]={amalur::playMode.normal()?1.f:0.f,s.hudSize*100,s.depth,s.convergence,s.alignment*100,s.scale,s.fov,s.renderScale*100,s.sharpness*100,s.swap?1.f:0.f,s.gripPitch,s.gripYaw,s.gripRoll,s.interfaceView?1.f:0.f,s.interfaceScale*100,s.weaponX,s.weaponY,s.weaponZ,0,0};
-        for(int i=0;i<VrSettings::rowCount;++i){int y=282+i*38;if(i==s.selected){RECT row{24,y-6,width-24,y+28};HBRUSH h=CreateSolidBrush(RGB(34,67,88));FillRect(dc,&row,h);DeleteObject(h);}SetTextColor(dc,RGB(227,235,244));text(44,y,labels[i]);if(i==0)swprintf_s(line,L"%s",amalur::playMode.normal()?L"Third person":L"First person");else if(i==9||i==13)swprintf_s(line,L"%s",values[i]>0?L"ON":L"OFF");else swprintf_s(line,(i==1||i==14)?L"%.0f%%":L"%.2f",values[i]);text(i==0?790:850,y,i>=VrSettings::rowCount-2?L"Run":line);}
+        const wchar_t* labels[]={L"Play mode",L"HUD size",L"Stereo depth strength",L"Convergence (game units)",L"Infinity alignment at 20% depth",L"World units per metre",L"Game horizontal FOV",L"XR render scale",L"Sharpening",L"Reverse source eyes",L"Hand grip pitch (degrees)",L"Hand grip yaw (degrees)",L"Hand grip roll (degrees)",L"Interface View (Ctrl + I)",L"Fullscreen menu size",L"Dagger outward (+) / inward (-), cm",L"Dagger forward (+) / back (-), cm",L"Dagger up (+) / down (-), cm",L"Physical crouching (30 cm below recenter)",L"Seated mode (recenter at current height)",L"Heavy charge input",L"Head height (cm)",L"Arm thickness (%)",L"Realtime cutscenes",L"Wrist HUD",L"Skip menu / automatic Continue",L"Open pause menu (A / right trigger)",L"Recenter view (A / right trigger)"};
+        float values[]={amalur::playMode.normal()?1.f:0.f,s.hudSize*100,s.depth,s.convergence,s.alignment*100,s.scale,s.fov,s.renderScale*100,s.sharpness*100,s.swap?1.f:0.f,s.gripPitch,s.gripYaw,s.gripRoll,s.interfaceView?1.f:0.f,s.interfaceScale*100,s.weaponX,s.weaponY,s.weaponZ,s.physicalCrouch?1.f:0.f,s.seatedMode?1.f:0.f,float(s.heavyChargeMode),float(s.headHeightCm),float(s.armThicknessPercent),s.cinematicFullVR?1.f:0.f,float(s.wristHud),s.menuRecovery.automaticContinue?1.f:0.f,0,0};
+        for(int i=0;i<VrSettings::rowCount;++i){int y=282+i*28;if(i==s.selected){RECT row{24,y-6,width-24,y+28};HBRUSH h=CreateSolidBrush(RGB(34,67,88));FillRect(dc,&row,h);DeleteObject(h);}SetTextColor(dc,RGB(227,235,244));text(44,y,labels[i]);if(i==VrSettings::wristHudRow)swprintf_s(line,L"%s",s.wristHud==1?L"Left":s.wristHud==2?L"Right":L"Off");else if(i==VrSettings::cinematicModeRow)swprintf_s(line,L"%s",s.cinematicFullVR?L"Full VR":L"Window");else if(i==VrSettings::heavyChargeRow)swprintf_s(line,L"%s",s.heavyChargeMode?L"Right grip":L"Position");else if(i==VrSettings::rowCount-3)swprintf_s(line,L"%s",s.menuRecovery.automaticContinue?L"ON":L"OFF");else if(i==0)swprintf_s(line,L"%s",amalur::playMode.normal()?L"Third person":L"First person");else if(i==9||i==13||i==18||i==19)swprintf_s(line,L"%s",(i==18&&s.seatedMode)?L"Paused (seated)":(values[i]>0?L"ON":L"OFF"));else swprintf_s(line,(i==1||i==14)?L"%.0f%%":L"%.2f",values[i]);text(i==0?790:850,y,i>=VrSettings::rowCount-2?L"Run":line);}
         static_assert(sizeof(labels)/sizeof(labels[0])==VrSettings::rowCount);
         static_assert(sizeof(values)/sizeof(values[0])==VrSettings::rowCount);
         // Keyboard-operated slider, matching the panel's existing arrow controls.
-        RECT track{360,352,780,358};HBRUSH rail=CreateSolidBrush(RGB(73,91,110));FillRect(dc,&track,rail);DeleteObject(rail);
-        int knob=360+static_cast<int>((s.hudSize-.4f)/.8f*420);RECT thumb{knob-5,349,knob+5,361};HBRUSH accent=CreateSolidBrush(RGB(116,194,217));FillRect(dc,&thumb,accent);DeleteObject(accent);
-        RECT interfaceTrack{360,872,780,878};HBRUSH interfaceRail=CreateSolidBrush(RGB(73,91,110));FillRect(dc,&interfaceTrack,interfaceRail);DeleteObject(interfaceRail);
-        int interfaceKnob=360+static_cast<int>((s.interfaceScale-.5f)*420);RECT interfaceThumb{interfaceKnob-5,869,interfaceKnob+5,881};HBRUSH interfaceAccent=CreateSolidBrush(RGB(116,194,217));FillRect(dc,&interfaceThumb,interfaceAccent);DeleteObject(interfaceAccent);
-        if(s.menuRecovery.status.empty()){
+        RECT track{360,335,780,339};HBRUSH rail=CreateSolidBrush(RGB(73,91,110));FillRect(dc,&track,rail);DeleteObject(rail);
+        int knob=360+static_cast<int>((s.hudSize-.4f)/.8f*420);RECT thumb{knob-5,332,knob+5,342};HBRUSH accent=CreateSolidBrush(RGB(116,194,217));FillRect(dc,&thumb,accent);DeleteObject(accent);
+        RECT interfaceTrack{360,716,780,720};HBRUSH interfaceRail=CreateSolidBrush(RGB(73,91,110));FillRect(dc,&interfaceTrack,interfaceRail);DeleteObject(interfaceRail);
+        int interfaceKnob=360+static_cast<int>((s.interfaceScale-.5f)*420);RECT interfaceThumb{interfaceKnob-5,713,interfaceKnob+5,723};HBRUSH interfaceAccent=CreateSolidBrush(RGB(116,194,217));FillRect(dc,&interfaceThumb,interfaceAccent);DeleteObject(interfaceAccent);
+        if(s.selected==VrSettings::armThicknessRow){
+            SetTextColor(dc,RGB(227,235,244));text(64,1090,L"Slimmer");text(952,1090,L"Thicker");
+            RECT rail{220,1125,880,1131};HBRUSH rh=CreateSolidBrush(RGB(73,91,110));FillRect(dc,&rail,rh);DeleteObject(rh);
+            int x=220+(s.armThicknessPercent-50)*660/100;RECT thumb{x-7,1117,x+7,1139};HBRUSH th=CreateSolidBrush(RGB(116,194,217));FillRect(dc,&thumb,th);DeleteObject(th);
+            text(205,1160,L"50%");text(518,1160,L"100%");text(848,1160,L"150%");
+            text(64,1210,L"Left / right: 5%    Y: reset    VR arms; hand size and reach unchanged");
+        }else if(s.selected==VrSettings::headHeightRow){
+            SetTextColor(dc,RGB(227,235,244));
+            text(64,1090,L"Lower");text(952,1090,L"Higher");
+            RECT heightRail{220,1125,880,1131};HBRUSH hr=CreateSolidBrush(RGB(73,91,110));FillRect(dc,&heightRail,hr);DeleteObject(hr);
+            const int hx=220+(s.headHeightCm+100)*660/200;
+            RECT heightThumb{hx-7,1117,hx+7,1139};HBRUSH ht=CreateSolidBrush(RGB(116,194,217));FillRect(dc,&heightThumb,ht);DeleteObject(ht);
+            text(190,1160,L"-100 cm");text(524,1160,L"0");text(842,1160,L"+100 cm");
+            text(64,1210,L"Left / right: 1 cm     Y: reset     First-person head and hands");
+        }else if(s.menuRecovery.status.empty()){
         SetTextColor(dc,RGB(159,177,195));text(42,1069,L"Dagger offsets follow each wrist; outward is mirrored for the left hand.");
         text(42,1112,L"Depth strength is not calibrated IPD. Hardware IPD uses Quest's dial.");
         swprintf_s(line,L"Stereo control: %s   |   F7 recenter   F10 tracking   F12 exit",stereoStatus==0?L"connected":L"waiting / unavailable");text(42,1153,line);

@@ -8,14 +8,15 @@ static amalur::HudSettingsChannel channel;
 static amalur::HudSettingsChannel menuChannel{L"Local\\AmalurMenuSettingsV1",L"Local\\AmalurMenuSettingsMutexV1"};
 static float requested=.8f,uploaded=-1;
 static float requestedMenu=.8f;
-static amalur::MapPanelSettings mapPanelChannel;
-static bool mapPanelRequested=false;
+static amalur::MapPanelSettings mapPanelChannel{L"Local\\AmalurUiLayerV2",L"Local\\AmalurUiLayerMutexV2"};
+static bool mapPanelRequested=false,wristRequested=false;
+static amalur::MapPanelSettings wristChannel{L"Local\\AmalurWristHudV1",L"Local\\AmalurWristHudMutexV1"};
 static bool uploadedInterface{},uploadedDialogue{},uploadedMenu{};
 static amalur::MenuRotation menuRotation;
 static std::array<float,12> uploadedRotation{};
 static ComPtr<ID3D11Texture1D> texture;
 static ComPtr<ID3D11ShaderResourceView> view;
-static void poll(){if(channel.open(false))channel.read(requested);if(menuChannel.open(false))menuChannel.read(requestedMenu);mapPanelRequested=mapPanelChannel.read();}
+static void poll(){if(channel.open(false))channel.read(requested);if(menuChannel.open(false))menuChannel.read(requestedMenu);mapPanelRequested=mapPanelChannel.read();wristRequested=wristChannel.read();}
 // Bind only around our four replacement shaders and restore the caller's slot.
 // Never patch geo-11's own parameter texture or reload its config per adjustment.
 class Binding {
@@ -41,7 +42,7 @@ public:
             uploadedInterface=flat;
             uploadedDialogue=dialogue;
             uploadedMenu=menu;
-            uploaded=size;log("HUD size uploaded: %.0f%%\n",uploaded*100);
+            if(uploaded!=size)log("HUD size uploaded: %.0f%%\n",size*100);uploaded=size;
         }
         context=c;c->VSGetShaderResources(119,1,&previous);
         c->VSGetShaderResources(118,1,&previousRaw);

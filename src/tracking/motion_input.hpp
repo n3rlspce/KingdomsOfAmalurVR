@@ -123,6 +123,45 @@ public:
         p.selectedWeapon=selected_;p.turnYawDegrees=turn_;return p;
     }
 };
+// The bridge exposes a held right grip as native RT (the spell modifier), even
+// without a spell button. In physical melee that idle modifier can enter native
+// ability state while the player merely squeezes the sword. Require an explicit
+// face-slot action before forwarding it. RT spells are already mapped to X by
+// TouchMapper, and its latched action context survives an early grip release.
+// Apply at the receiver so this also works with the installed V5 bridge packet.
+inline constexpr uint32_t spellSlots=XINPUT_GAMEPAD_A|XINPUT_GAMEPAD_B|XINPUT_GAMEPAD_X|XINPUT_GAMEPAD_Y;
+inline bool explicitSpellRequest(const MotionInputPacket& p){return p.abilities>.65f&&(p.buttons&spellSlots);}
+inline void suppressIdleMeleeSpellModifier(MotionInputPacket& p,bool physicalMelee){
+    if(physicalMelee&&!(p.buttons&spellSlots))p.abilities=0;
+}
+// Native ability selection gets a modifier-only preparation interval before the
+// requested slot. Retain a short tap until a later game poll actually emits it;
+// held slots stay held, never becoming a stream of fresh button presses.
+class MeleeSpellSequence {
+    uint32_t session_{},slots_{};float modifier_{};
+    uint64_t preparedAt_{},deliveredAt_{},lastNow_{};
+public:
+    void reset(){*this=MeleeSpellSequence{};}
+    bool active()const{return slots_!=0;}
+    void sample(MotionInputPacket& p,uint64_t now,bool physicalMelee){
+        if(!physicalMelee||!validMotionInput(p,now)){reset();return;}
+        if(lastNow_&&(now<lastNow_||now-lastNow_>=250||p.session!=session_))reset();
+        lastNow_=now;session_=p.session;
+        const bool requested=explicitSpellRequest(p);
+        if(requested){
+            if(!active())preparedAt_=now;
+            slots_=p.buttons&spellSlots;modifier_=p.abilities;
+        }else if(deliveredAt_&&now-deliveredAt_>=80){
+            slots_=0;preparedAt_=deliveredAt_=0;
+        }
+        if(!active()){suppressIdleMeleeSpellModifier(p,true);return;}
+        p.abilities=modifier_;p.buttons&=~spellSlots;
+        if(now-preparedAt_>=35){
+            p.buttons|=slots_;
+            if(!deliveredAt_)deliveredAt_=now;
+        }
+    }
+};
 inline void mergeMotion(XINPUT_GAMEPAD& pad,const MotionInputPacket& p){
     pad.wButtons|=static_cast<WORD>(p.buttons);
     pad.bLeftTrigger=static_cast<BYTE>(std::fmax(pad.bLeftTrigger,p.block*255));

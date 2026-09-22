@@ -9,6 +9,9 @@
 #include "melee_debug.hpp"
 #include "../tracking/weapon_contact_profile.hpp"
 #include "physical_hitstop.hpp"
+#include "weapon_selection.hpp"
+#include "back_sheath_dispatch.hpp"
+#include "../tracking/melee_family_policy.hpp"
 namespace melee_contact {
 using Update=void(__thiscall*)(void*);
 inline Update originalUpdate{};
@@ -50,6 +53,7 @@ struct Progress {
     unsigned updates{},ready{},fresh[2]{},continuous[2]{},swings[2]{},fast[2]{},sweeps{},queryHits{};
     uint32_t blocked{};
     unsigned actorHits{},selfHits{},otherHits{},resolverCalls{},resolverRejected{};
+    unsigned separationRejected{},damageGateRejected{},commitRejected{};
 };
 inline Progress progress;
 inline void reportProgress(){
@@ -58,6 +62,8 @@ inline void reportProgress(){
         progress.blocked,progress.updates,progress.ready,progress.fresh[0],progress.fresh[1],progress.continuous[0],progress.continuous[1],
         progress.swings[0],progress.swings[1],progress.fast[0],progress.fast[1],progress.sweeps,progress.queryHits,contextsCreated,contextsClosed,
         progress.actorHits,progress.selfHits,progress.otherHits,progress.resolverCalls,progress.resolverRejected);
+    if(progress.actorHits)log("VR physical contact gates tick=%llu actorHits=%u separationRejected=%u damageGateRejected=%u commitRejected=%u\n",
+        now,progress.actorHits,progress.separationRejected,progress.damageGateRejected,progress.commitRejected);
     progress={};progress.reportTick=now;
 }
 inline void fault(const char* reason){
@@ -65,13 +71,20 @@ inline void fault(const char* reason){
     motion_controls::contactEnabled.store(false);motion_controls::meleeContextReady.store(false);
 }
 struct Equipped {uint32_t weapon{},model{},attack{};unsigned hands{},flags{},serial{},generation{};};
+inline bool nativeDamageWeaponMatches(uint32_t actor,uint32_t weapon){
+    __try{
+        const auto player=reinterpret_cast<uintptr_t>(player_rig::player.load());
+        return player&&player_rig::word(player)==gameBase+0x1359f14&&player_rig::word(player+0x1ec)==actor
+            &&amalur::currentPhysicalDamageWeapon(weapon,player_rig::word(player+0x350),player_rig::word(player+0x354));
+    }__except(EXCEPTION_EXECUTE_HANDLER){return false;}
+}
 inline Equipped equipped(){
     uint32_t publishedOwner,publishedModel,publishedSelection;uint64_t publishedTick;
     amalur::MeleeSwingEvent strike;unsigned publishedGeneration;
     AcquireSRWLockShared(&weapon_control::poseLock);
     publishedOwner=weapon_control::visualWeapon;publishedModel=weapon_control::visualAsset;
     publishedSelection=weapon_control::visualSelection;publishedTick=weapon_control::visualTick;
-    strike=weapon_control::swingEvents[0];publishedGeneration=weapon_control::generation;
+    strike=weapon_control::contactEvent(0);publishedGeneration=weapon_control::generation;
     ReleaseSRWLockShared(&weapon_control::poseLock);
     if(!amalur::currentPhysicalPublication(publishedOwner,publishedModel,publishedSelection,
         motion_controls::viewControls().selectedWeapon,publishedTick,GetTickCount64()))return {};
@@ -80,15 +93,16 @@ inline Equipped equipped(){
     for(unsigned i=0;i<n;++i){auto obj=weapon_control::fab(player_rig::word(player_rig::word(root+0x24)+i*4));if(!obj)continue;
         const auto model=player_rig::word(obj+0xf0);
         if(model!=publishedModel||player_rig::word(obj+0xf8)!=publishedOwner)continue;
+        if(!weapon_control::authoritativeSelectedWeapon(obj))continue;
         const auto recipe=amalur::physicalMeleeRecipe(model);if(!recipe.attack)continue;
         const bool matches=model==1520?(weapon_control::isPlayerDaggers(obj)&&weapon_control::isOnlyActivePlayerWeapon(obj)):weapon_control::capturedHeldKind(obj)!=amalur::HeldWeaponKind::None;
         if(!matches)continue;
         auto owner=player_rig::word(obj+0xf8);if(result.weapon&&result.weapon!=owner)return {};
         result={owner,model,recipe.attack,recipe.hands,recipe.flags};
         const auto now=GetTickCount64();
-        if(amalur::knownLongswordModel(model)&&strike.weapon==owner&&strike.asset==model&&strike.generation==publishedGeneration
-            &&strike.tick&&strike.tick<=now&&now-strike.tick<=450&&strike.serial
-            &&amalur::supportedLongswordDamage(strike.attackAsset,strike.attackFlags)){
+        if((amalur::knownLongswordModel(model)||model==1250||model==1323)&&strike.weapon==owner&&strike.asset==model&&strike.generation==publishedGeneration
+            &&strike.tick&&strike.tick<=now&&strike.serial
+            &&(amalur::knownLongswordModel(model)?amalur::supportedLongswordDamage(strike.attackAsset,strike.attackFlags):amalur::supportedNativeFamilyAttack(model,strike.attackAsset,strike.attackFlags))){
             result.attack=strike.attackAsset;result.flags=strike.attackFlags;
             result.serial=strike.serial;result.generation=strike.generation;
         }
@@ -96,24 +110,25 @@ inline Equipped equipped(){
     return result;
 }
 inline bool eligible(uintptr_t physics){
+    if(weapon_control::weaponSheathed.load()||weapon_control::backGripClaimed.load())return false;
     return !faulted.load()&&!querySuspended&&motion_controls::contactEnabled.load()&&melee_probe::local(physics)
         &&headTracking.load()&&firstPerson.load()&&!interfaceView.load()&&arm_rig::enabled.load()
-        &&motion_controls::gameFocused()&&motion_controls::viewControls().selectedWeapon==0;
+        &&motion_controls::gameFocused()&&!motion_controls::explicitSpellActive(GetTickCount64())&&motion_controls::viewControls().selectedWeapon<=1;
 }
 inline void armEquipped(uintptr_t physics,uint32_t actor,uint32_t weapon){
     if(source.held||!actor||!weapon||!melee_native::ready||!eligible(physics)
         ||updateThread.load()!=GetCurrentThreadId()||player_rig::word(physics+0x2e4))return;
     const auto equipment=equipped();if(equipment.weapon!=weapon||!equipment.attack)return;
-    auto now=GetTickCount64();if(!amalur::knownLongswordModel(equipment.model)&&now<nextEquipmentProbe)return;nextEquipmentProbe=now+1000;
+    auto now=GetTickCount64();nextEquipmentProbe=now+1000;
     auto resources=player_rig::word(gameBase+0x15f4dfc);
     auto definition=melee_owned_source::resident(resources,equipment.attack);
-    if(const auto reason=melee_owned_source::assetRejection(definition,true,amalur::knownLongswordModel(equipment.model)?equipment.attack:0)){
+    if(const auto reason=melee_owned_source::assetRejection(definition,true,equipment.attack)){
         static uint64_t report{};static uint32_t lastModel{};if(now>=report||lastModel!=equipment.model){report=now+2000;lastModel=equipment.model;
             log("VR physical recipe rejected tick=%llu reason=%s owner=%08x weapon=%08x model=%u attack=%u selection=%u\n",now,reason,actor,weapon,equipment.model,equipment.attack,motion_controls::viewControls().selectedWeapon);}
         return;
     }
     const bool retained=amalur::knownLongswordModel(equipment.model)?source.acquireLongsword(actor,weapon,equipment.attack,definition,equipment.flags)
-        :source.acquire(actor,weapon,equipment.attack,definition,equipment.flags);
+        :source.acquireFamily(equipment.model,actor,weapon,equipment.attack,definition,equipment.flags);
     if(!retained){
         fault("verified equipment source could not be retained");return;
     }
@@ -188,7 +203,36 @@ struct Dedup {uintptr_t data{};uint32_t count{},capacity{};int16_t allocator{0x2
 static_assert(sizeof(Dedup)==16);
 struct HandState {mgs5vr::Pose previous{};uint64_t tick{},retryAt{},epoch{};unsigned generation{},serial{},attempts{};uint32_t owner{},attack{},flags{};bool consumed{};amalur::MeleeSwingWindow window;Dedup hits[2];};
 inline HandState hands[2];
+inline amalur::LongswordSeparation swordSeparation[2];
+inline uint32_t separationWeapon{};inline unsigned separationGeneration{};
+inline bool swordQuery{},swordDamage{},queryFrameComplete{};inline unsigned queryHand{};
+inline amalur::MeleeSwingEvent contactSnapshot;
+inline uint64_t contactFrame{};
+// The native resolver obtains its weapon through player virtual +44 (C0CBD0),
+// independently of the tracked visual attachment. Observe that exact getter's
+// fields; never rewrite attack state or call a synthetic attack to repair it.
+inline void reportDamageSource(uint32_t owner,uint32_t visualWeapon,const char* phase){
+    __try{
+        const auto player=reinterpret_cast<uintptr_t>(player_rig::player.load());
+        if(!player||player_rig::word(player)!=gameBase+0x1359f14||player_rig::word(player+0x1ec)!=owner)return;
+        const auto primary=player_rig::word(player+0x350),overrideWeapon=player_rig::word(player+0x354);
+        const auto chosen=overrideWeapon?overrideWeapon:primary;
+        log("VR physical damage source tick=%llu phase=%s owner=%08x visual=%08x native=%08x primary=%08x override=%08x pending=%08x matches=%d\n",
+            GetTickCount64(),phase,owner,visualWeapon,chosen,primary,overrideWeapon,player_rig::word(player+0x200),chosen==visualWeapon);
+    }__except(EXCEPTION_EXECUTE_HANDLER){}
+}
+inline bool commitContactStroke(){
+    AcquireSRWLockExclusive(&weapon_control::poseLock);
+    const auto live=weapon_control::contactEvent(queryHand);
+    const bool match=weapon_control::contactReady(queryHand)&&amalur::sameMeleeContact(contactSnapshot,live,
+        weapon_control::visualWeapon,weapon_control::visualAsset,weapon_control::generation,queryHand,
+        contactFrame,weapon_control::visualTick,source.asset,source.flags);
+    const bool committed=match&&weapon_control::commitPhysicalLocked(queryHand,contactSnapshot,contactFrame,GetTickCount64());
+    ReleaseSRWLockExclusive(&weapon_control::poseLock);
+    return committed;
+}
 inline unsigned resolveScoped(uintptr_t physics,const melee_native::Context& c,HandState& hand,melee_native::HitArray& hits,const float* from,const float* to){
+    if(!nativeDamageWeaponMatches(c.owner,source.weapon)){++progress.resolverRejected;return 0;}
     auto combat=melee_native::component(c.owner,0);if(!combat)return 0;
     Dedup saved[2];memcpy(saved,reinterpret_cast<void*>(combat+0x78),sizeof(saved));
     for(unsigned i=0;i<2;++i)if(!hand.hits[i].data){hand.hits[i].allocator=saved[i].allocator;hand.hits[i].flags=saved[i].flags;}
@@ -199,6 +243,7 @@ inline unsigned resolveScoped(uintptr_t physics,const melee_native::Context& c,H
     impactFeedback.owner=c.owner;impactFeedback.weapon=source.weapon;
     impactFeedback.model=equipped().model;impactFeedback.kind=melee_feedback::Kind::Fx;
     log("VR impact capture begin trace=%u attack=%u flags=%u weapon=%08x swing=%u\n",impactFeedback.trace,source.asset,c.flags,source.weapon,hand.serial);
+    reportDamageSource(c.owner,source.weapon,"contact");
     const auto previousHitstop=physical_hitstop::beginLocalPhysical(c.owner,player_rig::word(physics+0x18),eligible(physics));
     const auto hitstopBefore=physical_hitstop::suppressedCalls;
     __try{memcpy(reinterpret_cast<void*>(combat+0x78),hand.hits,sizeof(hand.hits));auto before=hand.hits[0].count;
@@ -240,16 +285,36 @@ inline unsigned runOperation(Operation* op,uintptr_t physics,HandState& hand,mel
 }
 inline unsigned contactOperation(uintptr_t physics,HandState& hand,melee_native::HitArray& hits,const float* from,const float* to,float radius){
     ++progress.sweeps;
-    if(!melee_native::gather(physics,source.owner,from,to,radius,hits))return 0;
+    bool gathered=false;
+    const bool found=melee_native::gather(physics,source.owner,from,to,radius,hits,&gathered);
+    if(swordQuery&&!gathered)queryFrameComplete=false;
+    if(!found)return 0;
     progress.queryHits+=hits.count;
     if(!hits.data||hits.count>hits.capacity||hits.count>4096){fault("invalid query hit array");return 0;}
-    bool actorContact=false;
+    bool actorContact=false;unsigned retained=0;uint32_t targets[64]{};unsigned targetCount=0;
     for(unsigned i=0;i<hits.count;++i){
         auto record=reinterpret_cast<uintptr_t>(hits.data)+i*0x70;
         auto raw=player_rig::word(record+0x14),actor=amalur::meleeHitActor(raw);
         auto part=actor&&actor!=source.owner?melee_native::component(actor,1):0;
         if(actor==source.owner)++progress.selfHits;
-        else if(part){++progress.actorHits;actorContact=true;}
+        else if(part){
+            ++progress.actorHits;
+            const bool separated=!swordQuery||swordSeparation[queryHand].observe(actor,GetTickCount64());
+            if(!separated)++progress.separationRejected;
+            else if(swordQuery&&!swordDamage)++progress.damageGateRejected;
+            if(separated&&(!swordQuery||swordDamage)){
+                actorContact=true;
+                if(swordQuery){
+                    bool listed=false;for(unsigned n=0;n<targetCount;++n)listed=listed||targets[n]==actor;
+                    if(!listed&&targetCount<64)targets[targetCount++]=actor;
+                    // Exchange whole records: clear() destroys capacity, so a
+                    // copying compaction would duplicate owned native references.
+                    if(retained!=i){unsigned char saved[0x70];auto target=reinterpret_cast<unsigned char*>(hits.data)+retained*0x70;
+                        memcpy(saved,target,0x70);memcpy(target,reinterpret_cast<void*>(record),0x70);memcpy(reinterpret_cast<void*>(record),saved,0x70);}
+                    ++retained;
+                }
+            }
+        }
         else ++progress.otherHits;
         static unsigned logged=0;static uint64_t logWindow{};const auto now=GetTickCount64();
         if(!logWindow||now-logWindow>=2000){logWindow=now;logged=0;}
@@ -259,9 +324,15 @@ inline unsigned contactOperation(uintptr_t physics,HandState& hand,melee_native:
     // Native resolution also rejects self and hits without active actor part1.
     // Do not let those contacts exhaust all four attempts before reaching an enemy.
     if(!actorContact)return 0;
+    if(swordQuery){
+        // Gather is still run for idle/consumed blades to observe real overlap.
+        hits.count=retained;
+        if(!swordDamage||!commitContactStroke()){++progress.commitRejected;return 0;}
+    }
     if(hand.attempts++>=4)return 0;
     traceContact=++traceSequence;checkpoint("actor-contact");
     Operation operation(physics);auto accepted=runOperation(&operation,physics,hand,hits,from,to);
+    if(swordQuery&&accepted)for(unsigned n=0;n<targetCount;++n)swordSeparation[queryHand].hit(targets[n],GetTickCount64());
     log("VR owned melee contact attack=%u weapon=%08x swing=%u queryHits=%u acceptedTargets=%u nativeWindows=%u created=%u closed=%u fault=%d\n",
         source.asset,source.weapon,hand.serial,hits.count,accepted,player_rig::word(physics+0x2e4),contextsCreated,contextsClosed,faulted.load());
     return accepted;
@@ -309,6 +380,7 @@ inline void contacts(uintptr_t physics){
         AcquireSRWLockShared(&weapon_control::poseLock);visualModel=weapon_control::visualAsset;visualOwner=weapon_control::visualWeapon;
         selection=weapon_control::visualSelection;visualAt=weapon_control::visualTick;ReleaseSRWLockShared(&weapon_control::poseLock);
         lastStateReport=stateNow;lastStateModel=equipment.model;lastStateWeapon=weapon;
+        reportDamageSource(actor,visualOwner,"selection");
         const auto recipe=amalur::physicalMeleeRecipe(visualModel);
         log("VR physical selection tick=%llu owner=%08x equipped=%08x model=%u attack=%u visualWeapon=%08x visualModel=%u visualSelection=%u selected=%u visualAge=%llu source=%u reason=%s\n",
             stateNow,actor,weapon,equipment.model,equipment.attack,visualOwner,visualModel,selection,motion_controls::viewControls().selectedWeapon,
@@ -317,26 +389,32 @@ inline void contacts(uintptr_t physics){
     }
     if(source.held&&(!source.current(actor,weapon)||source.asset!=equipment.attack)){if(!source.clear())fault("source release failed");log("VR owned melee source invalidated\n");}
     armEquipped(physics,actor,weapon);
-    bool canContact=eligible(physics)&&source.current(actor,weapon)&&player_rig::word(physics+0x2e4)==0;
+    bool canContact=eligible(physics)&&source.current(actor,weapon)&&nativeDamageWeaponMatches(actor,weapon)&&player_rig::word(physics+0x2e4)==0;
     // OR the observed blockers over each reporting interval: tracking, first
-    // person, interface, arms, focus, weapon slot, source, native attack window.
+    // person, interface, arms, focus, weapon slot, source, native attack window,
+    // and native damage-weapon mismatch (0x100).
     progress.blocked|=(!headTracking.load()?1u:0u)|(!firstPerson.load()?2u:0u)
         |(interfaceView.load()?4u:0u)|(!arm_rig::enabled.load()?8u:0u)
-        |(!motion_controls::gameFocused()?16u:0u)|(motion_controls::viewControls().selectedWeapon!=0?32u:0u)
-        |(!source.current(actor,weapon)?64u:0u)|(player_rig::word(physics+0x2e4)?128u:0u);
+        |(!motion_controls::gameFocused()?16u:0u)|(motion_controls::viewControls().selectedWeapon>1?32u:0u)
+        |(!source.current(actor,weapon)?64u:0u)|(player_rig::word(physics+0x2e4)?128u:0u)
+        |(!nativeDamageWeaponMatches(actor,weapon)?256u:0u);
     motion_controls::meleeContextReady.store(canContact);
-    if(!canContact){for(auto& h:hands){h.tick=0;h.consumed=true;}reportProgress();return;}
+    if(!canContact){for(auto& separation:swordSeparation)separation.interrupt();for(auto& h:hands){h.tick=0;h.consumed=true;}reportProgress();return;}
     const auto* profile=amalur::capturedContactProfile(equipment.model);
     const bool recipeMatches=amalur::knownLongswordModel(equipment.model)?amalur::supportedLongswordDamage(source.asset,source.flags)
-        :amalur::matchesPhysicalRecipe(equipment.model,source.asset,source.flags);
-    if(!profile||!profile->count||!recipeMatches){motion_controls::meleeContextReady.store(false);for(auto& h:hands){h.tick=0;h.consumed=true;}return;}
+        :amalur::supportedNativeFamilyAttack(equipment.model,source.asset,source.flags);
+    if(!profile||!profile->count||!recipeMatches){for(auto& separation:swordSeparation)separation.interrupt();motion_controls::meleeContextReady.store(false);for(auto& h:hands){h.tick=0;h.consumed=true;}return;}
     ++progress.ready;
+    bool swordReady[2]{};float sampleScale=0;
     mgs5vr::Pose poses[2];amalur::MeleeSwingEvent swings[2];uint64_t ticks[2],frame;uint32_t owner,model,selection;unsigned generation;
     AcquireSRWLockShared(&weapon_control::poseLock);
-    for(unsigned i=0;i<2;++i){poses[i]=weapon_control::visualPoses[i];swings[i]=weapon_control::swingEvents[i];}
+    for(unsigned i=0;i<2;++i){poses[i]=weapon_control::visualPoses[i];swings[i]=weapon_control::contactEvent(i);swordReady[i]=weapon_control::contactReady(i);}
+    sampleScale=weapon_control::worldScale;
     frame=weapon_control::visualTick;owner=weapon_control::visualWeapon;model=weapon_control::visualAsset;selection=weapon_control::visualSelection;generation=weapon_control::generation;
     ticks[0]=weapon_control::tick;ticks[1]=weapon_control::leftTick;ReleaseSRWLockShared(&weapon_control::poseLock);
     auto now=GetTickCount64();
+    const bool sword=amalur::physicalMeleeRecipe(equipment.model).attack!=0;
+    if(separationWeapon!=weapon||separationGeneration!=generation){for(auto& separation:swordSeparation)separation={};separationWeapon=weapon;separationGeneration=generation;}
     for(unsigned i=0;i<2;++i){auto& h=hands[i];
         if(h.owner!=weapon||h.epoch!=source.epoch){
             // Changing the retained recipe is not a tracking discontinuity.
@@ -345,7 +423,9 @@ inline void contacts(uintptr_t physics){
             const auto previous=h.previous;const auto previousTick=h.tick;const auto previousGeneration=h.generation;
             const auto previousWindow=h.window;
             const bool sameStrike=sameWeapon&&h.attack==source.asset&&h.flags==source.flags
-                &&h.serial==equipment.serial&&h.generation==equipment.generation;
+                &&h.serial==swings[i].serial&&h.generation==swings[i].generation
+                &&swings[i].weapon==weapon&&swings[i].asset==model&&swings[i].hand==i
+                &&swings[i].attackAsset==source.asset&&swings[i].attackFlags==source.flags;
             const auto oldSerial=h.serial,oldAttempts=h.attempts;const bool oldConsumed=h.consumed;
             if(h.hits[0].data)reinterpret_cast<melee_native::Free>(gameBase+0x6fe180)(h.hits[0].allocator,reinterpret_cast<void*>(h.hits[0].data));
             if(h.hits[1].data)reinterpret_cast<void(__cdecl*)(void*,unsigned,int)>(gameBase+0xb0a9c0)(reinterpret_cast<void*>(h.hits[1].data),h.hits[1].capacity,h.hits[1].allocator);
@@ -354,52 +434,61 @@ inline void contacts(uintptr_t physics){
             h.attack=source.asset;h.flags=source.flags;
             if(sameStrike){h.serial=oldSerial;h.attempts=oldAttempts;h.consumed=oldConsumed;}
         }
-        if(i>=equipment.hands||model!=equipment.model||selection!=0||owner!=weapon||!frame||frame>now||now-frame>=100||!ticks[i]||ticks[i]>now||now-ticks[i]>=100||!mgs5vr::valid(poses[i])){h.tick=0;h.consumed=true;continue;}
+        if(i>=equipment.hands||model!=equipment.model||selection>1||selection!=motion_controls::viewControls().selectedWeapon||owner!=weapon||!frame||frame>now||now-frame>=100||!ticks[i]||ticks[i]>now||now-ticks[i]>=100||!mgs5vr::valid(poses[i])){swordSeparation[i].interrupt();h.tick=0;h.consumed=true;continue;}
         ++progress.fresh[i];
         bool continuous=h.tick&&frame>h.tick&&frame-h.tick<=100&&h.generation==generation;
         if(frame==h.tick)continue;
         if(continuous)++progress.continuous[i];
-        // A deliberate tracked swing opens one short contact window. An idle
-        // overlap no longer rearms every250ms; contact still decides damage.
-        bool sameGesture=swings[i].weapon==weapon&&swings[i].generation==generation;
-        if(amalur::knownLongswordModel(equipment.model))sameGesture=sameGesture&&i==0&&equipment.serial==swings[i].serial
+        // One candidate per deliberate stroke; contact is independently gated.
+        // Native recipe identity and per-hand consumption remain transactional.
+        bool sameGesture=amalur::sameMeleeContact(swings[i],swings[i],weapon,model,generation,i,frame,frame,source.asset,source.flags);
+        if(amalur::knownLongswordModel(equipment.model)||equipment.model==1250||equipment.model==1323)sameGesture=sameGesture&&i==0&&equipment.serial==swings[i].serial
             &&equipment.generation==swings[i].generation&&equipment.attack==swings[i].attackAsset
             &&equipment.flags==swings[i].attackFlags;
-        if(sameGesture&&h.window.accept(swings[i].serial,swings[i].tick,now,continuous)){
+        const bool newStroke=sword?(continuous&&swings[i].serial&&h.serial!=swings[i].serial):(sameGesture&&h.window.accept(swings[i].serial,swings[i].tick,now,continuous));
+        if(sameGesture&&newStroke){
             ++progress.swings[i];h.serial=swings[i].serial;
             h.attack=source.asset;h.flags=source.flags;
             h.consumed=false;h.attempts=0;h.hits[0].count=h.hits[1].count=0;
-            log("VR physical swing hand=%u serial=%u chain=%u window=450ms\n",i,h.serial,swings[i].chainStep);
+            log("VR physical stroke hand=%u serial=%u chain=%u contactDriven=%d\n",i,h.serial,swings[i].chainStep,sword);
         }
-        if(!continuous||!h.window.active(now)||(amalur::knownLongswordModel(equipment.model)&&(!sameGesture||h.serial!=equipment.serial
-            ||h.attack!=source.asset||h.flags!=source.flags)))h.consumed=true;
+        if(!continuous||(!sword&&!h.window.active(now))||!sameGesture||h.serial!=swings[i].serial
+            ||h.attack!=source.asset||h.flags!=source.flags)h.consumed=true;
         auto travel=poses[i].position-h.previous.position;
-        if(continuous&&mgs5vr::dot(travel,travel)<2500.f&&!h.consumed){
+        if(continuous&&mgs5vr::dot(travel,travel)<2500.f&&(sword||!h.consumed)){
             ++progress.fast[i];
-            for(unsigned s=0;s<profile->count&&!h.consumed&&h.attempts<4&&!faulted.load()&&!querySuspended;++s){
-                auto from=amalur::contactCenter(*profile,s,h.previous);
-                auto to=amalur::contactCenter(*profile,s,poses[i]);
-                melee_debug::record(i,s,from,to,weapon);
+            swordQuery=sword;queryHand=i;queryFrameComplete=true;contactSnapshot=swings[i];contactFrame=frame;
+            swordSeparation[i].beginFrame(frame);unsigned scanned=0;
+            for(unsigned segment=0;segment<profile->count&&(sword||(!h.consumed&&h.attempts<4))&&!faulted.load()&&!querySuspended;++segment){
+                auto from=amalur::contactCenter(*profile,segment,h.previous);
+                auto to=amalur::contactCenter(*profile,segment,poses[i]);
+                const auto axis=mgs5vr::rotate(poses[i].orientation,{0,0,1});
+                swordDamage=sword&&swordReady[i]&&sameGesture&&!h.consumed&&h.attempts<4
+                    &&amalur::meleeContactSpeed(model,to-from,axis,frame-h.tick,sampleScale);
+                melee_debug::record(i,segment,from,to,weapon);
                 if(contact(physics,h,&from.x,&to.x,profile->radius))h.consumed=true;
+                ++scanned;
             }
-        }
+            swordSeparation[i].endFrame(queryFrameComplete&&scanned==profile->count&&!faulted.load()&&!querySuspended);
+            swordQuery=swordDamage=false;
+        }else swordSeparation[i].interrupt();
         h.previous=poses[i];h.tick=frame;h.generation=generation;
     }
     reportProgress();
 }
 inline void feedback(uintptr_t physics){
     if(!melee_probe::local(physics))return;
-    amalur::MeleeSwingEvent events[2];uint32_t weapon,model;unsigned center;uint64_t frame;
+    amalur::MeleeSwingEvent events[2];uint32_t weapon,model,selection;unsigned center;uint64_t frame;
     AcquireSRWLockShared(&weapon_control::poseLock);
     for(unsigned i=0;i<2;++i)events[i]=weapon_control::swingEvents[i];
     weapon=weapon_control::visualWeapon;center=weapon_control::generation;frame=weapon_control::visualTick;
-    model=weapon_control::visualAsset;
+    model=weapon_control::visualAsset;selection=weapon_control::visualSelection;
     ReleaseSRWLockShared(&weapon_control::poseLock);
     const auto now=GetTickCount64();
-    const bool allowed=headTracking.load()&&firstPerson.load()&&!interfaceView.load()
-        &&motion_controls::gameFocused()&&!motion_controls::dialogueActive.load()&&arm_rig::enabled.load()
+    const bool allowed=!weapon_control::weaponSheathed.load()&&!weapon_control::backGripClaimed.load()&&headTracking.load()&&firstPerson.load()&&!interfaceView.load()
+        &&motion_controls::gameFocused()&&!motion_controls::explicitSpellActive(now)&&!motion_controls::dialogueActive.load()&&arm_rig::enabled.load()
         &&motion_controls::contactEnabled.load()&&frame&&frame<=now&&now-frame<100
-        &&motion_controls::viewControls().selectedWeapon==0;
+        &&selection<=1&&selection==motion_controls::viewControls().selectedWeapon;
     melee_feedback::longsword_audio::update(player_rig::word(physics+0x18),weapon,model,center,allowed);
     weapon_control::physicalActor.store(allowed?player_rig::word(physics+0x18):0);
     if(!allowed)return;
@@ -413,9 +502,12 @@ inline void __fastcall update(void* self,void*){
         if(updateThread.load()!=GetCurrentThreadId())fault("native update thread changed");}}
     __except(EXCEPTION_EXECUTE_HANDLER){fault("native update identity exception");}
     originalUpdate(self);if(inContact||updateThread.load()!=GetCurrentThreadId())return;
+    weapon_selection::sample(reinterpret_cast<uintptr_t>(self));
+    back_sheath_dispatch::sample(reinterpret_cast<uintptr_t>(self));
+    weapon_control::recoverCapturedVisibility();
     if(faulted.load()){melee_feedback::longsword_audio::cancel();return;}inContact=true;
     melee_recipe_capture::sample(reinterpret_cast<uintptr_t>(self));
-    __try{feedback(reinterpret_cast<uintptr_t>(self));contacts(reinterpret_cast<uintptr_t>(self));}__except(EXCEPTION_EXECUTE_HANDLER){fault("physical contact update exception");}
+    __try{feedback(reinterpret_cast<uintptr_t>(self));contacts(reinterpret_cast<uintptr_t>(self));}__except(EXCEPTION_EXECUTE_HANDLER){for(auto& separation:swordSeparation)separation.interrupt();fault("physical contact update exception");}
     inContact=false;
 }
 inline void install(){
@@ -428,7 +520,7 @@ inline void install(){
     if(!melee_lifetime_hooks::install())return;
     log("VR physical hitstop hook=%s\n",physical_hitstop::install()?"enabled":"signature-rejected");
     if(hook(u,reinterpret_cast<void*>(&update),reinterpret_cast<void**>(&originalUpdate),"Owned physical dagger contact")){
-        motion_controls::contactEnabled.store(true);log("VR owned melee enabled; automatic verified dagger/longsword/greatsword/hammer equipment arming; deliberate swing threshold=0.9m/s; contact window=450ms\n");}
+        motion_controls::contactEnabled.store(true);log("VR owned melee enabled; verified dagger/longsword/greatsword/hammer; per-hand peak/contact strokes; native resident damage recipes\n");}
     }
 }
 }

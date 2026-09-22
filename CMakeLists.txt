@@ -197,3 +197,79 @@ target_include_directories(physical_hitstop_check PRIVATE ${CMAKE_CURRENT_SOURCE
 add_executable(third_person_check src/tracking/third_person_check.cpp)
 target_link_libraries(third_person_check PRIVATE mgs5vr_core user32)
 target_include_directories(third_person_check PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+
+add_executable(back_sheath_check src/tracking/back_sheath_check.cpp)
+target_link_libraries(back_sheath_check PRIVATE mgs5vr_core user32 d3d11 dxgi d3dcompiler dxguid)
+target_include_directories(back_sheath_check PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+
+add_executable(charged_feedback_channel_check src/tracking/charged_feedback_channel_check.cpp)
+target_link_libraries(charged_feedback_channel_check PRIVATE mgs5vr_core user32 d3d11 dxgi d3dcompiler dxguid)
+target_include_directories(charged_feedback_channel_check PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+
+add_executable(charged_feedback_check src/tracking/charged_feedback_check.cpp)
+target_link_libraries(charged_feedback_check PRIVATE mgs5vr_core user32 d3d11 dxgi d3dcompiler dxguid)
+target_include_directories(charged_feedback_check PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+
+add_executable(controller_ui_check src/tracking/controller_ui_check.cpp)
+target_link_libraries(controller_ui_check PRIVATE mgs5vr_core user32 d3d11 dxgi d3dcompiler dxguid)
+target_include_directories(controller_ui_check PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+
+add_executable(heavy_charge_check src/tracking/heavy_charge_check.cpp)
+target_link_libraries(heavy_charge_check PRIVATE mgs5vr_core user32 d3d11 dxgi d3dcompiler dxguid)
+target_include_directories(heavy_charge_check PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+
+add_executable(held_visibility_check src/tracking/held_visibility_check.cpp)
+target_link_libraries(held_visibility_check PRIVATE mgs5vr_core user32 d3d11 dxgi d3dcompiler dxguid)
+target_include_directories(held_visibility_check PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+
+add_executable(longsword_stroke_check src/tracking/longsword_stroke_check.cpp)
+target_link_libraries(longsword_stroke_check PRIVATE mgs5vr_core user32 d3d11 dxgi d3dcompiler dxguid)
+target_include_directories(longsword_stroke_check PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+
+add_executable(longsword_swing_check src/tracking/longsword_swing_check.cpp)
+target_link_libraries(longsword_swing_check PRIVATE mgs5vr_core user32 d3d11 dxgi d3dcompiler dxguid)
+target_include_directories(longsword_swing_check PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+
+add_executable(melee_family_policy_check src/tracking/melee_family_policy_check.cpp)
+target_link_libraries(melee_family_policy_check PRIVATE mgs5vr_core user32 d3d11 dxgi d3dcompiler dxguid)
+target_include_directories(melee_family_policy_check PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+
+add_executable(melee_native_family_check src/tracking/melee_native_family_check.cpp)
+target_link_libraries(melee_native_family_check PRIVATE mgs5vr_core user32 d3d11 dxgi d3dcompiler dxguid)
+target_include_directories(melee_native_family_check PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+
+add_executable(melee_native_family_lifecycle_check src/tracking/melee_native_family_lifecycle_check.cpp)
+target_link_libraries(melee_native_family_lifecycle_check PRIVATE mgs5vr_core user32 d3d11 dxgi d3dcompiler dxguid)
+target_include_directories(melee_native_family_lifecycle_check PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+
+add_executable(native_weapon_activation_check src/tracking/native_weapon_activation_check.cpp)
+target_link_libraries(native_weapon_activation_check PRIVATE mgs5vr_core user32 d3d11 dxgi d3dcompiler dxguid)
+target_include_directories(native_weapon_activation_check PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+
+add_executable(selected_weapon_proof_check src/tracking/selected_weapon_proof_check.cpp)
+target_link_libraries(selected_weapon_proof_check PRIVATE mgs5vr_core user32 d3d11 dxgi d3dcompiler dxguid)
+target_include_directories(selected_weapon_proof_check PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+
+add_executable(staff_aim_facing_check src/tracking/staff_aim_facing_check.cpp)
+target_link_libraries(staff_aim_facing_check PRIVATE mgs5vr_core user32 d3d11 dxgi d3dcompiler dxguid)
+target_include_directories(staff_aim_facing_check PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+
+add_executable(ui_capture_check src/tracking/ui_capture_check.cpp)
+target_link_libraries(ui_capture_check PRIVATE mgs5vr_core user32 d3d11 dxgi d3dcompiler dxguid)
+target_include_directories(ui_capture_check PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+
+add_executable(ui_paired_check src/tracking/ui_paired_check.cpp)
+target_link_libraries(ui_paired_check PRIVATE mgs5vr_core user32 d3d11 dxgi d3dcompiler dxguid)
+target_include_directories(ui_paired_check PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+
+add_executable(ui_source_check src/tracking/ui_source_check.cpp)
+target_link_libraries(ui_source_check PRIVATE mgs5vr_core user32 d3d11 dxgi d3dcompiler dxguid)
+target_include_directories(ui_source_check PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+
+add_executable(weapon_drawn_scale_check src/tracking/weapon_drawn_scale_check.cpp)
+target_link_libraries(weapon_drawn_scale_check PRIVATE mgs5vr_core user32 d3d11 dxgi d3dcompiler dxguid)
+target_include_directories(weapon_drawn_scale_check PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+
+add_executable(weapon_selection_check src/tracking/weapon_selection_check.cpp)
+target_link_libraries(weapon_selection_check PRIVATE mgs5vr_core user32 d3d11 dxgi d3dcompiler dxguid)
+target_include_directories(weapon_selection_check PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})

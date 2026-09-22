@@ -34,7 +34,7 @@ inline const wchar_t* panelLabel(int row){
     if(row==1)return L"Spawn one wolf";
     if(row>=2&&row<rows)return weapons[row-2].label;
     if(row==rows)return L"Dev character: level 40";
-    if(row==rows+1)return L"Set health to ~10,000";
+    if(row==rows+1)return L"Enable invincibility";
     if(row==rows+2)return L"Max Sorcery (unlock all spells)";
     if(row==rows+3)return L"Equip spell test set (slots 1-4)";
     if(row==rows+4)return L"Unlock weapon moves (all types)";
@@ -53,7 +53,7 @@ inline std::string command(int row) {
     if(row<0||row>=actions)return {};
     if(row==prepareCharacterAction)return "amalur_dev.prepare_test_character()";
     if(row==verifyEquipAction)return "amalur_dev.verify_last_equip()";
-    if(row==invincibilityAction)return "amalur_dev.boost_health(10000)";
+    if(row==invincibilityAction)return "amalur_dev.enable_invincibility()";
     if(row==sorceryAction)return "amalur_dev.max_sorcery()";
     if(row==spellSetAction)return "amalur_dev.equip_spell_test_set()";
     if(row==weaponMovesAction)return "amalur_dev.unlock_weapon_moves()";

@@ -1,6 +1,7 @@
 #pragma once
 #include "../tracking/dodge_facing.hpp"
 #include "../tracking/fine_facing.hpp"
+#include "staff_aim.hpp"
 // Re-Reckoning build 10619381 only. Resolve generation-checked engine handles;
 // never retain part pointers across a load. Facing uses the native script service.
 namespace player_rig {
@@ -45,13 +46,16 @@ inline bool location(void* camera,mgs5vr::Vec3& position){
     } __except(EXCEPTION_EXECUTE_HANDLER){return false;}
 }
 inline void face(void* camera,mgs5vr::Vec3 forward){
+    if(amalur::playMode.nativeBody())return;
     const auto now=GetTickCount64();
-    if(amalur::dodgeFacing.suppress(now)||amalur::locomotionFacing.suppress(now))return;
+    if(amalur::dodgeFacing.suppress(now))return;
     if(!nativeFineFacing||!std::isfinite(forward.x)||!std::isfinite(forward.y)||forward.x*forward.x+forward.y*forward.y<.01f)return;
     __try {
         mgs5vr::Vec3 position;if(!location(camera,position))return;
         auto p=reinterpret_cast<uintptr_t>(player.load());
         auto owner=static_cast<uint32_t>(word(p+0x1ec)),entity=resolve(owner);
+        const bool staffAiming=staff_aim::allowed(owner,now);
+        if(amalur::locomotionFacing.suppress(now)&&!staffAiming)return;
         auto loc=part(entity,6,owner,0x1355cdc),motion=part(entity,42,owner,0x13561e4);
         if(!loc||!motion||!(word(loc+0x20)&1)||!(word(motion+0x20)&1))return;
         const auto current=static_cast<uint32_t>(word(loc+0xb0));
@@ -59,6 +63,11 @@ inline void face(void* camera,mgs5vr::Vec3 forward){
         if(!amalur::fineFacingDelta(forward.x,forward.y,current,delta))return;
         static unsigned lastFrame=~0u;auto frame=presents.load();if(lastFrame==frame)return;lastFrame=frame;
         nativeFineFacing(reinterpret_cast<void*>(motion),&delta,&zero);
+        static uint64_t lastStaffLog{};
+        if(staffAiming&&now-lastStaffLog>=1000){lastStaffLog=now;
+            log("VR staff attack head facing tick=%llu current=%.3f requested=%.3f moving=%u\n",now,
+                double(current)*(360.0/4294967296.0),double(uint32_t(current+delta))*(360.0/4294967296.0),
+                unsigned(amalur::locomotionFacing.suppress(now)));}
         static unsigned logged=0;if(logged++<8)log("Fine head facing: current=%.6f requested=%.6f deltaBits=%08x\n",
             double(current)*(360.0/4294967296.0),double(uint32_t(current+delta))*(360.0/4294967296.0),delta);
     } __except(EXCEPTION_EXECUTE_HANDLER){nativeFineFacing=nullptr;log("Native head facing disabled after invalid state\n");}

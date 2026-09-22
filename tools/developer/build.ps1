@@ -15,6 +15,9 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Developer helper build failed.' }
     & (Join-Path $out 'amalur-dev-send.exe') --selftest
     if ($LASTEXITCODE -ne 0) { throw 'Developer helper checks failed.' }
+    $menuSource = Join-Path $PSScriptRoot 'menu_send.cpp'
+    & cmd /d /c "`"$vcvars`" x86 && cl /nologo /EHsc /W4 /WX /MD /std:c++17 `"$menuSource`" /Fe:amalur-menu-send.exe"
+    if ($LASTEXITCODE -ne 0) { throw 'Menu helper build failed.' }
     $check = Join-Path $PSScriptRoot 'panel_check.cpp'
     & cmd /d /c "`"$vcvars`" x86 && cl /nologo /EHsc /W4 /MD /std:c++17 `"$check`" /Fe:developer-panel-check.exe /link user32.lib"
     if ($LASTEXITCODE -ne 0) { throw 'Panel check build failed.' }

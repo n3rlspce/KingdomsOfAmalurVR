@@ -21,6 +21,17 @@ int main(){
     check(lease.suppress(1840),"new A edge restarts lease");
     lease.observe(false,true,false,1850);
     check(!lease.suppress(1850),"focus loss clears pending lease");
+    lease.observe(true,false,false,2000);
+    lease.observe(true,true,false,2010,true);
+    check(!lease.suppress(2010),"interact A keeps head/body alignment active");
+    lease.observe(true,true,false,2020,false);
+    check(!lease.suppress(2020),"target disappearance while A held cannot become a dodge");
+    lease.observe(true,false,false,2030);
+    lease.observe(true,true,false,2040);
+    check(lease.suppress(2040),"no-target A still protects dodge facing");
+    lease.observe(true,false,false,2050);
+    lease.observe(true,true,false,2060,true);
+    check(!lease.suppress(2060),"retry on selected interaction cancels earlier provisional dodge pause");
     amalur::LocomotionFacingLease movement;
     for(auto axis: {int16_t(-32767),int16_t(1),int16_t(32767)}){
         movement.observe(true,axis,0,2000);

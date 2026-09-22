@@ -18,12 +18,17 @@
 #include <stdexcept>
 #include <string>
 #include <vector>
-#include "../tracking/tracking_snapshot.hpp"
-#include "../tracking/pose_channel.hpp"
-#include "../tracking/menu_view.hpp"
-#include "../tracking/motion_input.hpp"
-#include "../tracking/rig_status.hpp"
-#include "../tracking/grip_settings.hpp"
+#include "../bridge_tracking/tracking_snapshot.hpp"
+#include "../bridge_tracking/pose_channel.hpp"
+#include "../bridge_tracking/menu_view.hpp"
+#include "../bridge_tracking/cinematic_resize.hpp"
+#include "../bridge_tracking/motion_input.hpp"
+#include "../bridge_tracking/heavy_charge_frame.hpp"
+#include "../bridge_tracking/charged_feedback_channel.hpp"
+#include "../bridge_tracking/physical_crouch.hpp"
+#include "../bridge_tracking/snap_pitch.hpp"
+#include "../bridge_tracking/rig_status.hpp"
+#include "../bridge_tracking/grip_settings.hpp"
 #include "stereo_source.hpp"
 #include "render_pose.hpp"
 #include "menu_anchor.hpp"
@@ -42,9 +47,12 @@ static void xrcheck(XrResult r, const char* operation) {
 static void hrcheck(HRESULT r) { if(FAILED(r)) throw std::runtime_error("D3D failure: "+std::to_string(r)); }
 static XrPath path(const char* s) { XrPath p{}; XR(xrStringToPath(instance,s,&p)); return p; }
 #include "settings_panel.hpp"
+#include "cinematic_hint_panel.hpp"
+#include "../bridge_tracking/cinematic_hint.hpp"
 #include "map_panel.hpp"
-#include "../tracking/map_panel_settings.hpp"
-#include "../tracking/hud_settings.hpp"
+#include "wrist_hud.hpp"
+#include "../bridge_tracking/map_panel_settings.hpp"
+#include "../bridge_tracking/hud_settings.hpp"
 struct Resources {
     XrSession session{}; XrSpace local{},view{}; XrActionSet actions{};
     std::array<XrSpace,2> hands{};
@@ -60,6 +68,25 @@ struct Resources {
     }
 };
 int main(int argc,char** argv) {
+    if(argc==2&&std::string(argv[1])=="--wrist-hud-check"){
+        WristHud hud;amalur::PosePacket hand;hand.valid=1;hand.orientation[3]=1;hand.position[1]=1.25f;hand.position[2]=-.35f;
+        XrPosef head{{0,0,0,1},{0,1.6f,0}};bool good=true;
+        for(uint64_t tick=1000;tick<=1300;tick+=20){hand.tick=tick;hud.update(hand,head,true,tick);}
+        good=good&&hud.alpha>.99f;
+        auto p=WristHud::pose(hand,.13f,.045f);
+        good=good&&std::abs(p.position.y-1.295f)<.0001f&&std::abs(p.position.z+.22f)<.0001f;
+        auto normal=XMVector3Rotate(XMVectorSet(0,0,1,0),XMVectorSet(p.orientation.x,p.orientation.y,p.orientation.z,p.orientation.w));
+        good=good&&XMVectorGetY(normal)>.999f;
+        const auto before=WristHud::pose(hand,.13f,.045f);head.orientation={0,.7071068f,0,.7071068f};
+        const auto after=WristHud::pose(hand,.13f,.045f);good=good&&before.position.z==after.position.z&&before.orientation.w==after.orientation.w;
+        hand.position[1]=.7f;
+        for(uint64_t tick=1320;tick<=1620;tick+=20){hand.tick=tick;hud.update(hand,head,true,tick);}
+        good=good&&hud.alpha==0&&!WristHud::valid(hand,1800);
+        hand.tick=1800;hand.valid=0;good=good&&!WristHud::valid(hand,1800);
+        hand.valid=1;hand.orientation[3]=0;good=good&&!WristHud::valid(hand,1800);
+        hand.orientation[3]=1;hand.position[1]=1.25f;hud.alpha=1;good=good&&hud.update(hand,head,false,1800)==0;
+        std::cout<<(good?"PASS":"FAIL")<<": wrist pose, facing/height fade, head-turn independence, tracking expiry and focus reset\n";return good?0:1;
+    }
     if(argc==2&&std::string(argv[1])=="--pose-math"){
         const float s=std::sqrt(.5f);
         XrPosef head{{0,s,0,s},{1,2,3}},eye=head,rendered{{0,0,0,1},{5,6,7}};
@@ -121,6 +148,8 @@ int main(int argc,char** argv) {
     amalur::HudSettingsChannel menuSettings{L"Local\\AmalurMenuSettingsV1",L"Local\\AmalurMenuSettingsMutexV1"};
     amalur::GripSettingsChannel gripSettings;
     SettingsPanel panel;
+    CinematicHintPanel cinematicHintPanel;
+    amalur::CinematicHint cinematicHint;
     DeveloperTools developer;
     if(gameMode)settings.captureInput();
     amalur::PoseChannel poses;
@@ -129,14 +158,23 @@ int main(int argc,char** argv) {
     LARGE_INTEGER sessionCounter{};QueryPerformanceCounter(&sessionCounter);
     const uint64_t trackingSession=static_cast<uint64_t>(sessionCounter.QuadPart)^ (uint64_t(GetCurrentProcessId())<<32);
     amalur::MotionInputChannel motionInput;
+    amalur::HeavyChargeChannel heavyInput;
+    amalur::ChargedFeedbackChannel chargedFeedbackChannel;
+    amalur::ChargedFeedbackPacket chargedFeedbackPacket;
+    amalur::ChargedFeedbackReceiver chargedFeedback;
     amalur::TouchMapper touchMapper;
+    amalur::PhysicalCrouch physicalCrouch;
+    amalur::SnapPitchChannel snapPitch; snapPitch.publish(0);
     amalur::RigStatusChannel rigStatus;amalur::RigStatus latestRig;
     amalur::PoseChannel leftHand(L"Local\\AmalurVRLeftHandV3",L"Local\\AmalurVRLeftHandMutexV3");
     amalur::PoseChannel rightHand(L"Local\\AmalurVRRightHandV3",L"Local\\AmalurVRRightHandMutexV3");
     StereoSource stereoSource;
     MenuAnchor menuAnchor;
-    MapPanel mapPanel;StereoSource backdrop;amalur::PosePacket backdropPose;bool haveBackdrop=false;
-    amalur::MapPanelSettings mapPanelSettings;
+    WristHud wristHud;MapPanel wristPanel;
+    StereoSource wristSource{L"Local\\UnusedWristLegacy",L"Local\\AmalurWristFrameV1",L"Local\\AmalurWristFrameMutexV1",true};
+    amalur::MapPanelSettings wristSettings{L"Local\\AmalurWristHudV1",L"Local\\AmalurWristHudMutexV1"};
+    MapPanel mapPanel;StereoSource uiSource{L"Local\\UnusedUiLegacy",L"Local\\AmalurUiFrameV1",L"Local\\AmalurUiFrameMutexV1",true};
+    amalur::MapPanelSettings mapPanelSettings{L"Local\\AmalurUiLayerV2",L"Local\\AmalurUiLayerMutexV2"};
     try {
         uint32_t n{}; XR(xrEnumerateInstanceExtensionProperties(nullptr,0,&n,nullptr));
         std::vector<XrExtensionProperties> ext(n,{XR_TYPE_EXTENSION_PROPERTIES});
@@ -228,7 +266,7 @@ int main(int argc,char** argv) {
             std::cout<<"Eye "<<i<<" output="<<c.width<<"x"<<c.height<<" format="<<format<<"\n";
             XR(xrCreateSwapchain(r.session,&c,&r.chains[i])); XR(xrEnumerateSwapchainImages(r.chains[i],0,&n,nullptr)); images[i].resize(n,{XR_TYPE_SWAPCHAIN_IMAGE_D3D11_KHR}); XR(xrEnumerateSwapchainImages(r.chains[i],n,&n,reinterpret_cast<XrSwapchainImageBaseHeader*>(images[i].data())));
         }};createEyeChains();
-        if(gameMode)panel.initialize(r.session,static_cast<DXGI_FORMAT>(format));
+        if(gameMode){panel.initialize(r.session,static_cast<DXGI_FORMAT>(format));cinematicHintPanel.initialize(r.session,static_cast<DXGI_FORMAT>(format));}
         const char* shader="cbuffer C:register(b0){float4x4 m;} struct O{float4 p:SV_POSITION;float3 c:COLOR;}; O vs(float3 p:POSITION,float3 c:COLOR){O o;o.p=mul(float4(p,1),m);o.c=c;return o;} float4 ps(O i):SV_TARGET{return float4(i.c,1);}";
         ComPtr<ID3DBlob> vs,ps,error; hrcheck(D3DCompile(shader,strlen(shader),nullptr,nullptr,nullptr,"vs","vs_4_0",0,0,&vs,&error)); hrcheck(D3DCompile(shader,strlen(shader),nullptr,nullptr,nullptr,"ps","ps_4_0",0,0,&ps,&error));
         ComPtr<ID3D11VertexShader> vertex; ComPtr<ID3D11PixelShader> pixel; ComPtr<ID3D11InputLayout> layout;
@@ -245,7 +283,10 @@ int main(int argc,char** argv) {
         XrSessionState sessionState=XR_SESSION_STATE_UNKNOWN; uint64_t lastHealthTick{}; unsigned lastHealthBits=~0u;
         bool running=false,focused=false,done=false; unsigned frames=0; std::array<bool,2> pressed{}; const auto start=std::chrono::steady_clock::now();
         if(gameMode&&!stereoSource.initialize(device.Get()))throw std::runtime_error("Stereo presenter initialization failed");
+        if(gameMode&&!uiSource.initialize(device.Get()))throw std::runtime_error("UI presenter initialization failed");
+        if(gameMode&&!wristSource.initialize(device.Get()))throw std::runtime_error("Wrist presenter initialization failed");
         GameLifetime gameLifetime;
+        amalur::CinematicResize cinematicResize;
         const int duration=trackingMode?1800:30;
         const int stopKey=trackingMode?VK_F12:VK_ESCAPE;
         std::cout<<"Session test: "<<duration<<" seconds, "<<(trackingMode?"F12":"ESC")<<" exits.\n";
@@ -256,7 +297,7 @@ int main(int argc,char** argv) {
                 std::cout<<"Game process exited; closing VR bridge.\n";
                 break;
             }
-            if(gameMode){settings.poll();mapPanelSettings.publish(settings.mapPanelPrototype);DWORD developerPid=GetTickCount()-latestRig.tick<1000?latestRig.pid:0;developer.poll(developerPid,developerPid&&latestRig.paused==0&&latestRig.weaponRemaps>0);if(settings.menuRecovery.poll(developerPid)&&settings.menuRecovery.failed){settings.visible=true;settings.developerVisible=false;}if(settings.pauseNativeRequested){settings.pauseNativeRequested=false;settings.menuRecovery.submit(developerPid);if(settings.menuRecovery.failed){settings.visible=true;settings.developerVisible=false;}}if(settings.developerAction>=0){developer.submit(settings.developerAction,developerPid);settings.developerAction=-1;}if(gripSettings.open(true))gripSettings.publish(settings.gripPitch,settings.gripYaw,settings.gripRoll,settings.weaponX,settings.weaponY,settings.weaponZ);if(hudSettings.open(true))hudSettings.publish(settings.hudSize);if(menuSettings.open(true))menuSettings.publish(amalur::menuScale(settings.interfaceScale)*.8f);if(settings.renderScale!=activeRenderScale){createEyeChains();activeRenderScale=settings.renderScale;}}
+            if(gameMode){settings.poll();mapPanelSettings.publish(true);DWORD developerPid=GetTickCount()-latestRig.tick<1000?latestRig.pid:0;developer.poll(developerPid,developerPid&&latestRig.paused==0&&latestRig.weaponRemaps>0);if(settings.menuRecovery.poll(developerPid)&&settings.menuRecovery.failed){settings.visible=true;settings.developerVisible=false;}if(settings.pauseNativeRequested){settings.pauseNativeRequested=false;settings.menuRecovery.submit(developerPid);if(settings.menuRecovery.failed){settings.visible=true;settings.developerVisible=false;}}if(settings.developerAction>=0){developer.submit(settings.developerAction,developerPid);settings.developerAction=-1;}if(gripSettings.open(true))gripSettings.publish(settings.gripPitch,settings.gripYaw,settings.gripRoll,settings.weaponX,settings.weaponY,settings.weaponZ);if(hudSettings.open(true))hudSettings.publish(settings.hudSize);if(menuSettings.open(true))menuSettings.publish(amalur::menuScale(settings.interfaceScale)*.8f);if(settings.renderScale!=activeRenderScale){createEyeChains();activeRenderScale=settings.renderScale;}}
             XrEventDataBuffer event{XR_TYPE_EVENT_DATA_BUFFER};
             for(;;) {
                 auto result=xrPollEvent(instance,&event); if(result==XR_EVENT_UNAVAILABLE) break; xrcheck(result,"xrPollEvent");
@@ -287,6 +328,21 @@ int main(int argc,char** argv) {
                 packet.position[0]=head.pose.position.x;packet.position[1]=head.pose.position.y;packet.position[2]=head.pose.position.z;
                 snapshot.head=packet;poses.publish(packet);
             }
+            bool render=fs.shouldRender&&count==2&&(state.viewStateFlags&XR_VIEW_STATE_POSITION_VALID_BIT)&&(state.viewStateFlags&XR_VIEW_STATE_ORIENTATION_VALID_BIT);
+            amalur::PosePacket gameFrame;
+            bool trackedGame=false;bool mapPanelFrame=false;bool isolatedMenuFrame=false;bool sourceReady=false;
+            if(gameMode){
+                sourceReady=stereoSource.acquirePaired(device.Get(),context.Get(),gameFrame);
+                trackedGame=!settings.interfaceView&&sourceReady&&gameFrame.valid&&gameFrame.projectionX>0&&gameFrame.projectionY>0;
+                render=render&&sourceReady;
+                // The world source no longer contains captured UI. Never place
+                // the native framebuffer on the overlay or cache old HUD behind it.
+                amalur::PosePacket uiFrame;
+                isolatedMenuFrame=sourceReady&&gameFrame.gameMode==7&&!settings.interfaceView;
+                mapPanelFrame=isolatedMenuFrame
+                    &&uiSource.acquirePaired(device.Get(),context.Get(),uiFrame)
+                    &&uiFrame.gameMode==7&&uiFrame.tick<=GetTickCount64()&&GetTickCount64()-uiFrame.tick<100;
+            }
             if(focused) {
                 XrActiveActionSet active{r.actions,XR_NULL_PATH};XrActionsSyncInfo sync{XR_TYPE_ACTIONS_SYNC_INFO};sync.countActiveActionSets=1;sync.activeActionSets=&active;XR(xrSyncActions(r.session,&sync));
                 auto scalar=[&](XrAction a,int hand){XrActionStateGetInfo g{XR_TYPE_ACTION_STATE_GET_INFO};g.action=a;g.subactionPath=handPaths[hand];
@@ -306,10 +362,21 @@ int main(int argc,char** argv) {
                 if(rigStatus.transfer(freshRig,false)&&freshRig.version==1)latestRig=freshRig;
                 const bool gameplay=!settings.interfaceView&&latestRig.pid&&GetTickCount()-latestRig.tick<1000
                     &&latestRig.weaponRemaps>0&&latestRig.paused==0;
+                const bool resizeScreen=gameMode&&render&&sourceReady&&gameFrame.gameMode==6
+                    &&!trackedGame&&!mapPanelFrame&&!settings.panelOpen()&&VrSettings::gameFocused();
+                if(cinematicResize.update(settings.cinematicScale,touch.leftY,touch.rightY,resizeScreen,acquisitionTick))settings.saveCinematicScale();
+                if(resizeScreen){touch.leftY=0;touch.rightY=0;}
                 bool panelCapture=settings.pollDeveloperControllers(touch,gameMode&&VrSettings::gameFocused(),developer.busy());
                 auto mapped=touchMapper.map(touch,gameMode&&!panelCapture&&!settings.visible&&!settings.developerVisible&&VrSettings::gameFocused(),gameplay);
                 panelCapture=settings.applyPauseInput(touch,gameMode&&VrSettings::gameFocused(),mapped)||panelCapture;
                 settings.selectedWeapon=mapped.selectedWeapon;
+                const bool crouchActive=gameplay&&mapped.active&&!panelCapture&&!settings.panelOpen()
+                    &&!touch.menu&&!(mapped.buttons&XINPUT_GAMEPAD_START)&&snapshot.head.gameMode==1;
+                if(physicalCrouch.update(snapshot.head.position[1],snapshot.head.valid!=0,crouchActive,
+                    settings.physicalCrouch&&!settings.seatedMode,settings.recenter,latestRig.pid,
+                    (mapped.buttons&XINPUT_GAMEPAD_RIGHT_SHOULDER)!=0,acquisitionTick))
+                    mapped.buttons|=XINPUT_GAMEPAD_RIGHT_SHOULDER;
+                snapPitch.publish(touchMapper.pitchSteps());
                 motionInput.publish(mapped);
                 for(int i=0;i<2;++i){XrActionStateGetInfo get{XR_TYPE_ACTION_STATE_GET_INFO};get.action=trigger;get.subactionPath=handPaths[i];XrActionStateFloat value{XR_TYPE_ACTION_STATE_FLOAT};XR(xrGetActionStateFloat(r.session,&get,&value));
                     bool down=value.isActive&&value.currentState>.75f;
@@ -329,26 +396,40 @@ int main(int argc,char** argv) {
                     }
                     if(frames%90==0)std::cout<<"Hand="<<i<<" flags="<<hand.locationFlags<<" xyz="<<hand.pose.position.x<<','<<hand.pose.position.y<<','<<hand.pose.position.z<<"\n";
                 }
-            } else {pressed={};settings.pollDeveloperControllers({},false,developer.busy());motionInput.publish(touchMapper.map({},false));if(trackingMode){amalur::PosePacket invalid;leftHand.publish(invalid);rightHand.publish(invalid);}}
+                // Publish only after BOTH current-frame hand poses have been acquired.
+                auto heavy=amalur::heavyChargeFrame(settings.heavyChargeMode,GetCurrentProcessId(),
+                    snapshot,touch,mapped,gameplay,panelCapture||settings.panelOpen());
+                heavyInput.transfer(heavy,true);
+                amalur::ChargedFeedbackPacket freshFeedback;
+                if(chargedFeedbackChannel.transfer(freshFeedback,false))chargedFeedbackPacket=freshFeedback;
+                const bool feedbackAllowed=heavy.active&&!heavy.spell&&VrSettings::gameFocused()
+                    &&latestRig.firstPerson&&latestRig.focused&&latestRig.tracked&&!amalur::playMode.normal();
+                const auto pulse=chargedFeedback.sample(chargedFeedbackPacket,GetTickCount64(),feedbackAllowed,
+                    latestRig.pid,GetCurrentProcessId(),settings.recenter);
+                if(pulse.kind){
+                    XrHapticActionInfo hi{XR_TYPE_HAPTIC_ACTION_INFO};hi.action=haptic;hi.subactionPath=handPaths[1];
+                    XrHapticVibration vibration{XR_TYPE_HAPTIC_VIBRATION};vibration.duration=static_cast<XrDuration>(pulse.milliseconds)*1000000;
+                    vibration.amplitude=pulse.amplitude;vibration.frequency=XR_FREQUENCY_UNSPECIFIED;
+                    const auto applied=xrApplyHapticFeedback(r.session,&hi,reinterpret_cast<XrHapticBaseHeader*>(&vibration));
+                    std::cout<<"Charged haptic kind="<<pulse.kind<<" durationMs="<<pulse.milliseconds<<" result="<<applied<<std::endl;
+                }
+            } else {if(cinematicResize.update(settings.cinematicScale,0,0,false,acquisitionTick))settings.saveCinematicScale();chargedFeedback.reset();pressed={};settings.pollDeveloperControllers({},false,developer.busy());motionInput.publish(touchMapper.map({},false));if(trackingMode){amalur::PosePacket invalid;leftHand.publish(invalid);rightHand.publish(invalid);}}
             std::array<XrCompositionLayerProjectionView,2> projectionViews{};
             if(trackingMode)trackingSnapshots.publish(snapshot);
-            bool render=fs.shouldRender&&count==2&&(state.viewStateFlags&XR_VIEW_STATE_POSITION_VALID_BIT)&&(state.viewStateFlags&XR_VIEW_STATE_ORIENTATION_VALID_BIT);
-            amalur::PosePacket gameFrame;
-            bool trackedGame=false;bool mapPanelFrame=false;bool sourceReady=false;
-            if(gameMode){
-                sourceReady=stereoSource.acquirePaired(device.Get(),context.Get(),gameFrame);
-                trackedGame=!settings.interfaceView&&sourceReady&&gameFrame.valid&&gameFrame.projectionX>0&&gameFrame.projectionY>0;
-                render=render&&sourceReady;
-                mapPanelFrame=sourceReady&&gameFrame.gameMode==5&&!settings.interfaceView;
-                if(sourceReady&&settings.mapPanelPrototype&&gameFrame.gameMode==1&&trackedGame){
-                    if(!haveBackdrop)hrcheck(backdrop.initialize(device.Get())?S_OK:E_FAIL);
-                    if(backdrop.freezeFrom(device.Get(),context.Get(),stereoSource)){backdropPose=gameFrame;haveBackdrop=true;}
-                }
-                if(mapPanelFrame)trackedGame=haveBackdrop;
-                if(!settings.mapPanelPrototype&&!mapPanelFrame)haveBackdrop=false;
-            }
+            const auto wristTick=GetTickCount64();
+            const auto& wristHand=settings.wristHud==2?snapshot.right:snapshot.left;
+            const bool wristActive=gameMode&&render&&focused&&settings.wristHud&&!settings.interfaceView
+                &&!settings.panelOpen()&&trackedGame&&!isolatedMenuFrame&&gameFrame.gameMode!=6
+                &&WristHud::valid(wristHand,wristTick);
+            wristSettings.publish(wristActive);
+            const float wristOpacity=wristHud.update(wristHand,head.pose,wristActive,wristTick);
+            amalur::PosePacket wristFrame;
+            const bool wristReady=wristActive&&gameFrame.gameMode==8
+                &&wristSource.acquirePaired(device.Get(),context.Get(),wristFrame)
+                &&wristFrame.gameMode==8&&wristFrame.tick<=wristTick&&wristTick-wristFrame.tick<100;
+
             if(gameMode&&render){
-                if(trackedGame&&!mapPanelFrame)menuAnchor.close();
+                if(trackedGame&&!isolatedMenuFrame)menuAnchor.close();
                 else if((head.locationFlags&(XR_SPACE_LOCATION_ORIENTATION_VALID_BIT|XR_SPACE_LOCATION_POSITION_VALID_BIT))==(XR_SPACE_LOCATION_ORIENTATION_VALID_BIT|XR_SPACE_LOCATION_POSITION_VALID_BIT))menuAnchor.update(head.pose,settings.recenter);
                 else if(!menuAnchor.active)render=false;
             }
@@ -379,11 +460,8 @@ int main(int argc,char** argv) {
                     auto f=views[i].fov;
                     int sourceEye=settings.interfaceView?0:(settings.swap?1-i:i);
                     float bias=settings.alignment*(settings.depth/20.f);
-                    if(mapPanelFrame){
-                        if(haveBackdrop)backdrop.draw(context.Get(),sourceEye,std::tan(f.angleLeft),std::tan(f.angleRight),std::tan(f.angleDown),std::tan(f.angleUp),backdropPose.projectionX,backdropPose.projectionY,sourceEye==0?bias:-bias,settings.sharpness);
-                    }
-                    else if(trackedGame)stereoSource.draw(context.Get(),sourceEye,std::tan(f.angleLeft),std::tan(f.angleRight),std::tan(f.angleDown),std::tan(f.angleUp),gameFrame.projectionX,gameFrame.projectionY,sourceEye==0?bias:-bias,settings.sharpness);
-                    else stereoSource.draw(context.Get(),sourceEye,-1,1,-1,1,1,1,0,settings.sharpness);
+                    if(trackedGame)stereoSource.draw(context.Get(),sourceEye,std::tan(f.angleLeft),std::tan(f.angleRight),std::tan(f.angleDown),std::tan(f.angleUp),gameFrame.projectionX,gameFrame.projectionY,sourceEye==0?bias:-bias,settings.sharpness);
+                    else if(!isolatedMenuFrame)stereoSource.draw(context.Get(),sourceEye,-1,1,-1,1,1,1,0,settings.sharpness);
                 }else{
                 auto p=views[i].pose;auto f=views[i].fov;auto world=XMMatrixRotationQuaternion(XMVectorSet(p.orientation.x,p.orientation.y,p.orientation.z,p.orientation.w))*XMMatrixTranslation(p.position.x,p.position.y,p.position.z);
                 auto view=XMMatrixInverse(nullptr,world);auto proj=XMMatrixPerspectiveOffCenterRH(std::tan(f.angleLeft)*.05f,std::tan(f.angleRight)*.05f,std::tan(f.angleDown)*.05f,std::tan(f.angleUp)*.05f,.05f,100.f);
@@ -397,7 +475,7 @@ int main(int argc,char** argv) {
                     // Attribute the image to the pose used by the game camera,
                     // not the newer predicted pose. Preserve eye-to-head offsets.
                     // The producer publishes metadata with a GPU-owned image.
-                    const auto& attributed=mapPanelFrame?backdropPose:gameFrame;
+                    const auto& attributed=gameFrame;
                     XrPosef rendered{{attributed.orientation[0],attributed.orientation[1],attributed.orientation[2],attributed.orientation[3]},
                         {attributed.position[0],attributed.position[1],attributed.position[2]}};
                     pv.pose=renderedEyePose(head.pose,views[i].pose,rendered);
@@ -406,17 +484,40 @@ int main(int argc,char** argv) {
             XrCompositionLayerProjection layer{XR_TYPE_COMPOSITION_LAYER_PROJECTION};layer.space=r.local;layer.viewCount=2;layer.views=projectionViews.data();const XrCompositionLayerBaseHeader* layers[]={reinterpret_cast<XrCompositionLayerBaseHeader*>(&layer)};
             std::array<XrCompositionLayerQuad,2> menu{};
             const XrCompositionLayerBaseHeader* menuLayers[2]{};
-            if(gameMode&&!trackedGame&&!mapPanelFrame&&render)for(int i=0;i<2;++i){
+            if(gameMode&&!trackedGame&&!isolatedMenuFrame&&render)for(int i=0;i<2;++i){
                 menu[i].type=XR_TYPE_COMPOSITION_LAYER_QUAD;menu[i].space=r.local;
                 menu[i].eyeVisibility=i==0?XR_EYE_VISIBILITY_LEFT:XR_EYE_VISIBILITY_RIGHT;
                 menu[i].subImage=projectionViews[i].subImage;menu[i].pose=menuAnchor.pose;
-                const float interfaceScale=amalur::menuScale(settings.interfaceScale);
+                const float interfaceScale=amalur::menuScale(settings.interfaceScale)*(sourceReady&&gameFrame.gameMode==6?settings.cinematicScale:1.f);
                 menu[i].size={2.f*interfaceScale,1.125f*interfaceScale};menuLayers[i]=reinterpret_cast<const XrCompositionLayerBaseHeader*>(&menu[i]);
             }
             XrCompositionLayerQuad mapLayer{};
-            if(render&&mapPanelFrame)mapLayer=mapPanel.draw(r.session,r.local,static_cast<DXGI_FORMAT>(format),device.Get(),context.Get(),stereoSource,menuAnchor.pose,amalur::menuScale(settings.interfaceScale),settings.sharpness);
+            if(render&&mapPanelFrame)mapLayer=mapPanel.draw(r.session,r.local,static_cast<DXGI_FORMAT>(format),device.Get(),context.Get(),uiSource,menuAnchor.pose,amalur::menuScale(settings.interfaceScale),settings.sharpness);
             std::vector<const XrCompositionLayerBaseHeader*> submitted;
-            if(render){if(mapPanelFrame){submitted.push_back(layers[0]);submitted.push_back(reinterpret_cast<const XrCompositionLayerBaseHeader*>(&mapLayer));}else if(gameMode&&!trackedGame){submitted.push_back(menuLayers[0]);submitted.push_back(menuLayers[1]);}else submitted.push_back(layers[0]);}
+            if(render){if(isolatedMenuFrame){submitted.push_back(layers[0]);if(mapPanelFrame)submitted.push_back(reinterpret_cast<const XrCompositionLayerBaseHeader*>(&mapLayer));}else if(gameMode&&!trackedGame){submitted.push_back(menuLayers[0]);submitted.push_back(menuLayers[1]);}else submitted.push_back(layers[0]);}
+            std::array<XrCompositionLayerQuad,2> wristLayers{};
+            if(render&&wristReady&&wristOpacity>0){
+                const float scale=settings.wristHudScale*settings.hudSize/.8f;
+                auto atlas=wristPanel.draw(r.session,r.local,static_cast<DXGI_FORMAT>(format),device.Get(),context.Get(),wristSource,
+                    WristHud::pose(wristHand,.13f,.045f),1.f,0.f,wristOpacity);
+                const int w=atlas.subImage.imageRect.extent.width,h=atlas.subImage.imageRect.extent.height;
+                const int cw=int(w*.3f),ch=int(h*.3f);
+                for(int i=0;i<2;++i){
+                    auto& layer=wristLayers[i];layer=atlas;
+                    layer.subImage.imageRect.offset={i?w-cw:0,0};layer.subImage.imageRect.extent={cw,ch};
+                    layer.pose=WristHud::pose(wristHand,i?-.13f:.13f,i?.085f:.045f);
+                    const float width=(i?.40f:.30f)*scale;
+                    layer.size={width,width*ch/cw};
+                    submitted.push_back(reinterpret_cast<const XrCompositionLayerBaseHeader*>(&layer));
+                }
+            }
+            XrCompositionLayerQuad hintLayer{};
+            const bool cinematicScreen=gameMode&&sourceReady&&gameFrame.gameMode==6&&!trackedGame&&!mapPanelFrame;
+            const float hintAlpha=cinematicHint.update(cinematicScreen,render&&focused&&!settings.panelOpen(),GetTickCount64());
+            if(hintAlpha>0){
+                hintLayer=cinematicHintPanel.draw(context.Get(),r.local,menuAnchor.pose,menu[0].size.height,hintAlpha);
+                submitted.push_back(reinterpret_cast<const XrCompositionLayerBaseHeader*>(&hintLayer));
+            }
             XrCompositionLayerQuad settingsLayer{};
             if(gameMode&&(settings.visible||settings.developerVisible)&&fs.shouldRender){
                 auto a=views[0].pose.position,b=views[1].pose.position;
@@ -426,6 +527,7 @@ int main(int argc,char** argv) {
             }
             XrFrameEndInfo end{XR_TYPE_FRAME_END_INFO};end.displayTime=fs.predictedDisplayTime;end.environmentBlendMode=XR_ENVIRONMENT_BLEND_MODE_OPAQUE;end.layerCount=static_cast<uint32_t>(submitted.size());end.layers=submitted.data();XR(xrEndFrame(r.session,&end));if(render)++frames;
         }
+        if(cinematicResize.update(settings.cinematicScale,0,0,false,GetTickCount64()))settings.saveCinematicScale();
         std::cout<<"VR loop exit tick="<<GetTickCount64()<<" state="<<sessionState<<" done="<<done<<" stopKey="<<bool(GetAsyncKeyState(stopKey)&0x8000)<<std::endl;
         std::cout<<"Rendered pairs="<<frames<<"; visual comfort, pose accuracy and haptic perception require human verification.\n";
         return frames?0:2;

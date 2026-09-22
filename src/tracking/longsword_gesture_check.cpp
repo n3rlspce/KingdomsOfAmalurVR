@@ -22,6 +22,8 @@ int main(){
     Replay moving;for(int i=0;i<130;++i)moving.frame(true,.4f);check(!moving.g.ready(),"raised moving cannot charge");
     Replay partial;partial.hold(60);partial.frame(false);partial.hold(60);check(!partial.g.ready(),"partial holds do not accumulate");
     Replay cancel;cancel.hold();for(int i=0;i<72;++i)cancel.frame(false,1);check(!cancel.frame(false,2,true).heavy,"lowering expires charge");
+    Replay overhead;overhead.hold();for(int i=0;i<140;++i)overhead.frame(true,1);check(overhead.g.ready(),"reposition farther overhead retains ready charge");
+    check(overhead.frame(true,2,true).heavy,"overhead reposition still releases heavy");
     Replay switched;switched.hold();++switched.weapon;check(!switched.frame(false,2,true).heavy,"weapon switch clears charge");
     Replay recentered;recentered.hold();++recentered.gen;check(!recentered.frame(false,2,true).heavy,"recenter clears charge");
     Replay lost;lost.hold();lost.frame(true,0,false,false);check(!lost.frame(false,2,true).heavy,"eligibility loss clears charge");

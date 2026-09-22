@@ -1,7 +1,7 @@
 #define NOMINMAX
 #include "../../src/xr_smoke/vr_settings.hpp"
-#include "../../src/tracking/developer_commands.hpp"
-#include "../../src/tracking/developer_connection.hpp"
+#include "../../src/bridge_tracking/developer_commands.hpp"
+#include "../../src/bridge_tracking/developer_connection.hpp"
 #include <cstdio>
 
 int main(){

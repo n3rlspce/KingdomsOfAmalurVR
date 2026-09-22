@@ -15,8 +15,8 @@ Use the game's gamepad UI. Release the controls after opening/closing menus or t
 | Right grip + A/B/X/Y | Native ability modifier + corresponding gamepad face button |
 | Left grip | Reserved for support-hand grabbing |
 | Left trigger + right grip | Reckoning mode |
-| Right thumbrest touch + left stick | D-pad: left health, right mana, up aggressive mode |
-| Both stick clicks held + left stick | D-pad fallback if thumbrest touch is unavailable |
+| Right thumbrest touch | No action; does not interrupt movement |
+| Both stick clicks held + left stick | D-pad: left health, right mana, up aggressive mode |
 | Left stick click, then release quickly | Map |
 | Hold left stick click (350 ms) | Quick-access wheel; use left stick to select |
 | Right stick click, then release | Stealth |
@@ -37,3 +37,7 @@ Open the developer panel with F11 or a simultaneous click of both sticks. It inc
 Normal third-person mode uses native game attacks and disables custom physical contact damage. In first-person mode, verified regular/rusty longswords use deliberate swings at 2 m/s for 55 ms. Three linked swings select the experimental combo sequence. Hold the blade upright near shoulder height with the hand stable for about one second: gold ring fills, green indicates heavy readiness, then strike within the transition window. These controls do not apply to every weapon family.
 
 The unified panel supports Settings/Dev tabs and hold-up/down scrolling. The health action sets roughly 10,000 health instead of invincibility. Unlock weapon moves grants the native weapon skill ranks; spell actions remain separate. Open pause menu requests the native ledger through the UI dispatcher. Startup tools can enable Automatic Continue and disable autosave before loading; manual saves remain available.
+
+Latest controls: VR Settings offers **Heavy charge input: Position / Right grip**. In Right grip mode, release once after selecting it, then hold for one second anywhere and swing when ready; release to rearm. Explicit grip-plus-face-button spells cancel charging. The full attack readout defaults off and can be enabled in the Dev panel. A small vertical gauge shows heavy readiness.
+
+Back-grip sheath/draw is experimental: use a grip gesture behind the shoulder; a tap sheathes and a hold draws, with native sound. Staff aiming attempts to align native attack facing with the tracked staff. Wrist HUD supports Left / Right / Off. Realtime cutscenes offer Full VR / Window; either stick up/down resizes cinematic screens. Physical crouch, seated mode, head height and arm thickness are adjustable in VR Settings. These additions need headset validation and do not imply full weapon-family support.

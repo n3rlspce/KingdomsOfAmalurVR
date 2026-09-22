@@ -1,5 +1,7 @@
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
+#include "../tracking/snap_pitch.hpp"
+#include "../tracking/head_height.hpp"
 #include <windows.h>
 #include <d3d11.h>
 #include <d3d11shader.h>
@@ -171,6 +173,7 @@ static bool hook(void* target,void* detour,void** original,const char* name) {
 #include "player_rig.hpp"
 #include "motion_controls.hpp"
 #include "game_pause.hpp"
+#include "body_control.hpp"
 #include "near_clip.hpp"
 #include "weapon_control.hpp"
 #include "body_visibility.hpp"
@@ -213,6 +216,9 @@ static void __fastcall onRebuildCamera(void* camera,void*) {
     static unsigned centeredGeneration=0,bridgeCenter=0;
     static amalur::HeadingAnchor headingAnchor;
     static amalur::SnapHeading snapHeading;
+    static amalur::SnapHeading thirdPersonHeading;
+    static amalur::SnapPitch thirdPersonPitch;
+    static amalur::SnapPitchChannel pitchChannel;
     static amalur::BodyHeading bodyHeading;
     static void* headingCamera{};
     static void* headingPlayer{};
@@ -221,6 +227,7 @@ static void __fastcall onRebuildCamera(void* camera,void*) {
     static bool hadTrackedCamera=false;
     amalur::PosePacket packet;
     bool tracked=false;
+    float appliedHeadHeight=0;
     amalur::LocomotionFrame locomotion;
     amalur::CameraPose originalCamera{},adjusted{},untrackedInspection{};
     memcpy(&originalCamera.eye,core+4,sizeof(mgs5vr::Vec3));
@@ -252,14 +259,14 @@ static void __fastcall onRebuildCamera(void* camera,void*) {
             mgs5vr::Pose head{{packet.orientation[0],packet.orientation[1],packet.orientation[2],packet.orientation[3]},{packet.position[0],packet.position[1],packet.position[2]}};
             if(mgs5vr::valid(head)){
                 unsigned generation=recenterGeneration.load();
-                if(!haveOrigin||centeredGeneration!=generation||bridgeCenter!=packet.recenter){origin=amalur::levelOrigin(head);haveOrigin=true;centeredGeneration=generation;bridgeCenter=packet.recenter;headingAnchor.reset();snapHeading.reset();bodyHeading.reset();log("Head tracking recentered (position and heading; horizon level)\n");}
+                if(!haveOrigin||centeredGeneration!=generation||bridgeCenter!=packet.recenter){origin=amalur::levelOrigin(head);haveOrigin=true;centeredGeneration=generation;bridgeCenter=packet.recenter;headingAnchor.reset();snapHeading.reset();thirdPersonHeading.reset();thirdPersonPitch.reset();bodyHeading.reset();log("Head tracking recentered (position and heading; horizon level)\n");}
                 auto relative=mgs5vr::compose(mgs5vr::inverse(origin),head);
                 auto baseCamera=originalCamera;
                 mgs5vr::Vec3 playerPosition{};
                 if((firstPerson.load()||arm_rig::enabled.load())&&player_rig::location(camera,playerPosition)){
                     auto heading=originalCamera.target-originalCamera.eye;heading.z=0;
                     auto owner=player_rig::player.load();
-                    if(headingCamera!=camera||headingPlayer!=owner){headingAnchor.reset();snapHeading.reset();bodyHeading.reset();headingCamera=camera;headingPlayer=owner;}
+                    if(headingCamera!=camera||headingPlayer!=owner){headingAnchor.reset();snapHeading.reset();thirdPersonHeading.reset();thirdPersonPitch.reset();bodyHeading.reset();headingCamera=camera;headingPlayer=owner;}
                     if(useFirstPerson){
                         headingAnchor.get(heading,heading);
                         const auto controls=motion_controls::viewControls();
@@ -271,7 +278,8 @@ static void __fastcall onRebuildCamera(void* camera,void*) {
                     }else {headingAnchor.reset();snapHeading.reset();}
                     if(amalur::normalize(heading)){
                         auto handCamera=baseCamera;
-                        handCamera.eye=playerPosition+mgs5vr::Vec3{0,0,195}+heading*25.f;
+                        appliedHeadHeight=useFirstPerson?amalur::headHeight.get()*.01f*packet.worldScale:0.f;
+                        handCamera.eye=playerPosition+mgs5vr::Vec3{0,0,195+appliedHeadHeight}+heading*25.f;
                         handCamera.target=handCamera.eye+heading*200.f;handCamera.up={0,0,1};
                         if(!bodyHeading.valid){mgs5vr::Vec3 seed;bodyHeading.get(heading,seed);}
                         const float yaw=std::atan2(-heading.x,heading.y);
@@ -283,8 +291,24 @@ static void __fastcall onRebuildCamera(void* camera,void*) {
                         if(useFirstPerson)baseCamera=handCamera;
                     }
                 }
+                if(amalur::playMode.normal()&&packet.gameMode==1){
+                    const auto controls=motion_controls::viewControls();
+                    if(dialogue_camera::resumeGameplay){
+                        thirdPersonHeading.rebase(controls.session,controls.turnYawDegrees);
+                        dialogue_camera::resumeGameplay=false;
+                    }
+                    const auto basis=thirdPersonHeading.apply({1,0,0},controls.session,controls.turnYawDegrees);
+                    baseCamera=amalur::orbitCamera(baseCamera,basis);
+                    uint32_t pitchSession{};int32_t pitchSteps{};
+                    if(pitchChannel.read(pitchSession,pitchSteps)){
+                        if(pitchSession==controls.session)
+                            baseCamera=amalur::pitchCamera(baseCamera,thirdPersonPitch.sample(pitchSession,pitchSteps));
+                    }
+                }
                 untrackedInspection=baseCamera;
-                tracked=!desktopPose&&amalur::trackedCamera(baseCamera,relative,packet.worldScale,adjusted);
+                tracked=!desktopPose&&(amalur::playMode.normal()
+                    ?amalur::trackedThirdPersonCamera(baseCamera,relative,packet.worldScale,adjusted)
+                    :amalur::trackedCamera(baseCamera,relative,packet.worldScale,adjusted));
             }
         }
     }else haveOrigin=false;
@@ -294,9 +318,10 @@ static void __fastcall onRebuildCamera(void* camera,void*) {
     // pre-override chase heading here rotates the stick twice after a head turn.
     // Verified against actual displacement through 360 degrees and back.
     motion_controls::sampleMovementBasis(adjusted.target-adjusted.eye,bodyForward,
-        tracked&&firstPerson.load()&&bodyHeadingValid&&packet.gameMode==1&&game_pause::sample(true)==0,GetTickCount64());
+        tracked&&(firstPerson.load()||amalur::playMode.normal())&&bodyHeadingValid&&packet.gameMode==1&&game_pause::sample(true)==0,GetTickCount64());
     // Keep the collar/shoulders behind the eyes without moving the camera with gait.
-    auto anchor=adjusted.eye-bodyForward*18.f;
+    // Keep the torso fixed when adjusting the tracking origin height.
+    auto anchor=adjusted.eye-bodyForward*18.f-mgs5vr::Vec3{0,0,appliedHeadHeight};
     arm_rig::sampleBody(anchor,bodyHeadingValid&&packet.gameMode?packet.tick:0);
     // Inspection camera only: compute tracking/arm/body anchors above from
     // the normal eye so pulling the view back cannot drag the avatar with it.
@@ -347,7 +372,7 @@ static void __fastcall onRebuildCamera(void* camera,void*) {
     auto renderedPacket=packet;if(!tracked||!packet.gameMode)renderedPacket.valid=0;
     trackedCameraAvailable.store(renderedPacket.valid!=0);
     render_pose::camera(core,renderedPacket,locomotion);
-    const bool retainInputs=tracked&&packet.gameMode&&firstPerson.load()&&coherentCamera.load();
+    const bool retainInputs=tracked&&packet.gameMode&&(firstPerson.load()||amalur::playMode.normal())&&coherentCamera.load();
     if(retainInputs){
         cameraInputs={core,originalCamera,adjusted,original,*reinterpret_cast<float*>(core+0x2c)};
     }else{
@@ -372,6 +397,7 @@ static void installCameraProbe() {
     auto target=reinterpret_cast<unsigned char*>(gameBase+0x008e1c80);
     const unsigned char expected[]={0x83,0xec,0x40,0x53,0x8b,0xd9,0xf6,0x83,0x5e,0x03,0,0,1};
     if(memcmp(target,expected,sizeof(expected))!=0){log("Camera signature mismatch; native hook skipped\n");return;}
+    amalur::nativeBodyProbe.store(&body_control::suspended);
     player_rig::install();
     near_clip::install();
     weapon_control::install();
@@ -442,12 +468,22 @@ static void publishStereoFrame(const amalur::PosePacket& metadata){
     static HANDLE mapping{};static const ULONG_PTR* sharedHandle{};
     static ULONG_PTR opened{};static ComPtr<ID3D11Texture2D> stereo;
     static amalur::StereoPublisher publisher;
+    static amalur::StereoPublisher uiPublisher{L"Local\\AmalurUiFrameV1",L"Local\\AmalurUiFrameMutexV1"};
+    static amalur::StereoPublisher wristPublisher{L"Local\\AmalurWristFrameV1",L"Local\\AmalurWristFrameMutexV1"};
     if(!mapping){mapping=OpenFileMappingW(FILE_MAP_READ,FALSE,L"Local\\KatangaMappedFile");if(!mapping)return;sharedHandle=static_cast<const ULONG_PTR*>(MapViewOfFile(mapping,FILE_MAP_READ,0,0,sizeof(ULONG_PTR)));}
     if(!sharedHandle||!*sharedHandle)return;
     if(opened!=*sharedHandle||!stereo){stereo.Reset();opened=*sharedHandle;if(FAILED(captureDevice->OpenSharedResource(reinterpret_cast<HANDLE>(opened),IID_PPV_ARGS(&stereo))))return;}
     ComPtr<ID3D11DeviceContext> context;captureDevice->GetImmediateContext(&context);
     // Executed after geo-11 Present has assembled the packed stereo image on
     // this immediate context, before the next game frame can overwrite it.
+    if(metadata.gameMode==7&&hud_trace::uiCapture.texture()){
+        auto uiPose=metadata;uiPose.tick=GetTickCount64();
+        uiPublisher.publish(captureDevice.Get(),context.Get(),hud_trace::uiCapture.texture(),uiPose);
+    }
+    if(metadata.gameMode==8&&hud_trace::wristCapture.draws()){
+        auto pose=metadata;pose.tick=GetTickCount64();
+        wristPublisher.publish(captureDevice.Get(),context.Get(),hud_trace::wristCapture.texture(),pose);
+    }
     static unsigned published=0;
     if(publisher.publish(captureDevice.Get(),context.Get(),stereo.Get(),metadata)&&++published%300==1)
         log("Paired stereo frame published #%u tracked=%u poseTick=%llu\n",published,metadata.valid,metadata.tick);
@@ -458,13 +494,15 @@ static HRESULT STDMETHODCALLTYPE onPresent(IDXGISwapChain* chain,UINT sync,UINT 
     float meleeVP[16]{};
     auto presentedPose=(flags&DXGI_PRESENT_TEST)?amalur::PosePacket{}:render_pose::beginPresent(meleeVP);
     if(!(flags&DXGI_PRESENT_TEST)){
-        const bool menu=amalur::fullscreenMenu(game_pause::sample(true),motion_controls::dialogueActive.load());
-        const bool panelRendered=mapPanelView.load();
-        mapPanelView.store(menu&&hud_size::mapPanelRequested&&!interfaceView.load());
+        const bool cinematic=body_control::cinematic();
+        const bool menu=!cinematic&&amalur::fullscreenMenu(game_pause::sample(true),motion_controls::dialogueActive.load());
+        mapPanelView.store(false);
         fullscreenMenuView.store(menu&&presentedPose.valid&&headTracking.load()&&!interfaceView.load());
         amalur::presentAsMenu(presentedPose,menu);
         // Only advertise images drawn with the untransformed panel UI.
-        if(menu&&panelRendered)presentedPose.gameMode=5;
+        if(menu&&hud_trace::uiCapture.draws())presentedPose.gameMode=7;
+        if(!menu&&!cinematic&&hud_trace::wristCapture.draws()&&hud_trace::captureWrist())presentedPose.gameMode=8;
+        if(cinematic)presentedPose.gameMode=6;
     }
     hud_size::poll();
     source_resolution::apply(chain);
@@ -484,7 +522,9 @@ static HRESULT STDMETHODCALLTYPE onPresent(IDXGISwapChain* chain,UINT sync,UINT 
     if(f2&&!f2Down&&motion_controls::gameFocused()){coherentCamera.store(!coherentCamera.load());log("F2: camera input consistency %s\n",coherentCamera.load()?"ON":"OFF");}f2Down=f2;
     static bool f1Down=false;bool f1=(GetAsyncKeyState(VK_F1)&0x8000)!=0;
     if(f1&&!f1Down&&motion_controls::gameFocused()){body_visibility::enabled.store(!body_visibility::enabled.load());log("F1: first-person body hiding %s\n",body_visibility::enabled.load()?"ON":"OFF");}f1Down=f1;
-    body_visibility::update();
+    body_visibility::update(!interfaceView.load()&&!fullscreenMenuView.load()
+        &&!motion_controls::dialogueActive.load()&&!cinematic_camera::wasActive
+        &&!developerCamera.enabled()&&!amalur::bodyDebug.enabled(amalur::nativeCamera));
     static bool f4Down=false,bodyBeforeArm=true,weaponBeforeArm=false;bool f4=(GetAsyncKeyState(VK_F4)&0x8000)!=0;
     if(f4&&!f4Down&&motion_controls::gameFocused()){
         if(arm_rig::enabled.exchange(!arm_rig::enabled.load())){body_visibility::enabled.store(bodyBeforeArm);weapon_control::enabled.store(weaponBeforeArm);}
@@ -504,6 +544,11 @@ static HRESULT STDMETHODCALLTYPE onPresent(IDXGISwapChain* chain,UINT sync,UINT 
     if(!(flags&DXGI_PRESENT_TEST))melee_debug::draw(chain,meleeVP,presentedPose.valid!=0);
     HRESULT result=realPresent(chain,sync,flags);
     if(SUCCEEDED(result)&&!(flags&DXGI_PRESENT_TEST))publishStereoFrame(presentedPose);
+    if(!(flags&DXGI_PRESENT_TEST)){
+        static unsigned uiLogs=0;if(hud_trace::uiCapture.draws()&&uiLogs++<12)log("UI layer: isolated %u draws mode=%u tracked=%u\n",hud_trace::uiCapture.draws(),presentedPose.gameMode,presentedPose.valid);
+        hud_trace::uiCapture.beginFrame();hud_trace::wristCapture.beginFrame();
+        ComPtr<ID3D11Texture2D> output;if(SUCCEEDED(chain->GetBuffer(0,IID_PPV_ARGS(&output)))){hud_trace::uiCapture.output(output.Get());hud_trace::wristCapture.output(output.Get());}
+    }
     camera_audit::present(presentedPose);
     if(count%120==0){const auto p=render_pose::performance();log("Render pose /120 frames: descriptors=%llu %.3fms scans=%llu %.3fms candidates=%llu matched=%llu\n",p.descriptors,p.descriptorMs,p.scans,p.scanMs,p.candidates,p.matched);}
     // Native inputs are restored only by their owning camera-update thread.
@@ -513,6 +558,7 @@ static HRESULT STDMETHODCALLTYPE onPresent(IDXGISwapChain* chain,UINT sync,UINT 
     return result;
 }
 static HRESULT STDMETHODCALLTYPE onResize(IDXGISwapChain* chain,UINT count,UINT width,UINT height,DXGI_FORMAT format,UINT flags) {
+    hud_trace::uiCapture.releaseOutput();hud_trace::wristCapture.releaseOutput();
     log("ResizeBuffers chain=%p count=%u size=%ux%u format=%u flags=0x%x\n",chain,count,width,height,format,flags);
     HRESULT result=realResize(chain,count,width,height,format,flags);log("ResizeBuffers result=0x%08lx\n",static_cast<unsigned long>(result));return result;
 }
@@ -564,6 +610,7 @@ extern "C" HRESULT WINAPI ProxyCreateDeviceAndSwapChain(IDXGIAdapter* adapter,D3
     if(SUCCEEDED(result)&&chain&&*chain)InitOnceExecuteOnce(&chainOnce,hookChain,*chain,nullptr);
     return result;
 }
+#include "startup_ticket.hpp"
 BOOL WINAPI DllMain(HINSTANCE module,DWORD reason,LPVOID) {
-    if(reason==DLL_PROCESS_ATTACH){selfModule=module;DisableThreadLibraryCalls(module);}return TRUE;
+    if(reason==DLL_PROCESS_ATTACH){selfModule=module;DisableThreadLibraryCalls(module);startup_ticket::initialize();}return TRUE;
 }

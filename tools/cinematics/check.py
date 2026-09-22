@@ -9,8 +9,9 @@ lua.execute('''
 messages, writes, calls, windows = {}, {}, 0, {}
 print = function(message) table.insert(messages, message) end
 WINDOW = {
-    find_window = function(root, name)
-        assert(name == 'letterbox')
+    find_window = function(root, id, index, recursive)
+        assert(id == 4591092 and index == -1 and recursive == true,
+               'native find_window requires numeric StringID and four arguments')
         assert(windows[root], 'stale root')
         return windows[root].box
     end,
@@ -107,12 +108,13 @@ cinematic_paused_win.on_update_event(12,34)
 assert(windows[201].subtitle)
 -- Native lifecycle failures retain native behavior; only cosmetic errors caught.
 local saved_set = WINDOW.set_visible
+local prior_messages = #messages
 WINDOW.set_visible = function() error('UI failure') end
 conversation_menu.on_window_event('show')
-assert(#messages == 1 and windows[102].box.visible)
+assert(#messages == prior_messages + 1 and windows[102].box.visible)
 local before = calls
 conversation_menu.on_update_event(12,34)
-assert(calls == before + 1 and #messages == 1)
+assert(calls == before + 1 and #messages == prior_messages + 1)
 WINDOW.set_visible = saved_set
 -- Reloaded module object must be wrapped independently of the old one.
 conversation_menu,new_box = make_host(301)

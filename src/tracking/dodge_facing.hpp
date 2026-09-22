@@ -11,9 +11,9 @@ class DodgeFacingLease {
     std::atomic<uint64_t> until_{0};
 public:
     static constexpr uint64_t durationMs=700;
-    void observe(bool active,bool a,bool abilityModifier,uint64_t now){
+    void observe(bool active,bool a,bool abilityModifier,uint64_t now,bool interactionTarget=false){
         if(!active){wasA_=false;until_.store(0);return;}
-        if(a&&!wasA_&&!abilityModifier)until_.store(now+durationMs);
+        if(a&&!wasA_&&!abilityModifier)until_.store(interactionTarget?0:now+durationMs);
         // Releasing the ability modifier while A is held is not a new dodge.
         wasA_=a;
     }

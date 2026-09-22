@@ -20,7 +20,7 @@ public:
         if(!value_&&mapping_){CloseHandle(mapping_);mapping_=nullptr;}
         return value_!=nullptr;
     }
-    LONG read(){LONG bits=open()?InterlockedCompareExchange(value_,0,0):0;return playMode.normal()?bits|nativeTorso|nativeArms:bits;}
+    LONG read(){LONG bits=open()?InterlockedCompareExchange(value_,0,0):0;return playMode.nativeBody()?bits|nativeTorso|nativeArms:bits;}
     bool enabled(LONG bit){return (read()&bit)!=0;}
     void resetAblations(){if(open())InterlockedAnd(value_,~rigAblationMask);}
     void toggle(LONG bit){if(open())InterlockedXor(value_,bit);}

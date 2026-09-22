@@ -5,7 +5,7 @@
 #include <wrl/client.h>
 #include <cstdio>
 #include <cstring>
-#include "../tracking/stereo_frame.hpp"
+#include "../bridge_tracking/stereo_frame.hpp"
 
 // Katanga's documented shared-surface protocol, as used by the MIT-licensed
 // VRScreenCap Katanga loader. See research/STEREO_REUSE.md for provenance.
@@ -20,6 +20,7 @@ class StereoSource {
     Ptr<ID3D11Buffer> constants_;Ptr<ID3D11SamplerState> sampler_;
     ULONGLONG retry_{};
     const wchar_t* mappingName_;
+    bool mono_=false;
     amalur::StereoMailbox pairedBox_;
     amalur::StereoFrame pairedFrame_{};
     uint32_t openedProducer_{};uint64_t openedGeneration_{};
@@ -37,11 +38,11 @@ public:
         }
         context->CopyResource(copy_.Get(),source.copy_.Get());return true;
     }
-    unsigned sourceWidth()const{D3D11_TEXTURE2D_DESC d{};if(copy_)copy_->GetDesc(&d);return d.Width/2;}
+    unsigned sourceWidth()const{D3D11_TEXTURE2D_DESC d{};if(copy_)copy_->GetDesc(&d);return mono_?d.Width:d.Width/2;}
     unsigned sourceHeight()const{D3D11_TEXTURE2D_DESC d{};if(copy_)copy_->GetDesc(&d);return d.Height;}
     explicit StereoSource(const wchar_t* name=L"Local\\KatangaMappedFile",
-        const wchar_t* pairedName=L"Local\\AmalurStereoFrameV1",const wchar_t* pairedMutex=L"Local\\AmalurStereoFrameMutexV1")
-        :mappingName_(name),pairedBox_(pairedName,pairedMutex){}
+        const wchar_t* pairedName=L"Local\\AmalurStereoFrameV1",const wchar_t* pairedMutex=L"Local\\AmalurStereoFrameMutexV1",bool mono=false)
+        :mappingName_(name),mono_(mono),pairedBox_(pairedName,pairedMutex){}
     ~StereoSource(){if(mapped_)UnmapViewOfFile(const_cast<const ULONG_PTR*>(mapped_));if(mapping_)CloseHandle(mapping_);}
     bool initialize(ID3D11Device* device) {
         const char* code=R"(
@@ -53,14 +54,23 @@ float4 ps(V i):SV_TARGET{
  float2 ray=float2(lerp(tangents.x,tangents.y,i.uv.x),lerp(tangents.w,tangents.z,i.uv.y));
  float2 uv=float2(.5+.5*ray.x*parameters.x+parameters.w,.5-.5*ray.y*parameters.y);
  if(any(uv<0)||any(uv>1))return float4(0,0,0,1);
- uv.x=(uv.x+parameters.z)*.5;
+ float eyes=quality.y>0.5?1.0:2.0;
+ uv.x=(uv.x+parameters.z)/eyes;
  uint w,h;source.GetDimensions(w,h);float2 texel=1.0/float2(w,h);
  // Clamp every filter tap to this eye's texel centres, not the whole SBS
  // texture. Bilinear filtering/sharpening must never read the adjacent eye.
- float2 eyeMin=float2(parameters.z*.5+texel.x*.5,texel.y*.5);
- float2 eyeMax=float2((parameters.z+1)*.5-texel.x*.5,1-texel.y*.5);
+ float2 eyeMin=float2(parameters.z/eyes+texel.x*.5,texel.y*.5);
+ float2 eyeMax=float2((parameters.z+1)/eyes-texel.x*.5,1-texel.y*.5);
  uv=clamp(uv,eyeMin,eyeMax);
- float3 color=source.Sample(linearClamp,uv).rgb;
+ float4 sampleColor=source.Sample(linearClamp,uv);
+ if(quality.z>0.5){
+   // The game blends UI into a display-encoded target. Decode straight RGB
+   // before reapplying coverage for the compositor's premultiplied layer.
+   float a=sampleColor.a;float3 straight=saturate(sampleColor.rgb/max(a,0.00001));
+   float3 linearColor=lerp(pow((straight+0.055)/1.055,2.4),straight/12.92,step(straight,0.04045));
+   return float4(linearColor*a,a)*quality.w;
+ }
+ float3 color=sampleColor.rgb;
  float3 neighbors=source.Sample(linearClamp,clamp(uv+float2(texel.x,0),eyeMin,eyeMax)).rgb+source.Sample(linearClamp,clamp(uv-float2(texel.x,0),eyeMin,eyeMax)).rgb+source.Sample(linearClamp,clamp(uv+float2(0,texel.y),eyeMin,eyeMax)).rgb+source.Sample(linearClamp,clamp(uv-float2(0,texel.y),eyeMin,eyeMax)).rgb;
  return float4(saturate(color+quality.x*(color-neighbors*.25)),1);
 })";
@@ -124,16 +134,16 @@ float4 ps(V i):SV_TARGET{
         }
         {
             D3D11_TEXTURE2D_DESC d{},existing{};shared_->GetDesc(&d);
-            if(d.ArraySize!=1||d.SampleDesc.Count!=1||d.Width<2||d.Width%2)return false;
+            if(d.ArraySize!=1||d.SampleDesc.Count!=1||d.Width<2||(!mono_&&d.Width%2))return false;
             DXGI_FORMAT format=d.Format;
             // geo-11's final color is display-encoded even when its shared
             // texture is labelled UNORM. Decode before the XR sRGB RTV encodes.
             // A typeless private copy permits an sRGB SRV without changing bytes.
             if(format==DXGI_FORMAT_R8G8B8A8_TYPELESS||format==DXGI_FORMAT_R8G8B8A8_UNORM||format==DXGI_FORMAT_R8G8B8A8_UNORM_SRGB){
-                d.Format=DXGI_FORMAT_R8G8B8A8_TYPELESS;format=DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
+                d.Format=DXGI_FORMAT_R8G8B8A8_TYPELESS;format=mono_?DXGI_FORMAT_R8G8B8A8_UNORM:DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
             }
             if(format==DXGI_FORMAT_B8G8R8A8_TYPELESS||format==DXGI_FORMAT_B8G8R8A8_UNORM||format==DXGI_FORMAT_B8G8R8A8_UNORM_SRGB){
-                d.Format=DXGI_FORMAT_B8G8R8A8_TYPELESS;format=DXGI_FORMAT_B8G8R8A8_UNORM_SRGB;
+                d.Format=DXGI_FORMAT_B8G8R8A8_TYPELESS;format=mono_?DXGI_FORMAT_B8G8R8A8_UNORM:DXGI_FORMAT_B8G8R8A8_UNORM_SRGB;
             }
             d.BindFlags=D3D11_BIND_SHADER_RESOURCE;d.MiscFlags=0;d.CPUAccessFlags=0;d.Usage=D3D11_USAGE_DEFAULT;
             if(copy_)copy_->GetDesc(&existing);
@@ -173,8 +183,8 @@ float4 ps(V i):SV_TARGET{
         }
         context->Unmap(staging.Get(),0);fclose(f);return true;
     }
-    void draw(ID3D11DeviceContext* context,int eye,float left,float right,float down,float up,float px,float py,float sourceBias=0,float sharpness=0){
-        float data[12]={left,right,down,up,px,py,float(eye),sourceBias,sharpness,0,0,0};
+    void draw(ID3D11DeviceContext* context,int eye,float left,float right,float down,float up,float px,float py,float sourceBias=0,float sharpness=0,bool alpha=false,float opacity=1.f){
+        float data[12]={left,right,down,up,px,py,float(eye),sourceBias,sharpness,mono_?1.f:0.f,alpha?1.f:0.f,opacity};
         context->UpdateSubresource(constants_.Get(),0,nullptr,data,0,0);
         auto cb=constants_.Get();auto srv=view_.Get();auto sampler=sampler_.Get();
         context->IASetInputLayout(nullptr);context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);

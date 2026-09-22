@@ -32,7 +32,7 @@ local function splash_step(host, window)
 end
 
 local function menu_step(host)
-    if state.loadAttempted or not flag(host.m_inited) or flag(host.m_restore_op_active) then return end
+    if state.loadAttempted or state.menuDecisionMade or not flag(host.m_inited) or flag(host.m_restore_op_active) then return end
     if not visible(host.m_window) then return end
     if flag(require_api(PROFILE and PROFILE.is_system_ui_being_shown,
                         'PROFILE.is_system_ui_being_shown')()) then return end
@@ -48,6 +48,21 @@ local function menu_step(host)
         assert(enabled == false or enabled == 0, 'Autosave setting did not turn off')
         state.autosaveConfigured = true
         print('AMALUR_STARTUP|AUTOSAVE_DISABLED')
+    end
+    -- A Lua state is recreated when returning from gameplay. The native DLL
+    -- creates this ticket only once per process, not once per Lua state.
+    state.menuDecisionMade = true
+    local ticketPath = '.\\mods\\amalur_boot_continue.lua'
+    local ticket = loadfile(ticketPath)
+    if not ticket then return end
+    local valid, boot = pcall(ticket)
+    if not valid or boot ~= true then return end
+    local removed = require_api(os and os.remove, 'os.remove')(ticketPath)
+    assert(removed, 'Could not consume startup ticket; automatic Continue cancelled')
+    local options = loadfile('.\\mods\\amalur_startup_options.txt')
+    if options then
+        local ok, enabled = pcall(options)
+        if ok and enabled == false then return end
     end
     local slot = require_api(SAVE_RESTORE.get_most_recent_save_slot,
                             'SAVE_RESTORE.get_most_recent_save_slot')()

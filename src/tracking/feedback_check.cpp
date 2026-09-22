@@ -14,6 +14,8 @@ inline uintptr_t resolve(uint32_t){return 0;}
 }
 namespace weapon_control {inline SRWLOCK poseLock=SRWLOCK_INIT; inline uint64_t visualTick{};inline uint32_t visualWeapon{},visualAsset{};inline uintptr_t fab(uint32_t){return 0;}}
 namespace motion_controls {struct Controls{unsigned selectedWeapon{};};inline Controls viewControls(){return {};}}
+#include "physical_melee_recipe.hpp"
+#include "melee_family_policy.hpp"
 #include "src/diagnostic/melee_feedback.hpp"
 static unsigned calls;
 static uintptr_t got[4];
@@ -31,7 +33,7 @@ static uintptr_t __fastcall voiceAllocate(void*,void*,uintptr_t output,uint32_t 
 }
 static void __fastcall voicePosition(void*,void*,float x,float y,float z){if(x!=1||y!=2||z!=3)std::abort();++voicePositions;}
 static void __fastcall voiceStop(void*,void*,uint32_t handle){if(((handle>>16)&255)!=3)std::abort();++voiceStops;}
-static void check(bool b){if(!b)std::abort();}
+#define check(b) do { if(!(b)){std::fprintf(stderr,"FAIL line %d\n",__LINE__);std::exit(1);} } while(0)
 int main(){
     amalur::MeleeFeedbackInbox box;
     amalur::MeleeSwingEvent e{};e.owner=1;e.weapon=2;e.serial=1;e.tick=1000;
@@ -98,12 +100,12 @@ int main(){
     amalur::MeleeSwingEvent a{};a.owner=7;a.weapon=8;a.asset=2478;a.hand=0;a.serial=1;a.generation=2;a.attackAsset=50;a.tick=1000;a.weaponPose.position={1,2,3};
     check(d.swing(api,a,1000)&&voiceAllocations==2&&voicePositions==2&&lastSelector==0x0104d903&&lastMode==0);
     check(!d.swing(api,a,1000));a.serial=2;a.tick=1050;check(!d.swing(api,a,1050));
-    a.tick=1200;a.attackAsset=7;check(d.swing(api,a,1200)&&lastSelector==0x01edd57b);
+    a.tick=1200;a.attackAsset=7;a.attackFlags=2;check(d.swing(api,a,1200)&&lastSelector==0x01edd57b);
     d.update(api,100,7,8,2,false,1300);check(voiceStops==4&&d.manager==0);
-    d.update(api,100,7,8,2,true,2000);a.serial=3;a.tick=2000;a.attackAsset=81;check(d.swing(api,a,2000));
-    d.update(api,100,7,8,2,true,6001);check(voiceStops==6);
+    d.update(api,100,7,8,2,true,2000);a.serial=3;a.tick=2000;a.attackAsset=81;a.attackFlags=1;check(d.swing(api,a,2000));
+    d.update(api,100,7,8,2,true,6001);check(voiceStops==7);
     a.serial=4;a.tick=6100;a.asset=1520;check(!d.swing(api,a,6100));a.asset=2478;a.attackAsset=160;check(!d.swing(api,a,6100));
-    a.attackAsset=50;a.tick=5000;check(!d.swing(api,a,6100));a.tick=6100;failAllocate=true;check(!d.swing(api,a,6100));failAllocate=false;
+    a.attackAsset=50;a.attackFlags=0;a.tick=5000;check(!d.swing(api,a,6100));a.tick=6100;failAllocate=true;check(!d.swing(api,a,6100));failAllocate=false;
     a.tick=6300;a.serial=5;check(d.swing(api,a,6300));const auto stopped=voiceStops;d.update(api,200,7,8,2,true,6400);check(voiceStops==stopped); // no old-manager writes
     d.update(api,200,7,8,2,false,6500);
     }

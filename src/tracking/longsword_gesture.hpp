@@ -21,17 +21,12 @@ public:
         }
         if(tick==lastTick_)return {};
         lastTick_=tick;
-        if(accepted){
-            const bool heavy=ready_&&(!departed_||tick-departed_<=700);
-            ready_=false;held_=departed_=0;progress_=0;
-            if(heavy){step_=0;lastStrike_=0;return {0,81,1,true};}
-            if(!lastStrike_||tick-lastStrike_>1100)step_=0;
-            step_=step_%3+1;lastStrike_=tick;
-            return {step_,step_==1?50u:step_==2?5u:7u,step_==1?0u:step_==2?1u:2u,false};
-        }
+        if(accepted)return commit(tick);
         if(ready_){
             // Allow a brief transition from the raised pose into the strike.
-            if(!raised||speed>.35f){if(!departed_)departed_=tick;}
+            // Moving farther overhead/behind the shoulder retains a ready
+            // charge. Departure starts only after lowering out of the region.
+            if(!raised){if(!departed_)departed_=tick;}else departed_=0;
             if(departed_&&tick-departed_>700){ready_=false;progress_=0;held_=departed_=0;}
             return {};
         }
@@ -42,6 +37,14 @@ public:
         }else {held_=0;progress_=0;}
         return {};
     }
+    LongswordStrike commit(uint64_t tick){
+            const bool heavy=ready_&&(!departed_||tick-departed_<=700);
+            ready_=false;held_=departed_=0;progress_=0;
+            if(heavy){step_=0;lastStrike_=0;return {0,81,1,true};}
+            if(!lastStrike_||tick-lastStrike_>1100)step_=0;
+            step_=step_%3+1;lastStrike_=tick;
+            return {step_,step_==1?50u:step_==2?5u:7u,step_==1?0u:step_==2?1u:2u,false};
+        }
 private:
     uint32_t weapon_{};unsigned generation_{},step_{};
     uint64_t lastTick_{},lastStrike_{},held_{},departed_{};

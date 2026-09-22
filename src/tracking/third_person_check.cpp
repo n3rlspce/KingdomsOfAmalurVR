@@ -1,8 +1,8 @@
 #define NOMINMAX
 #define AMALUR_PLAY_MODE_MAPPING L"Local\\AmalurThirdPersonOfflineCheck"
 #define AMALUR_BODY_DEBUG_MAPPING L"Local\\AmalurThirdPersonBodyOfflineCheck"
-#include "motion_input.hpp"
-#include "body_debug_settings.hpp"
+#include "../bridge_tracking/motion_input.hpp"
+#include "../bridge_tracking/body_debug_settings.hpp"
 #include "../xr_smoke/vr_settings.hpp"
 #include <cassert>
 #include <limits>

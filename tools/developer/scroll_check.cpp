@@ -1,5 +1,5 @@
 #define NOMINMAX
-#include "../../src/tracking/developer_panel_input.hpp"
+#include "../../src/bridge_tracking/developer_panel_input.hpp"
 #include <cassert>
 #include <cstdio>
 int main(){

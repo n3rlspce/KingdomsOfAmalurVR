@@ -58,6 +58,35 @@ static bool wasActive{},resumeGameplay{};
 static uint32_t inputOwner{};
 static uintptr_t inputDialog{};
 static uint64_t lastOpen{};
+static amalur::DialogueNpcFollow npcFollow;
+static uintptr_t failedFacingDialog{};
+
+// Use the same native motion accumulator as set_facing, with fractional yaw
+// deltas so small headset translations do not cause integer-degree stepping.
+static void faceParticipant(const State& s,mgs5vr::Vec3 eye){
+    if(!player_rig::nativeFineFacing||failedFacingDialog==s.dialog)return;
+    __try {
+        const auto word=player_rig::word;
+        const auto npc=static_cast<uint32_t>(word(s.dialog+0x5c));
+        if(!npc||npc==s.owner){npcFollow.reset();return;}
+        const auto entity=player_rig::resolve(npc);
+        const auto loc=player_rig::part(entity,6,npc,0x1355cdc);
+        if(!loc){npcFollow.reset();return;}
+        const auto motion=word(entity+0x3c+42*4);
+        if(!motion||word(motion+0x18)!=npc||word(motion+0x1c)!=42||
+           !(word(motion+0x20)&1)||!(word(loc+0x20)&1)){npcFollow.reset();return;}
+        mgs5vr::Vec3 position{};memcpy(&position,reinterpret_cast<void*>(loc+0x24),12);
+        const double before=uint32_t(word(loc+0xb0))*(360.0/4294967296.0);
+        if(!npcFollow.active||npcFollow.dialog!=s.dialog||npcFollow.npc!=npc)
+            log("Dialogue NPC continuous facing: npc=%08x yaw=%.3f maxRate=60deg/s\n",npc,before);
+        uint32_t delta{},zero{};
+        if(npcFollow.step(s.dialog,npc,GetTickCount64(),before,position,eye,delta))
+            player_rig::nativeFineFacing(reinterpret_cast<void*>(motion),&delta,&zero);
+    } __except(EXCEPTION_EXECUTE_HANDLER){
+        failedFacingDialog=s.dialog;npcFollow.reset();
+        log("Dialogue NPC continuous facing unavailable for this conversation\n");
+    }
+}
 
 // Called before the gameplay camera's FOV/identity gates. Return true when the
 // original rebuild has already been called, including non-scene cameras while
@@ -75,7 +104,7 @@ static bool rebuild(void* camera){
     }
     if(!active){
         if(wasActive){resumeGameplay=true;view.reset();inputs.core=nullptr;log("First-person dialogue inactive\n");}
-        wasActive=false;return false;
+        wasActive=false;failedFacingDialog=0;npcFollow.reset();return false;
     }
     if(!wasActive){log("First-person dialogue active core=%p playerCore=%p\n",reinterpret_cast<void*>(s.core),reinterpret_cast<void*>(s.playerCore));}
     wasActive=true;
@@ -93,9 +122,10 @@ static bool rebuild(void* camera){
         std::isfinite(packet.horizontalFov)&&packet.horizontalFov>50&&packet.horizontalFov<179&&
         view.apply(s.dialog,s.owner,recenterGeneration.load(),packet.recenter,s.position,s.facing,head,packet.worldScale,adjusted);
     if(tracked){
+        faceParticipant(s,adjusted.eye);
         memcpy(core+4,&adjusted.eye,12);memcpy(core+0x14,&adjusted.target,12);memcpy(core+0x1c0,&adjusted.up,12);
         *reinterpret_cast<float*>(core+0x2c)=packet.horizontalFov;
-    }
+    }else npcFollow.reset();
     // Dialogue's native controller may cache its narrow lens. Always rebuild
     // when applying or withdrawing the override, even for equal headset ticks.
     core[0x35e]|=1;realRebuildCamera(camera);

@@ -2,8 +2,14 @@
 -- Hide the native letterbox subtree, including its textured fuzzy edges.
 -- Do not filter shared shaders or change dialogue/cinematic lifecycle calls.
 local state = _G.amalur_vr_cinematics_state
+if state and state.version ~= 2 then
+    -- Upgrade only this mod's cosmetic callbacks. Their native call chains stay
+    -- intact; one new wrapper replaces the failed v1 cosmetic work.
+    for _, entry in pairs(state.hosts or {}) do entry.failed = true end
+    state = nil
+end
 if not state then
-    state = {hosts = setmetatable({}, {__mode = 'k'})}
+    state = {version = 2, hosts = setmetatable({}, {__mode = 'k'})}
     _G.amalur_vr_cinematics_state = state
 end
 
@@ -20,10 +26,19 @@ local function hide_letterbox(host)
        type(WINDOW.is_visible) ~= 'function' or type(WINDOW.set_visible) ~= 'function' then
         error('native WINDOW API unavailable')
     end
-    local box = WINDOW.find_window(host.m_window, 'letterbox')
+    -- cinematic_paused_win.init uses root, StringID(letterbox), -1, true.
+    -- This API does not accept the readable XML name as its second argument.
+    local box = WINDOW.find_window(host.m_window, 4591092, -1, true)
     if box == nil or box == false or box == 0 then return end
     local visible = WINDOW.is_visible(box)
-    if visible == true or visible == 1 then WINDOW.set_visible(box, false) end
+    if visible == true or visible == 1 then
+        WINDOW.set_visible(box, false)
+        local entry = state.hosts[host]
+        if not entry.reportedHide then
+            entry.reportedHide = true
+            print('AMALUR_VR_CINEMATICS_HIDDEN|numeric-window-v2')
+        end
+    end
 end
 
 for _, name in ipairs({'conversation_menu', 'cinematic_paused_win'}) do
@@ -61,5 +76,9 @@ for _, name in ipairs({'conversation_menu', 'cinematic_paused_win'}) do
         end
         -- Trigger installation only wraps functions. All native UI reads/writes
         -- happen from those callbacks after the original has initialized them.
+        if not entry.reportedInstall then
+            entry.reportedInstall = true
+            print('AMALUR_VR_CINEMATICS_INSTALLED|' .. name .. '|numeric-window-v2')
+        end
     end
 end

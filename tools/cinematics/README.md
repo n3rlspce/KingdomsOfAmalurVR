@@ -6,6 +6,11 @@ The mod hides only the native `letterbox` child of `conversation_menu` and
 `fuzzy_edge_bottom` and `fuzzy_edge_top` in this group. Cinematic asset 1824674
 has a separate letterbox group. This removes the complete backdrop, including
 textured edges missed by the earlier solid-black vertex shader filter.
+The native lookup requires all four arguments: `WINDOW.find_window(root,
+4591092, -1, true)`. The first installed version incorrectly passed a name and
+omitted required arguments; the live framework reported this failure. Version 2
+corrects that call and emits installation/hide receipts. A versioned upgrade
+disables only the old cosmetic callback, preserving the native callback chain.
 
 Text, selection highlights, pause/skip controls and dialogue progression remain
 native. Existing VR dialogue placement and head tracking continue to work.
@@ -37,6 +42,25 @@ existing scripted targets, changes neither body facing nor actor position, and
 leaves target lifetime to native AI. It targets the player actor's native head
 attachment, not the headset's room-scale position. A one-line AMALUR_VR_GAZE
 diagnostic distinguishes the applied fallback from existing/disabled tracking.
+Live testing confirmed the fallback executes and installs a target, but the user
+still observes no NPC head following. It is not a verified gaze fix: an accepted
+target does not establish that the dialogue animation applies head tracking.
+The user-requested alternative in Cinematics003 turns the NPC's body once when
+a tracked conversation starts, toward the actual VR eye's horizontal position.
+It uses the existing validated native `set_facing` service (absolute integer
+degrees), with generation-checked NPC/location and active motion-component
+guards. It does not continuously rotate the NPC or change their position. This
+is entry alignment, not continuous head/eye following. Native rendering still
+needs a user playtest; the diagnostic logs the NPC, old yaw and requested yaw.
+
+Cinematics004 supersedes that one-time adjustment at the user's request with
+continuous body facing toward the tracked eye position during dialogue. It uses
+the validated native fractional motion accumulator behind `set_facing`, at up
+to 60 degrees/second with a 0.3-degree deadband. Elapsed time is capped at 50ms
+per update to prevent catching up with a large turn after a stall. Conversation
+and NPC changes, invalid geometry, tracking loss and dialogue exit reset the
+follower. Headset orientation does not steer NPC facing. This remains body yaw,
+not independent neck/eye animation; in-game appearance is still unverified.
 
 With Amalur closed:
 

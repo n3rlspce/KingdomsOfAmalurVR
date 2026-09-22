@@ -8,6 +8,46 @@ void check(bool pass,const char* message){if(!pass){std::printf("FAIL: %s\n",mes
 float length(Vec3 v){return std::sqrt(dot(v,v));}
 int main(){
     {
+        // Native model-space positions from captures/rig-ids.json (asset538).
+        // Its first animated frame has24.4 degrees of shoulder yaw, which used
+        // to become permanent when captured as the stable torso reference.
+        amalur::RigBone captured[6]{},out[6]{};
+        int16_t parents[]{-1,0,1,1,1,4};
+        uint32_t ids[]{1,0x688528,0x5a2e4c,0xf1076a,0xf21468,99};
+        captured[1].position={-1.90944f,2.92539f,116.62128f};
+        captured[2].position={-.85903f,4.18478f,173.45348f};
+        captured[3].position={3.93969f,-14.08411f,157.17528f};
+        captured[4].position={-11.35794f,19.68864f,155.70610f};
+        captured[5].position={-12,22,130};
+        for(auto& b:captured){b.positionW=7;memset(b.opaque,0x40,16);}
+        amalur::RigBone unchanged[6];memcpy(unchanged,captured,sizeof(captured));
+        const Vec3 anchor{15,0,173};
+        amalur::BodyReference reference;
+        check(amalur::stabilizeTrackedBody(captured,out,6,parents,ids,anchor,reference),"captured asymmetric torso accepted");
+        const auto lateral=out[4].position-out[3].position;
+        check(std::abs(lateral.x)<.001f&&lateral.y>0,"captured idle yaw normalized to model lateral axis");
+        check(std::abs(out[2].position.x-anchor.x)<.001f&&std::abs(out[2].position.y-anchor.y)<.001f,"normalized torso keeps head anchor");
+        check(length((out[1].position-out[0].position)-(captured[1].position-captured[0].position))<.001f,"spine attachment retains lower-body seam");
+        for(unsigned i=1;i<6;++i){
+            check(std::abs(out[i].position.z-captured[i].position.z)<.001f,"yaw normalization preserves native heights");
+            if(i>1)check(std::abs(length(out[i].position-out[parents[i]].position)-length(captured[i].position-captured[parents[i]].position))<.001f,"yaw normalization preserves upper bone distances");
+            check(out[i].positionW==7&&!memcmp(out[i].opaque,captured[i].opaque,16),"yaw normalization preserves native metadata");
+        }
+        check(!memcmp(captured,unchanged,sizeof(captured)),"yaw calibration leaves source untouched");
+        for(float yaw:{-.6f,.6f}){
+            const Pose turn{{0,0,std::sin(yaw*.5f),std::cos(yaw*.5f)}, {}};
+            for(unsigned i=1;i<6;++i){auto pose=compose(turn,amalur::bonePose(unchanged[i]));captured[i].position=pose.position;captured[i].orientation=amalur::nativeQuaternion(pose.orientation);}
+            amalur::BodyReference fresh;
+            check(amalur::stabilizeTrackedBody(captured,out,6,parents,ids,anchor,fresh),"opposite animated yaw calibrates");
+            check(std::abs(out[4].position.x-out[3].position.x)<.001f,"both twist directions straighten without fixed offset");
+        }
+        const auto savedReference=reference;amalur::RigBone saved[6];memcpy(saved,out,sizeof(out));
+        captured[4].position=captured[3].position;
+        check(!amalur::stabilizeTrackedBody(captured,out,6,parents,ids,anchor,reference,{1}),"collapsed shoulder basis rejected");
+        check(!memcmp(saved,out,sizeof(out))&&!memcmp(&savedReference,&reference,sizeof(reference)),"bad yaw basis preserves prior output/reference");
+        puts("PASS: measured torso yaw normalization, head/spine continuity, distances, native source and transactional guards");
+    }
+    {
         amalur::RigBone source[2]{},modified[2];
         for(auto& b:source){b.position={1,2,3};b.positionW=7;b.orientation={0,0,0,1};memset(b.opaque,0xa5,16);b.opaque[12]=0x40;}
         for(unsigned mode=0;mode<4;++mode){
@@ -136,9 +176,21 @@ int main(){
             check(length(out[i].position-baseline[i].position-lean)<.001f,"torso and shoulders follow physical anchor without native gait shake");
             check(!memcmp(&out[i].orientation,&baseline[i].orientation,sizeof(Quat)),"native torso twist cannot shake tracked upper body");
         }
-        check(length(out[5].position-baseline[5].position-lean-Vec3{12*sway,0,0})<.001f,"native leg stride remains animated");
+        check(length(out[5].position-baseline[5].position-lean-Vec3{4*sway,-4*sway,-5*sway})<.001f,"native leg stride remains animated");
         check(!memcmp(gait,unchanged,sizeof(gait)),"body stabilization does not mutate native source");
         for(unsigned i=0;i<7;++i)check(out[i].positionW==3&&!memcmp(out[i].opaque,gait[i].opaque,16),"tracked body preserves opaque bone data");
+    }
+    {
+        // Common lower-body translation after calibration must not leave the
+        // native pelvis displaced from the frozen spine (10 units = 10 cm).
+        amalur::RigBone shifted[7],seam[7];memcpy(shifted,native,sizeof(shifted));
+        const Vec3 drift{0,10,3};
+        for(auto& bone:shifted)bone.position=bone.position+drift;
+        shifted[5].position.x+=12; // independent foot stride remains visible
+        check(amalur::stabilizeTrackedBody(shifted,seam,7,parents,ids,fixedAnchor,reference),"translated native gait accepted");
+        check(length(seam[2].position-baseline[2].position)<.001f,"upper spine remains stable");
+        check(length((seam[2].position-seam[1].position)-(shifted[2].position-shifted[1].position))<.001f,"pelvis-spine seam preserves native separation despite 10 cm lateral drift");
+        check(length((seam[5].position-seam[1].position)-(shifted[5].position-shifted[1].position))<.001f,"foot stride relative to pelvis preserved");
     }
     auto stale=reference;stale.ids[2]=123;
     check(amalur::stabilizeTrackedBody(native,out,7,parents,ids,fixedAnchor,stale),"changed valid layout recaptures body pose");

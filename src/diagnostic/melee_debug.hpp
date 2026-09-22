@@ -1,4 +1,5 @@
 #pragma once
+#include "../tracking/attack_panel_settings.hpp"
 #include <d3d11.h>
 #include <vector>
 #include "../tracking/weapon_contact_profile.hpp"
@@ -6,8 +7,9 @@
 #include <d3dcompiler.h>
 #include "../tracking/melee_debug_settings.hpp"
 #include "../tracking/longsword_trail.hpp"
+#include "../tracking/longsword_debug_view.hpp"
 namespace melee_debug {
-inline constexpr unsigned capacity=16384;
+inline constexpr unsigned capacity=32768;
 static_assert(capacity>=2*amalur::maxWeaponContactSamples*(3*24*6+6));
 
 struct Sweep {mgs5vr::Vec3 from{},to{};uint64_t tick{};uint32_t owner{};};
@@ -79,16 +81,23 @@ inline void draw(IDXGISwapChain* chain,const float* vp,bool valid){
     mgs5vr::Pose poses[2];uint64_t frame,ticks[2];Sweep recent[2][amalur::maxWeaponContactSamples];uint32_t asset,owner,selection;bool dual;
     float charge;bool chargeReady;
     amalur::MeleeSwingEvent strike;unsigned generation;
+    amalur::LongswordDebugStatus chargeDebug;
     AcquireSRWLockShared(&weapon_control::poseLock);
     poses[0]=weapon_control::visualPoses[0];poses[1]=weapon_control::visualPoses[1];frame=weapon_control::visualTick;
     asset=weapon_control::visualAsset;owner=weapon_control::visualWeapon;dual=weapon_control::visualDual;selection=weapon_control::visualSelection;
     ticks[0]=weapon_control::tick;ticks[1]=weapon_control::leftTick;
     charge=weapon_control::longswordCharge;chargeReady=weapon_control::longswordReady;
     strike=weapon_control::swingEvents[0];generation=weapon_control::generation;
+    chargeDebug=weapon_control::longswordDebug;
     ReleaseSRWLockShared(&weapon_control::poseLock);
-    const bool chargeVisible=amalur::knownLongswordModel(asset)&&selection==0&&charge>0&&motion_controls::gameFocused();
-    const bool swordVisible=amalur::knownLongswordModel(asset)&&selection==0&&weapon_control::physicalActor.load()!=0;
-    if(!enabled&&!chargeVisible&&!swordVisible){trail.hide();return;}
+    const auto chargeNow=GetTickCount64();
+    const bool chargeFresh=chargeDebug.active&&chargeDebug.tick&&chargeDebug.tick<=chargeNow&&chargeNow-chargeDebug.tick<250;
+    const bool selectedPose=selection<=1&&selection==motion_controls::viewControls().selectedWeapon;
+    const bool chargeVisible=amalur::knownLongswordModel(asset)&&selectedPose&&chargeFresh&&(chargeDebug.height||charge>0||chargeReady);
+    const bool swordVisible=amalur::knownLongswordModel(asset)&&selectedPose&&weapon_control::physicalActor.load()!=0;
+    static amalur::AttackPanelSettings attackPanel;
+    const bool debugVisible=attackPanel.enabled()&&amalur::knownLongswordModel(asset)&&selectedPose;
+    if(!enabled&&!chargeVisible&&!swordVisible&&!debugVisible){trail.hide();return;}
     auto now=GetTickCount64();if(!frame||frame>now||now-frame>=100||selection>1||selection!=motion_controls::viewControls().selectedWeapon){
         trail.hide();
         waiting("tracked-weapon-pose",asset);return;
@@ -122,6 +131,58 @@ inline void draw(IDXGISwapChain* chain,const float* vp,bool valid){
         auto vertex=[&](mgs5vr::Vec3 p){data[count++]={p.x,p.y,p.z,red,green,blue,effect?effect->alpha:1};};
         vertex(a-side);vertex(a+side);vertex(b+side);vertex(a-side);vertex(b+side);vertex(b-side);
     };
+    if(debugVisible||chargeVisible){
+        amalur::DebugProjection projection(vp);mgs5vr::Vec3 nearPoint,midPoint;
+        float debugDepth=.98f;
+        if(projection.point(0,0,0,nearPoint)&&projection.point(0,0,.5f,midPoint)){
+            auto direction=midPoint-nearPoint;if(amalur::normalize(direction)){
+                const auto p=nearPoint+direction*60.f;
+                const float z=p.x*vp[2]+p.y*vp[6]+p.z*vp[10]+vp[14];
+                const float w=p.x*vp[3]+p.y*vp[7]+p.z*vp[11]+vp[15];
+                if(w>.1f&&z>0&&z<w)debugDepth=z/w;
+            }
+        }
+        auto quadNdc=[&](float x,float y,float width,float height,float red,float green,float blue,float alpha){
+            if(count+6>data.size())return;mgs5vr::Vec3 p[4];
+            if(!projection.point(x,y,debugDepth,p[0])||!projection.point(x+width,y,debugDepth,p[1])
+                ||!projection.point(x+width,y-height,debugDepth,p[2])||!projection.point(x,y-height,debugDepth,p[3]))return;
+            for(auto v:p)if(!visible(v))return;
+            for(unsigned i:{0u,1u,2u,0u,2u,3u})data[count++]={p[i].x,p[i].y,p[i].z,red,green,blue,alpha};
+        };
+        if(chargeVisible){
+            // Small view-facing gauge just right of centre; fills bottom-up.
+            constexpr float x=.12f,top=.015f,width=.009f,height=.11f,pad=.002f;
+            const float progress=std::fmax(0.f,std::fmin(1.f,charge));
+            quadNdc(x-pad,top+pad,width+2*pad,height+2*pad,.12f,.15f,.17f,.75f);
+            quadNdc(x,top,width,height,.25f,.28f,.29f,.65f);
+            const float fill=std::fmax(.003f,height*progress);
+            quadNdc(x,top-height+fill,width,fill,chargeReady?.25f:1.f,chargeReady?1.f:.72f,.22f,.95f);
+        }
+        if(debugVisible){
+        auto quad=[&](float x,float y,float width,float height,float red,float green,float blue,float alpha){
+            quadNdc((x-.46f)*.25f,(y-.45f)*.25f-.06f,width*.25f,height*.25f,red,green,blue,alpha);
+        };
+        quad(.10f,.80f,.72f,.70f,.015f,.025f,.035f,.92f);
+        auto text=[&](float y,const char* label,bool good){
+            float x=.14f;for(unsigned i=0;label[i]&&i<26;++i,x+=.024f){const auto glyph=amalur::debugGlyph(label[i]);
+                for(unsigned r=0;r<5;++r)for(unsigned c=0;c<3;++c)if(glyph[r*3+c]=='1')
+                    quad(x+c*.006f,y-r*.01f,.0055f,.009f,good?.35f:1.f,good?1.f:.45f,good?.55f:.25f,1.f);
+            }
+        };
+        text(.76f,"LONGSWORD DEBUG",true);
+        const bool fresh=chargeDebug.tick&&chargeDebug.tick<=now&&now-chargeDebug.tick<250&&chargeDebug.active;
+        text(.68f,fresh?(chargeDebug.gripMode?(chargeDebug.height?"GRIP HELD":"HOLD RIGHT GRIP"):(chargeDebug.height?"HEIGHT OK":"RAISE HAND TO SHOULDER")):"TRACKING OR MODE WAIT",fresh&&chargeDebug.height);
+        text(.60f,"ANY BLADE ANGLE",fresh);
+        text(.52f,chargeDebug.steady?"STEADY OK":"HOLD HAND STILL",fresh&&chargeDebug.steady);
+        char value[64];snprintf(value,sizeof(value),chargeDebug.ready?"READY - STRIKE":"CHARGE %u%%",unsigned(chargeDebug.progress*100));
+        text(.44f,value,fresh&&chargeDebug.ready);
+        const float progress=fresh?std::fmax(0.f,std::fmin(1.f,chargeDebug.progress)):0;
+        quad(.14f,.365f,.62f,.025f,.2f,.2f,.2f,1);if(progress>0)quad(.14f,.365f,.62f*progress,.025f,chargeDebug.ready?.2f:1.f,chargeDebug.ready?1.f:.7f,.2f,1);
+        snprintf(value,sizeof(value),"SWING %u SPEED %.1f",chargeDebug.serial,chargeDebug.speed);text(.31f,value,true);
+        const char* gate=chargeDebug.preparation?"RAISING - PREPARATION":!strcmp(chargeDebug.gate,"peak")?"STRIKE ACCEPTED":!strcmp(chargeDebug.gate,"stroke")?"CONTACT READY":!strcmp(chargeDebug.gate,"too-short")?"SWING TOO SHORT":!strcmp(chargeDebug.gate,"windup")?"PREPARING":!strcmp(chargeDebug.gate,"recovery")?"RESET OR REVERSE SWING":!strcmp(chargeDebug.gate,"ready")?"READY TO SWING":"WAITING FOR SWING";
+        text(.23f,gate,!strcmp(chargeDebug.gate,"peak")||!strcmp(chargeDebug.gate,"stroke"));
+        }
+    }
     const bool trailEligible=swordVisible&&ticks[0]&&ticks[0]<=now&&now-ticks[0]<100&&mgs5vr::valid(poses[0]);
     if(trailEligible){
         const amalur::LongswordTrailIdentity id{weapon_control::physicalActor.load(),owner,generation,strike.serial};
@@ -134,14 +195,6 @@ inline void draw(IDXGISwapChain* chain,const float* vp,bool valid){
         const auto n=trail.segments(now,segments,amalur::LongswordTrail::maxSegments);
         for(unsigned i=0;i<n;++i)line(segments[i].a,segments[i].b,0,1,-1,&segments[i]);
     }else trail.hide();
-    if(chargeVisible&&ticks[0]&&ticks[0]<=now&&now-ticks[0]<100&&mgs5vr::valid(poses[0])){
-        const unsigned pieces=unsigned(charge*48);
-        for(unsigned n=0;n<pieces;++n){
-            auto point=[&](unsigned j){const float a=float(j)*6.28318530718f/48;
-                return mgs5vr::compose(poses[0],mgs5vr::Pose{{},{6.f*cosf(a),6.f*sinf(a),18.f}}).position;};
-            line(point(n),point(n+1),0,1,chargeReady?4:3);
-        }
-    }
     for(unsigned h=0;enabled&&h<(dual?2u:1u);++h){if(!ticks[h]||ticks[h]>now||now-ticks[h]>=100||!mgs5vr::valid(poses[h]))continue;
         if(asset==1689){
             // Solid positive axes; dashed negative axes. Guides only, no hits.

@@ -1,3 +1,4 @@
+#include "../tracking/melee_native_family.hpp"
 #pragma once
 #include "../tracking/weapon_family.hpp"
 #include "../tracking/melee_swing_event.hpp"
@@ -96,7 +97,7 @@ inline void onSwing(const amalur::MeleeSwingEvent& event){
     const bool report=accepted&&swingBudget.allow(now);
     ReleaseSRWLockExclusive(&stateLock);
     if(accepted)longsword_audio::onSwing(event);
-    if(report)log("VR melee feedback swing tick=%llu owner=%08x weapon=%08x asset=%u hand=%u serial=%u chain=%u generation=%u nativePlayback=%s\n",event.tick,event.owner,event.weapon,event.asset,event.hand,event.serial,event.chainStep,event.generation,amalur::knownLongswordModel(event.asset)?"longsword-audio-pilot":"unavailable");
+    if(report)log("VR melee feedback swing tick=%llu owner=%08x weapon=%08x asset=%u hand=%u serial=%u chain=%u generation=%u nativePlayback=%s\n",event.tick,event.owner,event.weapon,event.asset,event.hand,event.serial,event.chainStep,event.generation,amalur::knownLongswordModel(event.asset)?"longsword-audio-pilot":amalur::physicalMeleeRecipe(event.asset).attack?"family-audio-pilot":"unavailable");
 }
 
 inline void observe(Kind kind,uintptr_t event,uintptr_t record,uintptr_t index,uintptr_t times){

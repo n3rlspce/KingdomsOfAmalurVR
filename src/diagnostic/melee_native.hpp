@@ -146,7 +146,8 @@ struct HitArray {
 };
 static_assert(sizeof(HitArray)==16,"Native x86 hit vector layout");
 
-inline bool gather(uintptr_t physics,uint32_t owner,const float* from,const float* to,float radius,HitArray& hits){
+inline bool gather(uintptr_t physics,uint32_t owner,const float* from,const float* to,float radius,HitArray& hits,bool* completed=nullptr){
+    if(completed)*completed=false;
     if constexpr(!customContactEnabled)return false;
     if(!ready||!queryFunction||!from||!to||hits.data
         ||!std::isfinite(radius)||radius<=0||radius>20||component(owner,15)!=physics)return false;
@@ -157,6 +158,7 @@ inline bool gather(uintptr_t physics,uint32_t owner,const float* from,const floa
     reinterpret_cast<Radius>(gameBase+0x962e70)(query,radius,player_rig::word(gameBase+0x15feb2c));
     queryFunction(query,reinterpret_cast<uintptr_t>(start),reinterpret_cast<uintptr_t>(end),
         player_rig::word(physics+0x24),1,reinterpret_cast<uintptr_t>(&hits));
+    if(completed)*completed=true;
     return hits.count>0;
 }
 inline bool resolveHits(uintptr_t physics,const Context& c,HitArray& hits,const float* from,const float* to){

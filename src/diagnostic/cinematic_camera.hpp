@@ -1,36 +1,13 @@
 #pragma once
 #include "../tracking/cinematic_view.hpp"
+#include "../tracking/cinematic_owner.hpp"
+#include "../tracking/cinematic_mode.hpp"
 
 namespace cinematic_camera {
-struct State {uintptr_t scene{},core{},owner{};};
-// Build 10619381: manager constructor RVA AF0EBF constructs CinematicMgr at
-// +1080 and CinematicSceneMgr at +15A0. The latter's +D4 scene is destroyed by
-// RVA 9E4876 and cleared by 9D8896. Require its RTTI and the active SceneWin
-// camera, not merely paused time, a narrow FOV, or an arbitrary Camera object.
+using State=amalur::CinematicOwner;
 static bool sample(State& out){
-    __try {
-        const auto word=player_rig::word;
-        const auto globals=word(gameBase+0x15fe9c4);if(!globals)return false;
-        const auto scenes=globals+0x15a0;
-        if(word(scenes)!=gameBase+0x13483cc)return false;
-        const auto scene=word(scenes+0xd4);
-        if(!scene||word(scene)!=gameBase+0x1348754)return false;
-        const auto windows=globals+0x397c;
-        if(word(windows)!=gameBase+0x134e60c||word(windows+8)!=1)return false;
-        const auto entries=word(windows+4);if(!entries)return false;
-        const auto game=word(entries+4);if(!game)return false;
-        if(word(game)!=gameBase+0x1328914&&word(game)!=gameBase+0x132ae7c)return false;
-        const auto sceneWindow=word(game+0x40c);
-        if(!sceneWindow||word(sceneWindow)!=gameBase+0x1326e9c)return false;
-        const auto camera=word(sceneWindow+0x410);
-        if(!camera||word(camera)!=gameBase+0x1335d08||word(camera+8)!=1)return false;
-        const auto player=reinterpret_cast<uintptr_t>(player_rig::player.load());
-        if(!player||(word(player)!=gameBase+0x1359f14&&word(player)!=gameBase+0x1359e94))return false;
-        // A preloaded scene cannot take over gameplay or a player-owned view.
-        if(camera==word(player+0x108))return false;
-        if(word(scenes+0xd4)!=scene||word(sceneWindow+0x410)!=camera)return false;
-        out={scene,camera+8,sceneWindow};return true;
-    } __except(EXCEPTION_EXECUTE_HANDLER){return false;}
+    __try {return amalur::cinematicOwner(gameBase,player_rig::word,out);}
+    __except(EXCEPTION_EXECUTE_HANDLER){return false;}
 }
 static amalur::CinematicView view;
 static amalur::CameraInputs inputs;
@@ -73,9 +50,11 @@ static bool rebuild(void* camera){
     const float fov=*reinterpret_cast<float*>(core+0x2c);
     const mgs5vr::Pose head{{packet.orientation[0],packet.orientation[1],packet.orientation[2],packet.orientation[3]},
         {packet.position[0],packet.position[1],packet.position[2]}};
-    const bool tracked=packet.version==3&&packet.valid&&packet.gameMode==1&&packet.tick<=now&&now-packet.tick<250&&
+    const bool fullVR=amalur::cinematicMode.fullVR();
+    if(!fullVR)view.reset();
+    const bool tracked=fullVR&&packet.version==3&&packet.valid&&packet.gameMode==1&&packet.tick<=now&&now-packet.tick<250&&
         std::isfinite(packet.horizontalFov)&&packet.horizontalFov>50&&packet.horizontalFov<179&&
-        view.apply(s.scene,s.core,recenterGeneration.load(),packet.recenter,native,head,packet.worldScale,adjusted);
+        view.apply(s.scene,s.core,recenterGeneration.load(),packet.recenter,native,head,packet.worldScale,adjusted,now);
     if(tracked){
         memcpy(core+4,&adjusted.eye,12);memcpy(core+0x14,&adjusted.target,12);memcpy(core+0x1c0,&adjusted.up,12);
         *reinterpret_cast<float*>(core+0x2c)=packet.horizontalFov;

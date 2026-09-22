@@ -7,7 +7,15 @@ source = Path(__file__).with_name('amalur_startup.lua').read_text()
 def runtime():
     lua = LuaRuntime()
     lua.execute('''
-        calls = {}; shown = true; disabled = false; fonts = false; slot = 0
+        io=nil; bootTicket=true; skipEnabled=true
+        loadfile=function(path)
+            if path:find('amalur_boot_continue',1,true) then
+                if bootTicket then return function() return true end end
+                return nil
+            end
+            return function() return skipEnabled end
+        end
+        os.remove=function(path) assert(path:find('amalur_boot_continue',1,true)); bootTicket=false; return true end; calls = {}; shown = true; disabled = false; fonts = false; slot = 0
         progress = -1; system_ui = false; autosave = true; autosave_sets = 0; profile_applies = 0
         function record(name) calls[#calls+1] = name end
         WINDOW = {is_visible = function(window) assert(window == 42); return shown end}
@@ -97,3 +105,20 @@ lua = runtime()
 lua.execute('''slot = -1; main_menu.on_update_event()
     assert(autosave == false and profile_applies == 1 and #calls == 1)''')
 print('PASS: autosave disabled and applied before Continue, no repeated profile writes, no load on failed verification, setting applied even with no save slot.')
+
+lua = runtime()
+lua.execute("""skipEnabled=false
+main_menu.on_update_event();main_menu.on_update_event()
+assert(#calls == 2 and autosave == false and profile_applies == 1)""")
+print('PASS: Skip menu OFF leaves main menu visible while autosave is disabled.')
+
+# Simulate returning to main menu with an entirely new Lua global state.
+lua = runtime()
+lua.execute("main_menu.on_update_event(); assert(not bootTicket)")
+returned = runtime()
+returned.execute("bootTicket=false;main_menu.on_update_event();main_menu.on_update_event();assert(#calls==2)")
+# Starting with Skip OFF consumes the boot decision too; enabling it later
+# must never pull the user out of the menu.
+lua = runtime()
+lua.execute("skipEnabled=false;main_menu.on_update_event();skipEnabled=true;main_menu.on_update_event();assert(not bootTicket and #calls==2)")
+print('PASS: process boot ticket consumed once; fresh Lua state cannot auto-load; enabling Skip later does not load.')

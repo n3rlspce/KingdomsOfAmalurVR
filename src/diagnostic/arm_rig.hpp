@@ -28,7 +28,7 @@ inline bool calibratedBodyAnchor{};
 inline amalur::BodyReference neutralBody{};
 inline LONG lastAblationMask=-1;
 inline bool solveUnsafe(uintptr_t root,Scratch& scratch,bool solveHand=true,uint32_t origin=amalur::skin_audit::Remap){
-    if(amalur::playMode.normal()||interfaceView.load()||!headTracking.load()||!root||root!=rig_probe::playerRoot())return false;
+    if(amalur::playMode.nativeBody()||interfaceView.load()||!headTracking.load()||!root||root!=rig_probe::playerRoot())return false;
     auto& trace=scratch.trace;trace.root=static_cast<uint32_t>(root);trace.frame=presents.load();trace.tick=GetTickCount64();trace.stage=1;
     skin_trace::ensure();
     const auto animationModes=amalur::bodyDebug.read();
@@ -203,6 +203,23 @@ inline void finishAudit(Scratch& scratch,bool solved){
         a.solvedHash=amalur::skin_audit::hash(a.solved,a.count*sizeof(amalur::RigBone));}
     skin_trace::cpu(a);
 }
+// Some bare body meshes (observed asset 685) are direct player attachments
+// without an equipment entity. Require a complete compatible bone palette;
+// never use owner==0 alone as ownership evidence. Caller checks direct linkage.
+inline bool bareBodyPalette(uintptr_t object,uintptr_t root){
+    if(player_rig::word(object+0xf8)!=0)return false;
+    const uint32_t *ids{},*rootIds{};const int16_t *parents{},*rootParents{};unsigned n{},rn{};
+    if(!body_visibility::skeleton(object,ids,parents,n)||!body_visibility::skeleton(root,rootIds,rootParents,rn)||n>64||rn>64)return false;
+    bool limb=false;
+    for(unsigned i=0;i<n;++i){
+        if(parents[i]<-1||parents[i]>=int(i))return false;
+        bool found=false;for(unsigned j=0;j<rn;++j)if(ids[i]==rootIds[j]){found=true;break;}
+        if(!found)return false;
+        for(unsigned j=0;j<i;++j)if(ids[i]==ids[j])return false;
+        limb|=ids[i]==0x87c3ed||ids[i]==0x88d0eb||ids[i]==0x84d216||ids[i]==0x85df14;
+    }
+    return limb;
+}
 inline bool prepareUnsafe(uintptr_t source,uintptr_t output,Scratch& scratch){
     if(!headTracking.load()||(!enabled.load()&&!firstPerson.load()))return false;
     auto root=rig_probe::playerRoot();if(!root||source!=root+0x34||output<0x34)return false;
@@ -215,7 +232,7 @@ inline bool prepareUnsafe(uintptr_t source,uintptr_t output,Scratch& scratch){
     auto owner=player_rig::word(object+0xf8);
     auto entity=player_rig::resolve(owner);
     bool weapon=player_rig::part(entity,11,owner,0x135745c)!=0;
-    if(!weapon&&!player_rig::part(entity,12,owner,0x13563e4)
+    if(!weapon&&!bareBodyPalette(object,root)&&!player_rig::part(entity,12,owner,0x13563e4)
        &&!player_rig::part(entity,40,owner,0x1356bec))return false;
     return solveUnsafe(root,scratch);
 }
@@ -225,6 +242,7 @@ inline bool prepare(uintptr_t source,uintptr_t output,Scratch& scratch){
 inline void resetCalibration(){AcquireSRWLockExclusive(&calibrationLock);calibratedRoot=0;neutralBody={};visualRootRotation={};ReleaseSRWLockExclusive(&calibrationLock);}
 inline uintptr_t trackedWeaponSlot(void* mapper,uintptr_t slot,uintptr_t output,bool solved){
     __try {
+        if(weapon_control::weaponSheathed.load())return slot;
         if(amalur::bodyDebug.enabled(amalur::nativeArms)||!solved||(slot!=8&&slot!=9&&slot!=11)||!firstPerson.load()||!enabled.load()||output<0x34
             ||motion_controls::viewControls().selectedWeapon>1)return slot;
         AcquireSRWLockShared(&weapon_control::poseLock);
@@ -234,7 +252,7 @@ inline uintptr_t trackedWeaponSlot(void* mapper,uintptr_t slot,uintptr_t output,
         auto now=GetTickCount64();
         auto object=output-0x34;if(!weapon_control::isPlayerDaggers(object)&&!weapon_control::isOnlyActivePlayerWeapon(object))return slot;
         if(!amalur::trackedWeaponSelection(motion_controls::viewControls().selectedWeapon,weapon_control::isOnlyActivePlayerWeapon(object)))return slot;
-        auto count=player_rig::word(output+4);if(count!=4&&count!=5&&count!=7)return slot;
+        auto count=player_rig::word(output+4);if(count!=4&&count!=5&&count!=6&&count!=7)return slot;
         auto manager=player_rig::word(gameBase+0x15fdf54),assetId=player_rig::word(object+0xf0);
         if(assetId<2||assetId>=100000)return slot;
         auto state=*reinterpret_cast<unsigned char*>(player_rig::word(manager+0x28)+assetId);
@@ -254,7 +272,7 @@ inline uintptr_t trackedWeaponSlot(void* mapper,uintptr_t slot,uintptr_t output,
                     amalur::freshWeaponPose(leftGrip,leftTick,now));
             return slot;
         }
-        // Captured primary melee representatives: only replace their stowed
+        // Captured held representatives: only replace their stowed
         // slot after confirming the exact native held attachment table.
         auto kind=weapon_control::capturedHeldKind(object);
         if(kind!=amalur::HeldWeaponKind::None){
@@ -262,11 +280,10 @@ inline uintptr_t trackedWeaponSlot(void* mapper,uintptr_t slot,uintptr_t output,
                 amalur::freshWeaponPose(leftGrip,leftTick,now));
             if(chosen!=slot){
                 auto stowed=table+8*32,held=table+chosen*32;
-                constexpr uint32_t stowedMap[]{62,0,0},singleMap[]{62,0,0,55,1,0},dualMap[]{62,0,0,36,1,0,55,4,0};
-                bool dual=kind==amalur::HeldWeaponKind::Faeblades;
-                if(player_rig::word(stowed+4)==1&&player_rig::word(held+4)==(dual?3u:2u)
+                constexpr uint32_t stowedMap[]{62,0,0};
+                if(player_rig::word(stowed+4)==1
                     &&!memcmp(reinterpret_cast<void*>(player_rig::word(stowed)),stowedMap,sizeof(stowedMap))
-                    &&!memcmp(reinterpret_cast<void*>(player_rig::word(held)),dual?dualMap:singleMap,dual?sizeof(dualMap):sizeof(singleMap)))
+                    &&amalur::capturedHeldMap(kind,player_rig::word(held+4),reinterpret_cast<const uint32_t*>(player_rig::word(held))))
                     return chosen;
             }
             return slot;

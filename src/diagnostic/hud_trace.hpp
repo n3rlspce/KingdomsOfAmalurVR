@@ -3,9 +3,14 @@
 // GPU constant texture. Shader files existing on disk is not proof of use.
 #include "hud_size.hpp"
 #include "hud_shader.hpp"
+#include "../tracking/ui_capture.hpp"
+#include "../tracking/ui_shader.hpp"
+#include "../tracking/wrist_clip.hpp"
 namespace hud_trace {
 static const GUID tagId={0x9e1d42a1,0x6cb3,0x4ac2,{0x87,0x1b,0x21,0x76,0x98,0x5e,0x9c,0x30}};
-struct Tag {uint64_t hash{};UINT candidate{},sizeControl{};};
+struct Tag {uint64_t hash{};UINT candidate{},sizeControl{},ui{},wrist{};};
+static amalur::UiCapture uiCapture,wristCapture;
+static amalur::WristClip wristClip;
 static unsigned budget=24;
 static uint64_t seen[24]{};static unsigned seenCount{};
 static void rearm(){budget=24;seenCount=0;}
@@ -13,6 +18,12 @@ static void tag(ID3D11VertexShader* shader,const void* bytes,SIZE_T size){
     Tag t;t.hash=14695981039346656037ull;
     for(SIZE_T i=0;i<size;++i){t.hash*=1099511628211ull;t.hash^=static_cast<const unsigned char*>(bytes)[i];}
     t.sizeControl=hud_shader::usesControl(bytes,size)?1u:0u;
+    t.ui=t.sizeControl||amalur::nativeUiShader(bytes,size);
+    ComPtr<ID3DBlob> wristAssembly;
+    if(t.sizeControl&&SUCCEEDED(D3DDisassemble(bytes,size,0,nullptr,&wristAssembly))){
+        const std::string_view a(static_cast<const char*>(wristAssembly->GetBufferPointer()),wristAssembly->GetBufferSize());
+        t.wrist=a.find(" t117\n")!=a.npos||a.find(" t117\r")!=a.npos;
+    }
     ComPtr<ID3D11ShaderReflection> reflection;
     if(SUCCEEDED(D3DReflect(bytes,size,IID_PPV_ARGS(&reflection)))){
         D3D11_SHADER_DESC d{};reflection->GetDesc(&d);
@@ -55,6 +66,44 @@ static void sample(ID3D11DeviceContext* context,const Tag& t){
         realUnmap(context,staging.Get(),0);
     }
 }
+static bool captureMenu(){
+    return hud_size::mapPanelRequested&&headTracking.load()&&!interfaceView.load()
+        &&!motion_controls::dialogueActive.load()&&!body_control::cinematic()&&game_pause::sample(true)==1;
+}
+static bool captureWrist(){
+    return hud_size::wristRequested&&headTracking.load()&&!interfaceView.load()
+        &&!motion_controls::dialogueActive.load()&&!body_control::cinematic()&&game_pause::sample(true)==0;
+}
+// Capture only read-only UI geometry. Native stencil-writing masks stay in
+// their original order/target; drawing them twice would change UI clipping.
+static bool wristReadOnly(ID3D11DeviceContext* c){
+    ComPtr<ID3D11DepthStencilState> ds;UINT reference{};c->OMGetDepthStencilState(&ds,&reference);
+    if(!ds)return false;D3D11_DEPTH_STENCIL_DESC d{};ds->GetDesc(&d);
+    auto keep=[](const D3D11_DEPTH_STENCILOP_DESC& f){return f.StencilFailOp==D3D11_STENCIL_OP_KEEP&&f.StencilDepthFailOp==D3D11_STENCIL_OP_KEEP&&f.StencilPassOp==D3D11_STENCIL_OP_KEEP;};
+    return (!d.DepthEnable||d.DepthWriteMask==D3D11_DEPTH_WRITE_MASK_ZERO)
+        &&(!d.StencilEnable||!d.StencilWriteMask||(keep(d.FrontFace)&&keep(d.BackFace)));
+}
+template<class F>static bool wristDraw(ID3D11DeviceContext* c,const Tag& t,F&& original){
+    if(!t.wrist||!captureWrist()||!wristReadOnly(c)||!wristClip.initialize(c))return false;
+    {
+        amalur::UiCapture::Binding canvas(wristCapture,c,true);
+        if(!canvas){
+            static unsigned failures=0;if(failures++<12){const auto& d=wristCapture.observed();const auto& v=wristCapture.observedViewport();
+                log("Wrist capture reject=%u target=%ux%u slices=%u samples=%u viewport=%g,%g %gx%g\n",wristCapture.rejection(),d.Width,d.Height,d.ArraySize,d.SampleDesc.Count,v.TopLeftX,v.TopLeftY,v.Width,v.Height);}
+            return false;
+        }
+        amalur::WristClip::Binding clip(wristClip,c,-1);
+        hud_size::Binding flat(c,true,true);
+        original();
+        static unsigned captured=0;if(captured++<4)log("Wrist UI capture active: native target accepted\n");
+    }
+    // Replay untouched native shaders for the rest of the HUD. Clip distances
+    // are evaluated before curvature, so text/triangles crossing boundaries do
+    // not stretch or leak. The regions are disjoint and preserve native alpha.
+    hud_size::Binding hud(c,true);
+    for(int region=0;region<2;++region){amalur::WristClip::Binding clip(wristClip,c,region);original();}
+    return true;
+}
 static void anchorMenu(){
     if(fullscreenMenuView.load()&&!interfaceView.load()&&!mapPanelView.load())hud_size::menuRotation.update(render_pose::currentDrawn());
     else hud_size::menuRotation.reset();
@@ -64,10 +113,10 @@ using Indexed=void(STDMETHODCALLTYPE*)(ID3D11DeviceContext*,UINT,UINT,INT);
 using Instanced=void(STDMETHODCALLTYPE*)(ID3D11DeviceContext*,UINT,UINT,UINT,UINT);
 using IndexedInstanced=void(STDMETHODCALLTYPE*)(ID3D11DeviceContext*,UINT,UINT,UINT,INT,UINT);
 static Draw draw;static Indexed indexed;static Instanced instanced;static IndexedInstanced indexedInstanced;
-static void STDMETHODCALLTYPE onDraw(ID3D11DeviceContext* c,UINT n,UINT first){render_pose::draw(c);camera_audit::draw(c);skin_trace::draw(c,n);auto t=inspect(c);anchorMenu();hud_size::Binding hud(c,t.sizeControl!=0||t.candidate!=0,interfaceView.load()||mapPanelView.load(),motion_controls::dialogueActive.load()&&firstPerson.load()&&headTracking.load(),fullscreenMenuView.load());sample(c,t);draw(c,n,first);}
-static void STDMETHODCALLTYPE onIndexed(ID3D11DeviceContext* c,UINT n,UINT first,INT base){render_pose::draw(c);camera_audit::draw(c);skin_trace::draw(c,n);auto t=inspect(c);anchorMenu();hud_size::Binding hud(c,t.sizeControl!=0||t.candidate!=0,interfaceView.load()||mapPanelView.load(),motion_controls::dialogueActive.load()&&firstPerson.load()&&headTracking.load(),fullscreenMenuView.load());sample(c,t);indexed(c,n,first,base);}
-static void STDMETHODCALLTYPE onInstanced(ID3D11DeviceContext* c,UINT n,UINT instances,UINT first,UINT start){render_pose::draw(c);camera_audit::draw(c);skin_trace::draw(c,n);auto t=inspect(c);anchorMenu();hud_size::Binding hud(c,t.sizeControl!=0||t.candidate!=0,interfaceView.load()||mapPanelView.load(),motion_controls::dialogueActive.load()&&firstPerson.load()&&headTracking.load(),fullscreenMenuView.load());sample(c,t);instanced(c,n,instances,first,start);}
-static void STDMETHODCALLTYPE onIndexedInstanced(ID3D11DeviceContext* c,UINT n,UINT instances,UINT first,INT base,UINT start){render_pose::draw(c);camera_audit::draw(c);skin_trace::draw(c,n);auto t=inspect(c);anchorMenu();hud_size::Binding hud(c,t.sizeControl!=0||t.candidate!=0,interfaceView.load()||mapPanelView.load(),motion_controls::dialogueActive.load()&&firstPerson.load()&&headTracking.load(),fullscreenMenuView.load());sample(c,t);indexedInstanced(c,n,instances,first,base,start);}
+static void STDMETHODCALLTYPE onDraw(ID3D11DeviceContext* c,UINT n,UINT first){render_pose::draw(c);camera_audit::draw(c);skin_trace::draw(c,n);auto t=inspect(c);if(wristDraw(c,t,[&]{draw(c,n,first);}))return;amalur::UiCapture::Binding canvas(uiCapture,c,t.ui&&captureMenu());anchorMenu();hud_size::Binding hud(c,t.sizeControl!=0||t.candidate!=0,interfaceView.load()||static_cast<bool>(canvas)||canvas.nativeBackdrop(),motion_controls::dialogueActive.load()&&firstPerson.load()&&headTracking.load(),fullscreenMenuView.load());sample(c,t);draw(c,n,first);}
+static void STDMETHODCALLTYPE onIndexed(ID3D11DeviceContext* c,UINT n,UINT first,INT base){render_pose::draw(c);camera_audit::draw(c);skin_trace::draw(c,n);auto t=inspect(c);if(wristDraw(c,t,[&]{indexed(c,n,first,base);}))return;amalur::UiCapture::Binding canvas(uiCapture,c,t.ui&&captureMenu());anchorMenu();hud_size::Binding hud(c,t.sizeControl!=0||t.candidate!=0,interfaceView.load()||static_cast<bool>(canvas)||canvas.nativeBackdrop(),motion_controls::dialogueActive.load()&&firstPerson.load()&&headTracking.load(),fullscreenMenuView.load());sample(c,t);indexed(c,n,first,base);}
+static void STDMETHODCALLTYPE onInstanced(ID3D11DeviceContext* c,UINT n,UINT instances,UINT first,UINT start){render_pose::draw(c);camera_audit::draw(c);skin_trace::draw(c,n);auto t=inspect(c);if(wristDraw(c,t,[&]{instanced(c,n,instances,first,start);}))return;amalur::UiCapture::Binding canvas(uiCapture,c,t.ui&&captureMenu());anchorMenu();hud_size::Binding hud(c,t.sizeControl!=0||t.candidate!=0,interfaceView.load()||static_cast<bool>(canvas)||canvas.nativeBackdrop(),motion_controls::dialogueActive.load()&&firstPerson.load()&&headTracking.load(),fullscreenMenuView.load());sample(c,t);instanced(c,n,instances,first,start);}
+static void STDMETHODCALLTYPE onIndexedInstanced(ID3D11DeviceContext* c,UINT n,UINT instances,UINT first,INT base,UINT start){render_pose::draw(c);camera_audit::draw(c);skin_trace::draw(c,n);auto t=inspect(c);if(wristDraw(c,t,[&]{indexedInstanced(c,n,instances,first,base,start);}))return;amalur::UiCapture::Binding canvas(uiCapture,c,t.ui&&captureMenu());anchorMenu();hud_size::Binding hud(c,t.sizeControl!=0||t.candidate!=0,interfaceView.load()||static_cast<bool>(canvas)||canvas.nativeBackdrop(),motion_controls::dialogueActive.load()&&firstPerson.load()&&headTracking.load(),fullscreenMenuView.load());sample(c,t);indexedInstanced(c,n,instances,first,base,start);}
 static void install(void** vt){
     hook(vt[13],reinterpret_cast<void*>(onDraw),reinterpret_cast<void**>(&draw),"HUD Draw trace");
     hook(vt[12],reinterpret_cast<void*>(onIndexed),reinterpret_cast<void**>(&indexed),"HUD DrawIndexed trace");

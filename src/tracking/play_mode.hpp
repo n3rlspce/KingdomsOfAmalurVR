@@ -5,6 +5,7 @@
 #define AMALUR_PLAY_MODE_MAPPING L"Local\\AmalurNormalThirdPersonV1"
 #endif
 namespace amalur {
+inline std::atomic<bool(*)()> nativeBodyProbe{nullptr};
 class PlayMode {
     HANDLE mapping_{}; volatile LONG* value_{}; SRWLOCK lock_=SRWLOCK_INIT;
 public:
@@ -18,6 +19,7 @@ public:
         bool result=value_!=nullptr;ReleaseSRWLockExclusive(&lock_);return result;
     }
     bool normal(){return open()&&InterlockedCompareExchange(value_,0,0)!=0;}
+    bool nativeBody(){auto probe=nativeBodyProbe.load();return normal()||(probe&&probe());}
     void set(bool normal){if(open())InterlockedExchange(value_,normal?1:0);}
 };
 inline PlayMode playMode;

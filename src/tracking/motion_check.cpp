@@ -7,6 +7,76 @@
 static void check(bool pass,const char* label){if(!pass){printf("FAIL: %s\n",label);std::exit(1);}}
 static bool closeEnough(float a,float b){return std::abs(a-b)<.002f;}
 int main(){
+    {
+        amalur::MeleeSpellSequence sequence;
+        auto packet=[](uint64_t now,uint32_t buttons,float modifier=1.f){
+            amalur::MotionInputPacket p;p.active=1;p.tick=now;p.session=42;
+            p.buttons=buttons;p.abilities=modifier;p.supportGrip=.8f;p.moveY=.5f;return p;
+        };
+        auto idle=packet(1000,0);sequence.sample(idle,1000,true);
+        check(!sequence.active()&&idle.abilities==0,"bare grip does not prepare spells or block physical melee");
+        auto spell=packet(1010,XINPUT_GAMEPAD_Y);sequence.sample(spell,1010,true);
+        check(sequence.active()&&spell.abilities==1&&spell.buttons==0,"explicit spell first primes native modifier without face action");
+        check(spell.moveY==.5f&&spell.supportGrip==.8f,"spell preparation preserves movement and support grip");
+        spell=packet(1044,0,0);sequence.sample(spell,1044,true);
+        check(spell.buttons==0&&spell.abilities==1,"short spell tap survives release during preparation");
+        spell=packet(1100,0,0);sequence.sample(spell,1100,true);
+        check(spell.buttons==XINPUT_GAMEPAD_Y&&spell.abilities==1,"slow game poll delivers retained spell under modifier");
+        spell=packet(1179,0,0);sequence.sample(spell,1179,true);
+        check(spell.buttons==XINPUT_GAMEPAD_Y&&spell.abilities==1,"short spell pulse retained eighty milliseconds after actual delivery");
+        spell=packet(1180,0);sequence.sample(spell,1180,true);
+        check(!sequence.active()&&spell.buttons==0&&spell.abilities==0,"spell release returns held grip to physical melee");
+        for(uint32_t slot:{XINPUT_GAMEPAD_A,XINPUT_GAMEPAD_B,XINPUT_GAMEPAD_X,XINPUT_GAMEPAD_Y}){
+            sequence.reset();spell=packet(2000,slot);sequence.sample(spell,2000,true);
+            check(spell.buttons==0&&spell.abilities==1,"every spell slot gets modifier preparation");
+            spell=packet(2035,slot);sequence.sample(spell,2035,true);
+            check(spell.buttons==slot&&spell.abilities==1,"every spell slot delivered after preparation");
+            for(uint64_t t=2050;t<2500;t+=20){spell=packet(t,slot);sequence.sample(spell,t,true);check(spell.buttons==slot&&spell.abilities==1,"held spell has no repeating artificial release edge");}
+        }
+        for(unsigned cancellation=0;cancellation<5;++cancellation){
+            sequence.reset();spell=packet(3000,XINPUT_GAMEPAD_A);sequence.sample(spell,3000,true);
+            spell=packet(3010,0,0);
+            if(cancellation==0)spell.active=0;
+            if(cancellation==1)spell.tick=2700;
+            if(cancellation==2)spell.session=43;
+            if(cancellation==3)spell.tick=2990;
+            sequence.sample(spell,cancellation==3?2990:3010,cancellation!=4);
+            check(!sequence.active(),"focus expiry session clock or menu transition cancels queued spell");
+            spell=packet(3050,0,0);sequence.sample(spell,3050,true);
+            check(!sequence.active()&&spell.buttons==0,"cancelled spell never replays");
+        }
+        sequence.reset();spell=packet(4000,XINPUT_GAMEPAD_X,0);sequence.sample(spell,4000,true);
+        check(!sequence.active()&&spell.buttons==XINPUT_GAMEPAD_X&&spell.abilities==0,"ordinary explicit native attack is never delayed");
+        spell=packet(4010,XINPUT_GAMEPAD_A);sequence.sample(spell,4010,false);
+        check(!sequence.active()&&spell.buttons==XINPUT_GAMEPAD_A&&spell.abilities==1,"nonmelee menu mapping remains immediate");
+    }
+    {
+        amalur::TouchMapper gripMapper;amalur::TouchInput grip;
+        gripMapper.map(grip,true,true,1000);grip.rightGrip=1;grip.leftGrip=.8f;
+        auto idle=gripMapper.map(grip,true,true,1010);
+        check(idle.abilities==1&&idle.buttons==0,"installed bridge grip-only packet fixture");
+        auto menuGrip=idle;amalur::suppressIdleMeleeSpellModifier(menuGrip,false);
+        check(menuGrip.abilities==1,"nonmelee and interface grip behavior unchanged");
+        amalur::suppressIdleMeleeSpellModifier(idle,true);
+        check(idle.abilities==0&&idle.supportGrip==.8f,"gripping sword does not enter native spell layer or release support hand");
+        XINPUT_GAMEPAD virtualPad{};amalur::mergeMotion(virtualPad,idle);
+        check(virtualPad.bRightTrigger==0,"grip alone sends no native ability trigger");
+        XINPUT_GAMEPAD physicalPad{};physicalPad.bRightTrigger=200;amalur::mergeMotion(physicalPad,idle);
+        check(physicalPad.bRightTrigger==200,"physical gamepad ability trigger remains authoritative");
+        for(uint32_t slot:{XINPUT_GAMEPAD_A,XINPUT_GAMEPAD_B,XINPUT_GAMEPAD_X,XINPUT_GAMEPAD_Y}){
+            auto spell=menuGrip;spell.buttons=slot;amalur::suppressIdleMeleeSpellModifier(spell,true);
+            check(spell.abilities==1&&spell.buttons==slot,"all explicit grip spell slots remain available");
+        }
+        grip.rightTrigger=1;auto spell=gripMapper.map(grip,true,true,1020);
+        amalur::suppressIdleMeleeSpellModifier(spell,true);
+        check(spell.abilities==1&&spell.buttons==XINPUT_GAMEPAD_X,"grip plus trigger still casts primary spell");
+        grip.rightGrip=0;spell=gripMapper.map(grip,true,true,1030);
+        amalur::suppressIdleMeleeSpellModifier(spell,true);
+        check(spell.abilities==1,"early grip release preserves latched spell context");
+        grip.rightTrigger=0;grip.rightGrip=1;idle=gripMapper.map(grip,true,true,1040);
+        amalur::suppressIdleMeleeSpellModifier(idle,true);
+        check(idle.abilities==0,"spell release restores melee while grip stays held");
+    }
     for(const auto attack:{XINPUT_GAMEPAD_X,XINPUT_GAMEPAD_Y}){
         XINPUT_GAMEPAD moving{};amalur::MotionInputPacket attackMotion{};
         attackMotion.moveY=.75f;attackMotion.buttons=attack;

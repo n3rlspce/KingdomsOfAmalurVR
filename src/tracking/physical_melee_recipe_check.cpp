@@ -41,7 +41,12 @@ int main(){using namespace amalur;
  }
  check(currentPhysicalPublication(7,2478,0,0,100,199),"current primary visual identity selects sword despite other stowed recipes");
  check(!currentPhysicalPublication(7,2478,0,0,100,200)&&!currentPhysicalPublication(7,2478,0,0,101,100),"stale/future publication rejected");
- check(!currentPhysicalPublication(7,2478,1,0,100,100)&&!currentPhysicalPublication(7,2478,1,1,100,100),"selection transitions and secondary damage rejected");
+ check(currentPhysicalPublication(7,5457,1,1,100,100),"fresh matching secondary sword admits physical contacts");
+ check(!currentPhysicalPublication(7,2478,1,0,100,100)&&!currentPhysicalPublication(7,2478,0,1,100,100),"both selection transitions reject old weapon publication");
+ check(!currentPhysicalPublication(7,2478,2,2,100,100)&&!currentPhysicalPublication(7,1423,1,1,100,100),"invalid slot and bow never acquire melee recipe");
+ check(currentPhysicalDamageWeapon(0x00910090,0x00910090,0),"captured secondary sword matches native damage getter");
+ check(currentPhysicalDamageWeapon(7,8,7)&&!currentPhysicalDamageWeapon(8,8,7),"native override takes precedence over primary");
+ check(!currentPhysicalDamageWeapon(0,0,0)&&!currentPhysicalDamageWeapon(7,8,0),"missing and mismatched native damage source rejected");
  check(!currentPhysicalPublication(0,2478,0,0,100,100)&&!currentPhysicalPublication(7,1689,0,0,100,100),"missing identity and unsupported publishedmodel rejected");
  check(physicalMeleeRecipe(2478).attack==50&&physicalMeleeRecipe(1250).attack==417,"captured namespace mapping");
  for(uint32_t unsupported:{1514u,1689u,1877u,2199u,0u})check(!physicalMeleeRecipe(unsupported).attack,"unverified families remain disabled");

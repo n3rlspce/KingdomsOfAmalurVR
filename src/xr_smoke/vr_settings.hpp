@@ -5,19 +5,29 @@
 #include <cstdio>
 #include <string>
 #include <stdexcept>
-#include "../tracking/developer_commands.hpp"
+#include "../bridge_tracking/developer_commands.hpp"
+#include "../bridge_tracking/head_height.hpp"
+#include "../bridge_tracking/cinematic_mode.hpp"
+#include "../bridge_tracking/arm_thickness_settings.hpp"
 #include "menu_recovery.hpp"
-#include "../tracking/melee_debug_settings.hpp"
-#include "../tracking/developer_camera.hpp"
-#include "../tracking/body_debug_settings.hpp"
-#include "../tracking/developer_panel_input.hpp"
+#include "../bridge_tracking/attack_panel_settings.hpp"
+#include "../bridge_tracking/melee_debug_settings.hpp"
+#include "../bridge_tracking/developer_camera.hpp"
+#include "../bridge_tracking/body_debug_settings.hpp"
+#include "../bridge_tracking/developer_panel_input.hpp"
 
 struct VrSettings {
-    float hudSize=.8f,interfaceScale=1.f;
+    int wristHud=1; // 0 original HUD, 1 left wrist, 2 right wrist
+    float wristHudScale=1.f;
+    float hudSize=.8f,interfaceScale=1.f,cinematicScale=1.3f;
+    bool cinematicFullVR=true;
     bool interfaceView=false,interfacePending=false;
+    bool physicalCrouch=true,seatedMode=false;
     float gripPitch{},gripYaw{},gripRoll{};unsigned selectedWeapon{};
     float weaponX{},weaponY{},weaponZ{}; // centimetres, weapon-only offsets
-    static constexpr int rowCount=20;
+    static constexpr int rowCount=28,wristHudRow=24,cinematicModeRow=23,heavyChargeRow=20,headHeightRow=21,armThicknessRow=22;
+    unsigned heavyChargeMode{};
+    int headHeightCm{};int armThicknessPercent=100;
     float depth=20,convergence=100,alignment=26.5f/2560.f,scale=100,fov=130,renderScale=1,sharpness=.25f;
     bool swap=true,visible=false;int selected=0;unsigned recenter=0;
     bool developerVisible=false,developerTogglePending=false;
@@ -25,7 +35,8 @@ struct VrSettings {
     inline static amalur::DeveloperCameraSettings thirdPersonCamera;
     static constexpr int ablationFirstRow=amalur::developer::panelRows+5;
     static constexpr int ablationResetRow=ablationFirstRow+5;
-    static constexpr int developerPanelRows=ablationResetRow+1;
+    static constexpr int attackPanelRow=ablationResetRow+1;
+    static constexpr int developerPanelRows=attackPanelRow+1;
     static constexpr int mapPanelRow=developerPanelRows; // retain currently hidden prototype row
     static constexpr LONG ablationBits[]{amalur::skipRigSockets,amalur::skipRootSmoothing,amalur::nativeMeshInput,amalur::nativeMeshPositions,amalur::nativeMeshRotations};
     bool ablationAction(int row,bool activate){
@@ -34,6 +45,7 @@ struct VrSettings {
         return true;
     }
     bool mapPanelPrototype=true;
+    inline static amalur::AttackPanelSettings attackPanel;
     int developerRow=0,developerAction=-1,developerDestination=0;
     // Exactly one tab can be visible. Every open starts on Settings.
     bool panelOpen() const {return visible||developerVisible;}
@@ -64,14 +76,16 @@ struct VrSettings {
         if(event.tab){switchTab();return true;}
         if(visible){
             selected=(selected+event.row+rowCount)%rowCount;
-            if(selected==rowCount-2){if(event.activate)requestPause();}
+            if(selected==rowCount-3){if(event.activate||event.destination)menuRecovery.toggleAutomaticContinue();}
+            else if(selected==rowCount-2){if(event.activate)requestPause();}
             else if(selected==rowCount-1){if(event.activate)++recenter;}
-            else if(event.destination||event.reset||(selected==0&&event.activate))adjustSetting(event.destination?event.destination:1,event.reset);
+            else if(event.destination||event.reset||((selected==0||selected==18||selected==19||selected==heavyChargeRow||selected==cinematicModeRow||selected==wristHudRow)&&event.activate))adjustSetting(event.destination?event.destination:1,event.reset);
         }
         if(developerVisible){
             developerRow=(developerRow+event.row+developerPanelRows)%developerPanelRows;
             developerDestination=(developerDestination+event.destination+amalur::developer::destinations)%amalur::developer::destinations;
-            if(ablationAction(developerRow,event.activate||event.destination)){}
+            if(developerRow==attackPanelRow){if(event.activate||event.destination)attackPanel.toggle();}
+            else if(ablationAction(developerRow,event.activate||event.destination)){}
             else if(developerRow==amalur::developer::panelRows){if(event.activate||event.destination)meleeDebug.toggle();}
             else if(developerRow==amalur::developer::panelRows+1){if(event.activate||event.destination)thirdPersonCamera.toggle();}
             else if(developerRow==amalur::developer::panelRows+2){if(event.activate||event.destination)amalur::bodyDebug.toggle(amalur::nativeTorso);}
@@ -121,8 +135,9 @@ struct VrSettings {
         gripPitch=gripYaw=gripRoll=weaponX=weaponY=weaponZ=0;
         save();
     }
-    void load(){amalur::playMode.set(read(L"NormalThirdPerson",0,0,1)>.5f);weaponX=read(L"WeaponX",0,-20,20);weaponY=read(L"WeaponY",0,-20,20);weaponZ=read(L"WeaponZ",0,-20,20);interfaceScale=read(L"InterfaceScale",1,.5f,1.5f);gripPitch=read(L"GripPitch",0,-180,180);gripYaw=read(L"GripYaw",0,-180,180);gripRoll=read(L"GripRoll",0,-180,180);hudSize=read(L"HudSize",.8f,.4f,1.2f);depth=read(L"Depth",20,0,100);convergence=read(L"Convergence",100,1,1000);alignment=read(L"Alignment",26.5f/2560.f,-.05f,.05f);scale=read(L"WorldUnitsPerMeter",100,10,500);fov=read(L"HorizontalFov",130,100,150);renderScale=read(L"RenderScale",1,.5f,1.5f);sharpness=read(L"Sharpness",.25f,0,1);swap=read(L"SwapEyes",1,0,1)>.5f;migrateGripBasis();}
-    void save(){auto put=[&](const wchar_t* key,float value){wchar_t text[64];swprintf_s(text,L"%.7g",value);WritePrivateProfileStringW(L"VR",key,text,path.c_str());};put(L"NormalThirdPerson",amalur::playMode.normal()?1.f:0.f);put(L"GripBasisVersion",1);put(L"WeaponX",weaponX);put(L"WeaponY",weaponY);put(L"WeaponZ",weaponZ);put(L"InterfaceScale",interfaceScale);put(L"GripPitch",gripPitch);put(L"GripYaw",gripYaw);put(L"GripRoll",gripRoll);put(L"HudSize",hudSize);put(L"Depth",depth);put(L"Convergence",convergence);put(L"Alignment",alignment);put(L"WorldUnitsPerMeter",scale);put(L"HorizontalFov",fov);put(L"RenderScale",renderScale);put(L"Sharpness",sharpness);put(L"SwapEyes",swap?1.f:0.f);}
+    void load(){wristHud=int(read(L"WristHud",1,0,2));wristHudScale=read(L"WristHudScale",1,.5f,2.f);cinematicFullVR=read(L"CinematicFullVR",1,0,1)>.5f;amalur::cinematicMode.setFullVR(cinematicFullVR);armThicknessPercent=int(read(L"ArmThicknessPercent",100,50,150));amalur::armThickness.set(armThicknessPercent);cinematicScale=read(L"CinematicScale",1.3f,.5f,3.f);headHeightCm=int(read(L"HeadHeightCm",0,-100,100));amalur::headHeight.set(headHeightCm);heavyChargeMode=read(L"HeavyChargeInput",0,0,1)>.5f?1u:0u;seatedMode=read(L"SeatedMode",0,0,1)>.5f;physicalCrouch=read(L"PhysicalCrouch",1,0,1)>.5f;amalur::playMode.set(read(L"NormalThirdPerson",0,0,1)>.5f);weaponX=read(L"WeaponX",0,-20,20);weaponY=read(L"WeaponY",0,-20,20);weaponZ=read(L"WeaponZ",0,-20,20);interfaceScale=read(L"InterfaceScale",1,.5f,1.5f);gripPitch=read(L"GripPitch",0,-180,180);gripYaw=read(L"GripYaw",0,-180,180);gripRoll=read(L"GripRoll",0,-180,180);hudSize=read(L"HudSize",.8f,.4f,1.2f);depth=read(L"Depth",20,0,100);convergence=read(L"Convergence",100,1,1000);alignment=read(L"Alignment",26.5f/2560.f,-.05f,.05f);scale=read(L"WorldUnitsPerMeter",100,10,500);fov=read(L"HorizontalFov",130,100,150);renderScale=read(L"RenderScale",1,.5f,1.5f);sharpness=read(L"Sharpness",.25f,0,1);swap=read(L"SwapEyes",1,0,1)>.5f;migrateGripBasis();}
+    void saveCinematicScale(){wchar_t text[64];swprintf_s(text,L"%.7g",cinematicScale);WritePrivateProfileStringW(L"VR",L"CinematicScale",text,path.c_str());}
+    void save(){amalur::cinematicMode.setFullVR(cinematicFullVR);amalur::armThickness.set(armThicknessPercent);amalur::headHeight.set(headHeightCm);auto put=[&](const wchar_t* key,float value){wchar_t text[64];swprintf_s(text,L"%.7g",value);WritePrivateProfileStringW(L"VR",key,text,path.c_str());};put(L"WristHud",float(wristHud));put(L"WristHudScale",wristHudScale);put(L"ArmThicknessPercent",float(armThicknessPercent));put(L"CinematicFullVR",cinematicFullVR?1.f:0.f);put(L"HeadHeightCm",float(headHeightCm));put(L"SeatedMode",seatedMode?1.f:0.f);put(L"PhysicalCrouch",physicalCrouch?1.f:0.f);put(L"NormalThirdPerson",amalur::playMode.normal()?1.f:0.f);put(L"GripBasisVersion",1);put(L"WeaponX",weaponX);put(L"WeaponY",weaponY);put(L"WeaponZ",weaponZ);put(L"HeavyChargeInput",float(heavyChargeMode));put(L"InterfaceScale",interfaceScale);put(L"GripPitch",gripPitch);put(L"GripYaw",gripYaw);put(L"GripRoll",gripRoll);put(L"HudSize",hudSize);put(L"Depth",depth);put(L"Convergence",convergence);put(L"Alignment",alignment);put(L"WorldUnitsPerMeter",scale);put(L"HorizontalFov",fov);put(L"RenderScale",renderScale);put(L"Sharpness",sharpness);put(L"SwapEyes",swap?1.f:0.f);}
     void poll(){
         MSG message;while(PeekMessageW(&message,nullptr,0,0,PM_REMOVE)){TranslateMessage(&message);DispatchMessageW(&message);}
         if(interfacePending){interfaceView=!interfaceView;interfacePending=false;}
@@ -151,19 +166,22 @@ struct VrSettings {
             if(developerRow==amalur::developer::panelRows+4){if(enter||left||right)amalur::bodyDebug.toggle(amalur::nativeCamera);return;}
             if(left)developerDestination=(developerDestination+amalur::developer::destinations-1)%amalur::developer::destinations;
             if(right)developerDestination=(developerDestination+1)%amalur::developer::destinations;
+            if(developerRow==attackPanelRow){if(enter||left||right)attackPanel.toggle();return;}
             if(enter)developerAction=amalur::developer::panelAction(developerRow,developerDestination);
             return;
         }
         if(!visible)return;
         if(r)++recenter;
         if(up)selected=(selected+rowCount-1)%rowCount;if(down)selected=(selected+1)%rowCount;
+        if(selected==rowCount-3){if(enter||left||right)menuRecovery.toggleAutomaticContinue();return;}
         if(selected==rowCount-2){if(enter)requestPause();return;}
         if(selected==rowCount-1){if(enter)++recenter;return;}
-        adjustSetting((selected==0&&enter)?1:int(right)-int(left),home);
+        adjustSetting(((selected==0||selected==18||selected==19||selected==heavyChargeRow||selected==cinematicModeRow||selected==wristHudRow)&&enter)?1:int(right)-int(left),home);
     }
     void adjustSetting(int direction,bool home){
         if(!direction&&!home)return;
         switch(selected){
+        case wristHudRow:wristHud=home?1:(wristHud+direction+3)%3;break;
         case 0:amalur::playMode.set(home?false:!amalur::playMode.normal());++recenter;break;
         case 1:hudSize=home?.8f:std::clamp(hudSize+direction*.05f,.4f,1.2f);break;
         case 2:depth=home?20:std::clamp(depth+direction*2.f,0.f,100.f);break;
@@ -181,6 +199,12 @@ struct VrSettings {
         case 14:interfaceScale=home?1.f:std::clamp(interfaceScale+direction*.05f,.5f,1.5f);break;
         case 15:weaponX=home?0:std::clamp(weaponX+direction*.5f,-20.f,20.f);break;
         case 16:weaponY=home?0:std::clamp(weaponY+direction*.5f,-20.f,20.f);break;
+        case 19:{const bool next=home?false:!seatedMode;if(next!=seatedMode){seatedMode=next;++recenter;}break;}
+        case cinematicModeRow:cinematicFullVR=home?true:!cinematicFullVR;break;
+        case 22:armThicknessPercent=home?100:std::clamp(armThicknessPercent+direction*5,50,150);break;
+        case 21:headHeightCm=home?0:std::clamp(headHeightCm+direction,-100,100);break;
+        case 20:heavyChargeMode=home?0u:1u-heavyChargeMode;break;
+        case 18:physicalCrouch=home?true:!physicalCrouch;break;
         case 17:weaponZ=home?0:std::clamp(weaponZ+direction*.5f,-20.f,20.f);break;
         }save();
     }

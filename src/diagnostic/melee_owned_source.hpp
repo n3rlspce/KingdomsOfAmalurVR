@@ -2,6 +2,7 @@
 #include "melee_native.hpp"
 #include "../tracking/physical_melee_recipe.hpp"
 #include "../tracking/longsword_damage_recipe.hpp"
+#include "../tracking/melee_native_family.hpp"
 
 namespace melee_owned_source {
 inline uintptr_t resident(uintptr_t manager,uint32_t index){
@@ -24,16 +25,17 @@ inline bool reference(uintptr_t manager,uint32_t asset,bool retain){
 inline const char* assetRejection(uintptr_t definition,bool verifyScript,uint32_t longswordAsset=0){
     if(!definition)return "resident-missing";
     if(player_rig::word(definition)!=gameBase+0x135807c)return "definition-type";
-    if(longswordAsset&&longswordAsset!=50){
+    const auto family=amalur::nativeFamilyAttack(longswordAsset);
+    if(longswordAsset&&longswordAsset!=50&&(!family.attack||!family.scripted)){
         amalur::DirectWeaponDefinition d{player_rig::word(definition+0xc),player_rig::word(definition+0x94),player_rig::word(definition+0x1a0),
             player_rig::word(definition+0x1bc),player_rig::word(definition+0x1f8),player_rig::word(definition+0x1fc),player_rig::word(definition+0x200),
             player_rig::word(definition+0x208),player_rig::word(definition+0x20c)};
-        return amalur::matchesLongswordDirectDefinition(longswordAsset,d)?nullptr:"longsword-direct-definition";
+        return (family.attack?amalur::matchesFamilyDefinition(longswordAsset,d):amalur::matchesLongswordDirectDefinition(longswordAsset,d))?nullptr:"direct-definition";
     }
     if(player_rig::word(definition+0xc)!=1||player_rig::word(definition+0x1a0)!=1
         ||player_rig::word(definition+0x1bc)||player_rig::word(definition+0x1f8)
         ||player_rig::word(definition+0x1fc)||player_rig::word(definition+0x200)
-        ||player_rig::word(definition+0x208)!=0x0100e002
+        ||player_rig::word(definition+0x208)!=(family.attack?family.field208:0x0100e002)
         ||player_rig::word(definition+0x20c)!=0x01000104)return "definition-fields";
     auto listeners=player_rig::word(definition+8),listener=listeners?player_rig::word(listeners):0;
     if(!listener||player_rig::word(listener+4)!=definition
@@ -71,6 +73,10 @@ struct Lease {
         if(player_rig::word(gameBase+0x15f4dfc)!=oldManager
             ||resident(oldManager,oldAsset)!=oldDefinition)return false;
         return reference(oldManager,oldAsset,false);
+    }
+    bool acquireFamily(uint32_t model,uint32_t newOwner,uint32_t newWeapon,uint32_t newAsset,uintptr_t expected,uint32_t newFlags){
+        if(!amalur::supportedNativeFamilyAttack(model,newAsset,newFlags))return false;
+        return acquireChecked(newOwner,newWeapon,newAsset,expected,newFlags,true);
     }
     bool acquireLongsword(uint32_t newOwner,uint32_t newWeapon,uint32_t newAsset,uintptr_t expected,uint32_t newFlags){
         if(!amalur::supportedLongswordDamage(newAsset,newFlags))return false;

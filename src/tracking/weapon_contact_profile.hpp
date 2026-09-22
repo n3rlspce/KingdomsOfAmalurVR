@@ -24,10 +24,18 @@ inline constexpr WeaponContactProfile contactLine(mgs5vr::Vec3 start,mgs5vr::Vec
 // These are first-pass visual fits, not extracted mesh bounds. Keep radius4,
 // add overlapping samples, and exclude the dagger's grip from damage geometry.
 inline constexpr auto prototypeDaggers=contactLine({0,0,8},{0,0,46},6,4.f);
-inline constexpr auto longswordContact=contactLine({0,0,0},{0,0,85.8f},12,4.f);
+// Add one terminal sphere at the existing interval, preserving every fitted
+// sphere and radius below it. User headset fitting: blade extends above V5.
+inline constexpr WeaponContactProfile extendContactTip(WeaponContactProfile p){
+    if(p.count<2||p.count>=maxWeaponContactSamples)return p;
+    const auto end=p.centers[p.count-1],previous=p.centers[p.count-2];
+    p.centers[p.count++]={2*end.x-previous.x,2*end.y-previous.y,2*end.z-previous.z};
+    return p;
+}
+inline constexpr auto longswordContact=extendContactTip(contactLine({0,0,0},{0,0,85.8f},12,4.f));
 // Rusty5457 native terminal bone transformed into handle frame: (-4.706,-0.089,64.007).
 // Separate provisional landmark envelope; no mesh-tip fit claimed for this skin.
-inline constexpr auto rustyLongswordContact=contactLine({0,0,0},{-4.706f,-.089f,64.007f},10,4.f);
+inline constexpr auto rustyLongswordContact=extendContactTip(contactLine({0,0,0},{-4.706f,-.089f,64.007f},10,4.f));
 inline constexpr auto staffContact=contactLine({0,0,0},{0,0,81.89f},12,4.f);
 inline constexpr auto greatswordContact=contactLine({0,0,18.79f},{.32f,0,136},16,4.f);
 // Only a head-centred provisional volume: do not treat the long handle as a blade.

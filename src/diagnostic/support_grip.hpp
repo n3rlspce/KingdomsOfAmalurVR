@@ -48,7 +48,7 @@ inline void apply(amalur::RigBone* bones,unsigned count,const int16_t* parents,c
     amalur::MotionInputPacket input{};AcquireSRWLockExclusive(&motion_controls::lock);
     bool active=motion_controls::channel.open(false)&&motion_controls::channel.read(input);ReleaseSRWLockExclusive(&motion_controls::lock);
     const auto now=GetTickCount64();
-    bool allowed=tracking&&firstPerson.load()&&headTracking.load()&&!interfaceView.load()&&motion_controls::gameFocused()
+    bool allowed=!weapon_control::weaponSheathed.load()&&tracking&&firstPerson.load()&&headTracking.load()&&!interfaceView.load()&&motion_controls::gameFocused()
         &&!motion_controls::dialogueActive.load()&&active&&input.selectedWeapon<=1&&input.block<.25f;
     uintptr_t object;uint32_t owner;unsigned asset;amalur::HeldWeaponKind kind;
     AcquireSRWLockShared(&lock);object=handleObject;owner=handleOwner;asset=handleAsset;kind=handleKind;ReleaseSRWLockShared(&lock);

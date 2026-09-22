@@ -30,5 +30,23 @@ int main(){
     check(!view.apply(3,4,1,1,authored,head,0,b),"invalid scale rejected");
     authored.eye.x=std::numeric_limits<float>::quiet_NaN();
     check(!view.apply(3,4,1,1,authored,head,100,b),"invalid native camera rejected");
+    // Same scene AND camera address are reused by authored shot cuts.
+    CinematicView cuts;head={};authored={{0,0,0},{100,0,0},{0,0,1}};
+    check(cuts.apply(1,2,0,0,authored,head,100,a,1000),"shot entry");
+    head.orientation={0,std::sin(.4f),0,std::cos(.4f)};
+    check(cuts.apply(1,2,0,0,authored,head,100,b,1016)&&!near(b.target-b.eye,{200,0,0}),"head motion does not cut");
+    authored.target={0,100,0};
+    check(cuts.apply(1,2,0,0,authored,head,100,b,1032)&&near(b.target-b.eye,{0,200,0}),"same-camera reverse shot rebases current head yaw");
+    check(cuts.apply(1,2,0,0,authored,head,100,b,1048)&&near(b.target-b.eye,{0,200,0}),"cut is applied only once");
+    head.orientation={0,std::sin(.5f),0,std::cos(.5f)};
+    check(cuts.apply(1,2,0,0,authored,head,100,b,1064)&&!near(b.target-b.eye,{0,200,0}),"free look after cut");
+    // Gradually sweep 90 degrees: never rebase on accumulated pan motion.
+    for(unsigned i=1;i<=90;++i){float angle=(90.f+i)*.01745329252f;authored.eye.x+=1;authored.target=authored.eye+Vec3{100*std::cos(angle),100*std::sin(angle),0};
+        check(cuts.apply(1,2,0,0,authored,head,100,b,1064+i*16),"continuous pan");
+        check(near(cuts.heading,{0,1,0}),"continuous pan never snaps head");}
+    authored.eye.x+=200;authored.target.x+=200;
+    check(cuts.apply(1,2,0,0,authored,head,100,b,2520)&&near(b.target-b.eye,{-200,0,0}),"position cut gets new intended heading");
+    const auto saved=cuts.heading;authored.target=authored.eye+Vec3{100,0,0};
+    check(cuts.apply(1,2,0,0,authored,head,100,b,4000)&&near(cuts.heading,saved),"long timing gap alone is not a cut");
     std::puts("PASS: cinematic head-look, horizon, native travel, physical translation, recenter and scene/camera lifetimes");
 }

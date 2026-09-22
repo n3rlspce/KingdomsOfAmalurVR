@@ -2,10 +2,6 @@
 -- Never execute engine calls on the framework's console thread.
 local state = _G.amalur_menu_state
 local base = '.\\mods\\amalur_menu_'
-local function write(name, value)
-    local file = io.open(base .. name .. '.txt', 'w')
-    if file then file:write(value); file:close() end
-end
 if not state then
     state = {frames = 0, seen = {}, hooks = {}}
     state.session = tostring(os.time()) .. '_' .. string.gsub(tostring(state), '[^%w]', '')
@@ -27,11 +23,16 @@ end
 local function poll()
     state.frames = state.frames + 1
     if state.frames % 10 ~= 0 then return end
-    write('ready', state.session .. '\n' .. tostring(os.time()))
-    local file = io.open(base .. 'request.txt', 'r')
-    if not file then return end
-    local session, nonce, expires = file:read('*l'), file:read('*l'), file:read('*l')
-    file:close()
+    local now = os.time()
+    if state.lastTick ~= now then
+        state.lastTick = now
+        print('AMALUR_MENU_TICK|' .. state.session .. '|' .. tostring(now) .. '|')
+    end
+    local read = loadfile(base .. 'request.lua')
+    if not read then return end
+    local valid, request = pcall(read)
+    if not valid or type(request) ~= 'table' then return end
+    local session, nonce, expires = request.session, request.nonce, request.expires
     if session ~= state.session or type(nonce) ~= 'string' or #nonce > 64 or
        not string.match(nonce, '^%d+_%d+$') or state.seen[nonce] then return end
     state.seen[nonce] = true -- consume before engine calls; never retry
@@ -43,20 +44,32 @@ local function poll()
         ok, result = pcall(open_menu)
     end
     result = string.gsub(tostring(result), '[\r\n]', ' ')
-    write('result', nonce .. '\n' .. (ok and 'OK' or 'ERROR') .. '\n' .. result)
-    print('AMALUR_MENU|' .. nonce .. '|' .. (ok and 'OK|' or 'ERROR|') .. result)
+    print('AMALUR_MENU|' .. nonce .. '|' .. (ok and 'OK|' or 'ERROR|') .. result .. '|END')
 end
-for _, name in ipairs({'minimap_win', 'pause_screen', 'ledger_win'}) do
+local function pack(...) return {n = select('#', ...), ...} end
+for _, name in ipairs({'minimap_win', 'pause_screen', 'ledger_win', 'main_menu', 'loading_screen', 'UI_State_MGR'}) do
     local host = _G[name]
-    if type(host) == 'table' and type(host.on_update_event) == 'function' and
-       host.on_update_event ~= state.hooks[name] then
-        local original = host.on_update_event
+    local callback = name == 'UI_State_MGR' and 'update_state_manager' or 'on_update_event'
+    if type(host) == 'table' and type(host[callback]) == 'function' and
+       not state.hooks[name] then
+        local original = host[callback]
         local wrapper = function(...)
-            original(...)
-            poll()
+            local result = pack(original(...))
+            -- UI state processing continues independently of hidden HUD windows.
+            -- A transport failure must not escape into the game's UI callback.
+            if not state.polling then
+                state.polling = true
+                local ok, message = pcall(poll)
+                state.polling = false
+                if not ok and not state.reportedError then
+                    state.reportedError = true
+                    print('AMALUR_MENU_ERROR|' .. tostring(message))
+                end
+            end
+            return unpack(result, 1, result.n)
         end
         state.hooks[name] = wrapper
-        host.on_update_event = wrapper
+        host[callback] = wrapper
         print('AMALUR_MENU_READY|' .. name)
     end
 end

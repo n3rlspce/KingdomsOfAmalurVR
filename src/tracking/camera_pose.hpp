@@ -1,6 +1,7 @@
 #pragma once
 #include "mgs5vr/core.hpp"
 #include <cmath>
+#include <algorithm>
 
 namespace amalur {
 using mgs5vr::Vec3;
@@ -47,6 +48,31 @@ struct SnapHeading {
         return {heading.x*c-heading.y*s,heading.x*s+heading.y*c,heading.z};
     }
 };
+// Rotate the native chase offset around its target, preserving its pitch and
+// distance. Use a private camera copy: callbacks must not accumulate this yaw.
+inline CameraPose orbitCamera(CameraPose camera,Vec3 yawBasis){
+    auto rotate=[&](Vec3 v){return Vec3{v.x*yawBasis.x-v.y*yawBasis.y,
+        v.x*yawBasis.y+v.y*yawBasis.x,v.z};};
+    camera.eye=camera.target+rotate(camera.eye-camera.target);
+    camera.up=rotate(camera.up);
+    return camera;
+}
+// Pitch the chase offset around its target in discrete increments. Clamp
+// elevation short of vertical to keep the horizontal camera basis well-defined.
+inline CameraPose pitchCamera(CameraPose camera,float degrees){
+    auto offset=camera.eye-camera.target;
+    const float radius=std::sqrt(mgs5vr::dot(offset,offset));
+    const float horizontal=std::sqrt(offset.x*offset.x+offset.y*offset.y);
+    if(radius<1e-5f||horizontal<1e-5f)return camera;
+    const float old=std::atan2(offset.z,horizontal);
+    const float elevation=std::clamp(old-degrees*.017453292519943295f,-1.3962634f,1.3962634f);
+    const float h=radius*std::cos(elevation);
+    camera.eye=camera.target+Vec3{offset.x/horizontal*h,offset.y/horizontal*h,radius*std::sin(elevation)};
+    // Native chase cameras have a level horizon; rebuild an orthonormal up.
+    auto forward=camera.target-camera.eye;normalize(forward);
+    auto right=cross(Vec3{0,0,1},forward);if(normalize(right))camera.up=cross(forward,right);
+    return camera;
+}
 // Looking almost vertically makes projected head yaw ill-conditioned. Keep the
 // body's last reliable heading there; the headset camera remains unfiltered.
 struct BodyHeading {
@@ -84,4 +110,21 @@ inline bool trackedCamera(CameraPose base,Pose relative,float unitsPerMeter,Came
     out.up=toGame(mgs5vr::rotate(relative.orientation,{0,1,0}));
     return true;
 }
+// Chase-camera pitch must not tilt the physical tracking space: headset yaw
+// rotates around world-up and standing up moves vertically, even looking down.
+inline bool trackedThirdPersonCamera(CameraPose base,Pose relative,float unitsPerMeter,CameraPose& out){
+    if(!mgs5vr::valid(relative)||!std::isfinite(unitsPerMeter)||unitsPerMeter<=0)return false;
+    Vec3 forward=base.target-base.eye;
+    const float distance=std::sqrt(mgs5vr::dot(forward,forward));
+    if(!normalize(forward))return false;
+    Vec3 flat=forward;flat.z=0;if(!normalize(flat))return false;
+    const Vec3 right=cross(Vec3{0,0,1},flat),up{0,0,1};
+    auto toLocal=[&](Vec3 v){return Vec3{mgs5vr::dot(v,right),v.z,-mgs5vr::dot(v,flat)};};
+    auto toWorld=[&](Vec3 v){return right*v.x+up*v.y-flat*v.z;};
+    out.eye=base.eye+toWorld(relative.position)*unitsPerMeter;
+    out.target=out.eye+toWorld(mgs5vr::rotate(relative.orientation,toLocal(forward)))*distance;
+    out.up=toWorld(mgs5vr::rotate(relative.orientation,toLocal(base.up)));
+    return true;
+}
+
 }

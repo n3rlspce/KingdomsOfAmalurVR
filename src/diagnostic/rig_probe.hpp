@@ -1,8 +1,12 @@
 #pragma once
 #include "arm_rig.hpp"
+#include "arm_thickness.hpp"
 #include "rig_status.hpp"
 #include "shield_control.hpp"
 #include "skin_root_pair.hpp"
+#include "bow_attachment_trace.hpp"
+#include "weapon_scale_trace.hpp"
+#include "weapon_drawn_scale.hpp"
 // Reversible discovery probe, not controller IK. Only the verified local-player
 // armor child is eligible; NPCs and opaque bone bytes are untouched.
 namespace rig_probe {
@@ -66,7 +70,7 @@ inline void restore(){
     savedObject=0;
 }
 inline void apply(uintptr_t object){
-    if(amalur::playMode.normal())return;
+    if(amalur::playMode.nativeBody())return;
     __try {
         if(savedObject&&savedObject!=object)return; // one mesh lease for this probe
         auto root=playerRoot();if(!root||root==object)return;
@@ -172,6 +176,8 @@ inline void traceRemap(uintptr_t object,uintptr_t output,uintptr_t slot,bool sol
 inline void __fastcall evaluateBones(void* mapper,void*,uintptr_t slot,uintptr_t source,
     uintptr_t output,uintptr_t skeleton,uintptr_t extra,uintptr_t flags){
     auto object=output>=0x34?output-0x34:0;
+    weapon_drawn_scale::restore(object);
+    arm_thickness::restore(object);
     beforeEvaluation(object);
     weapon_control::observeNativeWeaponSlot(mapper,slot,source,output);
     arm_rig::Scratch scratch;
@@ -184,13 +190,18 @@ inline void __fastcall evaluateBones(void* mapper,void*,uintptr_t slot,uintptr_t
     const auto renderSlot=arm_rig::trackedWeaponSlot(mapper,slot,output,solved);
     weapon_control::restoreHeldTranslation(object);
     shield_control::restore(object);
+    weapon_drawn_scale::prepare(mapper,source,output,renderSlot,solved&&!nativeMesh);
     originalBones(mapper,renderSlot,input,output,skeleton,extra,flags);
+    weapon_drawn_scale::finish(object);
+    weapon_scale_trace::observe(mapper,slot,renderSlot,source,output);
+    bow_attachment_trace::observe(mapper,renderSlot,source,output,solved&&!nativeMesh,scratch);
     if(!nativeMesh&&!amalur::bodyDebug.enabled(amalur::nativeMeshRotations)&&arm_rig::enabled.load()&&!amalur::bodyDebug.enabled(amalur::nativeArms))shield_control::apply(object,source,solved);
     if(solved&&!nativeMesh&&!amalur::bodyDebug.enabled(amalur::nativeMeshPositions)&&arm_rig::enabled.load()&&!amalur::bodyDebug.enabled(amalur::nativeArms))weapon_control::translateHeld(object,renderSlot,source,input);
     if(solved&&arm_rig::enabled.load()&&!amalur::bodyDebug.enabled(amalur::nativeArms))support_grip::record(object,renderSlot,scratch.trace.rootWorld);
+    arm_thickness::apply(object,scratch.trace.root,solved&&!nativeMesh);
     traceRemap(object,output,renderSlot,solved,scratch);
     if(solved&&renderSlot==7&&!amalur::bodyDebug.enabled(amalur::nativeArms))weapon_control::recordBlades(object);
-    if(solved&&arm_rig::enabled.load()&&!amalur::bodyDebug.enabled(amalur::nativeArms))weapon_control::recordHeld(object,renderSlot,scratch.trace.rootWorld);
+    if(solved&&arm_rig::enabled.load()&&!amalur::bodyDebug.enabled(amalur::nativeArms))weapon_control::recordHeld(object,renderSlot,scratch.trace.rootWorld,mapper);
     rig_status::attachment(mapper,renderSlot,source,output,slot);
     afterEvaluation(object);
     skin_root_pair::remember(object,scratch.trace.root,solved&&!nativeMesh&&!amalur::bodyDebug.enabled(amalur::nativeMeshPositions),scratch.locomotion);

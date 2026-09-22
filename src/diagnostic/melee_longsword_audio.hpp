@@ -9,7 +9,7 @@ inline bool ready{};
 struct Voice {uint32_t handle{};uint64_t born{};};
 struct Driver {
     Voice voices[8]{};unsigned next{};uintptr_t manager{};
-    uint32_t owner{},weapon{};unsigned generation{},lastSerial{};uint64_t lastSwing{};
+    uint32_t owner{},weapon{};unsigned generation{},lastSerial[2]{};uint64_t lastSwing[2]{},lastVoice{};
     void reset(const Backend& api,uintptr_t currentManager,uint64_t now){
         for(auto& v:voices){
             // Only own pool3 handles, within a bounded age. Native resolver
@@ -18,7 +18,7 @@ struct Driver {
                 api.stop(reinterpret_cast<void*>(manager),v.handle);
             v={};
         }
-        owner=weapon=generation=lastSerial=0;lastSwing=0;manager=0;next=0;
+        owner=weapon=generation=0;for(auto& serial:lastSerial)serial=0;for(auto& tick:lastSwing)tick=0;lastVoice=0;manager=0;next=0;
     }
     void update(const Backend& api,uintptr_t currentManager,uint32_t currentOwner,uint32_t currentWeapon,unsigned center,bool allowed,uint64_t now){
         if(!allowed||manager!=currentManager||owner!=currentOwner||weapon!=currentWeapon||generation!=center){
@@ -46,20 +46,28 @@ struct Driver {
         return true;
     }
     bool swing(const Backend& api,const amalur::MeleeSwingEvent& e,uint64_t now){
-        if(!manager||!amalur::knownLongswordModel(e.asset)||e.owner!=owner||e.weapon!=weapon||e.generation!=generation||e.hand!=0||!e.serial||e.serial==lastSerial
-            ||!e.tick||now<e.tick||now-e.tick>300||(lastSwing&&now>=lastSwing&&now-lastSwing<100))return false;
+        if(!manager||!amalur::physicalMeleeRecipe(e.asset).attack||e.owner!=owner||e.weapon!=weapon||e.generation!=generation||!amalur::supportedMeleeHand(e.asset,e.hand)||!e.serial||e.serial==lastSerial[e.hand]
+            ||!e.tick||now<e.tick||now-e.tick>300||(lastSwing[e.hand]&&now>=lastSwing[e.hand]&&now-lastSwing[e.hand]<100))return false;
         const auto& p=e.weaponPose.position;
         if(!std::isfinite(p.x)||!std::isfinite(p.y)||!std::isfinite(p.z)||std::fabs(p.x)>1000000||std::fabs(p.y)>1000000||std::fabs(p.z)>1000000)return false;
-        if(e.attackAsset!=50&&e.attackAsset!=5&&e.attackAsset!=6&&e.attackAsset!=7&&e.attackAsset!=81)return false;
-        lastSerial=e.serial;lastSwing=now;
-        const bool slash=emit(api,0x00657cab,0xffffffff,p,now);
-        // Exact paired attack events in native reference: standard50 and heavy81
-        // use0104d903; finisher7 uses01edd57b. Step6 is explicit basic-pair pilot.
-        const bool voice=emit(api,e.attackAsset==7?0x01edd57b:0x0104d903,0,p,now);
-        return slash||voice;
+        const auto sounds=amalur::nativeSwingSounds(e.asset,e.attackAsset,e.attackFlags);
+        if(!sounds.motion&&!sounds.voice)return false;
+        lastSerial[e.hand]=e.serial;lastSwing[e.hand]=now;
+        const bool slash=sounds.motion&&emit(api,sounds.motion,0xffffffff,p,now);
+        // VR maps native attack81's129ms animation event to this committed
+        // physical release, alongside the pair. Use the same owned one-shot
+        // lifecycle; do not play it while charging or again at later contact.
+        const bool supplemental=sounds.supplemental&&emit(api,sounds.supplemental,0xffffffff,p,now);
+        // Separate hands may swing together, but the actor only grunts once.
+        bool voice=false;
+        if(sounds.voice&&(!lastVoice||now<lastVoice||now-lastVoice>=100)){
+            voice=emit(api,sounds.voice,0,p,now);if(voice)lastVoice=now;
+        }
+        return slash||voice||supplemental;
     }
 };
 inline Driver driver;
+#ifndef AMALUR_AUDIO_DRIVER_CHECK
 inline uintptr_t currentManager(){
     __try{const auto system=player_rig::word(gameBase+0x15fde70);return system?system+0x6174:0;}
     __except(EXCEPTION_EXECUTE_HANDLER){return 0;}
@@ -75,17 +83,17 @@ inline bool identity(uint32_t owner,uint32_t weapon){
 // Root must call every native update, including disallowed/menu/focus states.
 inline void update(uint32_t owner,uint32_t weapon,uint32_t model,unsigned generation,bool allowed){
     const auto manager=currentManager();
-    driver.update(backend,manager,owner,weapon,generation,ready&&allowed&&amalur::knownLongswordModel(model)&&identity(owner,weapon),GetTickCount64());
+    driver.update(backend,manager,owner,weapon,generation,ready&&allowed&&amalur::physicalMeleeRecipe(model).attack&&identity(owner,weapon),GetTickCount64());
 }
 inline void cancel(){driver.reset(backend,currentManager(),GetTickCount64());}
 inline void onSwing(const amalur::MeleeSwingEvent& e){
-    if(!ready||!amalur::knownLongswordModel(e.asset)||!identity(e.owner,e.weapon))return;
+    if(!ready||!amalur::physicalMeleeRecipe(e.asset).attack||!identity(e.owner,e.weapon))return;
     const auto manager=currentManager();if(!manager)return;
     // The caller supplies an accepted/fresh game-thread gesture; capture inbox
     // already deduplicates serials. Regular update still handles cancellation.
     driver.update(backend,manager,e.owner,e.weapon,e.generation,true,GetTickCount64());
     const bool queued=driver.swing(backend,e,GetTickCount64());
-    log("VR longsword audio pilot tick=%llu attack=%u owner=%08x weapon=%08x serial=%u queued=%d classification=attack-pair-needs-listening\n",GetTickCount64(),e.attackAsset,e.owner,e.weapon,e.serial,queued);
+    log("VR melee audio pilot tick=%llu attack=%u owner=%08x weapon=%08x serial=%u queued=%d classification=family-attack-pair-needs-listening\n",GetTickCount64(),e.attackAsset,e.owner,e.weapon,e.serial,queued);
 }
 inline void install(){
     __try{
@@ -94,7 +102,8 @@ inline void install(){
         if(!resolved::originalAllocate||memcmp(reinterpret_cast<void*>(gameBase+0x823680),position,sizeof(position))
             ||memcmp(reinterpret_cast<void*>(gameBase+0x82b2f0),stop,sizeof(stop))){log("VR longsword audio pilot rejected reason=signature-or-allocation-observer\n");return;}
         backend={resolved::originalAllocate,reinterpret_cast<Position>(gameBase+0x823680),reinterpret_cast<Stop>(gameBase+0x82b2f0)};
-        ready=true;log("VR longsword audio pilot enabled model=2478 selectors=00657cab,0104d903,01edd57b slots=8 lifetime=4000ms\n");
+        ready=true;log("VR longsword audio pilot enabled models=2478,5457,1520,1250,1323 slots=8 lifetime=4000ms\n");
     }__except(EXCEPTION_EXECUTE_HANDLER){ready=false;}
 }
+#endif
 }

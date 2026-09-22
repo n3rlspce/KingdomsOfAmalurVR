@@ -1,6 +1,6 @@
 #pragma once
 #include "stereo_source.hpp"
-// Map prototype: one native menu image, one rigid quad shared by both eyes.
+// Isolated native UI canvas: transparent, rigid and shared by both eyes.
 // The compositor performs head-motion perspective; no per-widget transform.
 class MapPanel {
     XrSwapchain chain{};std::vector<XrSwapchainImageD3D11KHR> images;
@@ -9,7 +9,7 @@ public:
     ~MapPanel(){if(chain)xrDestroySwapchain(chain);}
     XrCompositionLayerQuad draw(XrSession session,XrSpace space,DXGI_FORMAT format,
         ID3D11Device* device,ID3D11DeviceContext* context,StereoSource& source,
-        const XrPosef& pose,float scale,float sharpness){
+        const XrPosef& pose,float scale,float sharpness,float opacity=1.f){
         const unsigned wantedWidth=std::min(2048u,source.sourceWidth());
         const unsigned wantedHeight=std::max(1u,static_cast<unsigned>(double(wantedWidth)*source.sourceHeight()/source.sourceWidth()));
         if(!chain||width!=wantedWidth||height!=wantedHeight){
@@ -22,9 +22,10 @@ public:
         Microsoft::WRL::ComPtr<ID3D11RenderTargetView> target;D3D11_RENDER_TARGET_VIEW_DESC desc{};desc.Format=format;desc.ViewDimension=D3D11_RTV_DIMENSION_TEXTURE2D;
         hrcheck(device->CreateRenderTargetView(images[index].texture,&desc,&target));auto rt=target.Get();context->OMSetRenderTargets(1,&rt,nullptr);
         D3D11_VIEWPORT viewport{0,0,float(width),float(height),0,1};context->RSSetViewports(1,&viewport);
-        source.draw(context,0,-1,1,-1,1,1,1,0,sharpness);context->OMSetRenderTargets(0,nullptr,nullptr);
+        context->OMSetBlendState(nullptr,nullptr,0xffffffff);
+        source.draw(context,0,-1,1,-1,1,1,1,0,0,true,opacity);context->OMSetRenderTargets(0,nullptr,nullptr);
         XrSwapchainImageReleaseInfo release{XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO};XR(xrReleaseSwapchainImage(chain,&release));
-        XrCompositionLayerQuad layer{XR_TYPE_COMPOSITION_LAYER_QUAD};layer.space=space;layer.eyeVisibility=XR_EYE_VISIBILITY_BOTH;
+        XrCompositionLayerQuad layer{XR_TYPE_COMPOSITION_LAYER_QUAD};layer.layerFlags=XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;layer.space=space;layer.eyeVisibility=XR_EYE_VISIBILITY_BOTH;
         layer.subImage.swapchain=chain;layer.subImage.imageRect.extent={static_cast<int32_t>(width),static_cast<int32_t>(height)};
         layer.pose=pose;layer.size={2.f*scale,2.f*scale*height/width};return layer;
     }

@@ -14,13 +14,26 @@ Recenter row runs with **A/right trigger**. On Dev cheats, **A/right trigger**
 runs the selected action. Release controls after switching tabs before acting.
 Keyboard `*` and `F11` are aliases for the same panel, with `Tab` switching tabs.
 `panel_check.cpp` and `tabs_check.cpp` cover controller capture and tab behavior.
+**Attack detection panel: ON/OFF** is the final Dev cheats row. Use A/right
+trigger, left/right, or keyboard Enter to show/hide the longsword charge and
+swing readout. It defaults ON for each session and is independent of collision
+visualization, trails, and combat logic. `attack_panel_settings.hpp` shares the
+visibility bit between bridge and renderer. For combined renderer sources, apply
+`attack-panel-renderer.patch` to the latest `src/diagnostic/melee_debug.hpp`.
+
+**Skip menu / automatic Continue** near the bottom of Settings toggles startup
+loading using A/right trigger or left/right. The value is stored in
+`mods/amalur_startup_options.txt` (`return true`=on, `return false`=off) and applies next launch.
+It does not change the separate autosave-off preference.
+
 **Open pause menu** near the bottom of Settings closes the VR panel after
 activation controls are released, then requests the native ledger window through
 `UI_State_MGR.show_window(ledger_win.m_window, false)`. A separate UI dispatcher
-(`amalur_menu.json` / `.lua`) runs on window update callbacks, without requiring
+(`amalur_menu.json` / `.lua`) runs on window and UI state-manager update callbacks, without requiring
 cheat connection, living-player telemetry or an unpaused game. It checks window
 visibility for acknowledgement. Failure reopens Settings with the result.
-Requests expire, are session-bound and consumed once; no console-thread engine
+The transport uses framework `loadfile` requests and console-output receipts via
+`amalur-menu-send.exe`; game Lua has no `io` library. Requests expire, are session-bound and consumed once; no console-thread engine
 calls or automatic startup action. `pause_check.cpp` and `check_menu.py` cover
 input guards, duplicates, stale sessions, engine failures and callback reloads.
 Live validation in the stuck/dead save remains pending. The previous Start pulse
@@ -268,3 +281,28 @@ the autosave script calls `GAME.is_game_paused()` without arguments.
 [Public F2 helper source](https://github.com/mburbea/koar-item-editor/blob/46792455aa87b9a8a6a5b0e754a893f846b6188b/lua/f2Console.lua)
 and [simtype catalog](https://github.com/mburbea/koar-item-editor/blob/46792455aa87b9a8a6a5b0e754a893f846b6188b/KoAR.Core/Data/simtype.csv)
 provide grant/spawn and item-name references. No external helper code is bundled.
+
+## Normal third-person camera recovery
+
+`third-person-recovery.patch` applies to the recorded melee-v9 renderer baseline.
+It keeps native camera inputs consistent with the VR matrices through rendering,
+enables the movement-basis sample in normal play mode, maps physical headset
+translation/yaw in world-level axes rather than tilted chase-camera axes, and
+restores verified current player head attachments in normal third person. It does
+not change first-person combat or the separate inspection-camera mode.
+
+`third_person_camera_check.cpp` compiles with the patched tracking include path
+and mgs5vr core (C++20). Checks cover vertical movement with a pitched chase
+camera, level head yaw, four snap headings, and camera-input restoration.
+Head visibility and headset comfort require live validation.
+
+## Boot-only automatic Continue
+
+The game recreates Lua when returning to the main menu, so a Lua-global latch
+alone cannot enforce once-per-launch behavior. `startup_ticket.hpp` creates
+`mods/amalur_boot_continue.lua` once during game DLL attachment. The first ready
+startup menu consumes it before reading Skip menu or attempting Continue.
+Returning from pause, restarting Lua, enabling Skip later, and initially having
+Skip OFF cannot rearm it. Autosave-off is separate and remains applied.
+Deploy the updated startup Lua together with the DLL initialization hook; an
+absent/unconsumable ticket leaves the menu visible. Live validation is pending.

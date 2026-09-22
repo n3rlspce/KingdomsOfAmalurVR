@@ -1,6 +1,6 @@
 #pragma once
-#include "../tracking/developer_commands.hpp"
-#include "../tracking/developer_connection.hpp"
+#include "../bridge_tracking/developer_commands.hpp"
+#include "../bridge_tracking/developer_connection.hpp"
 #include <fstream>
 
 // Console transport is a separate process: attaching must not steal the XR
