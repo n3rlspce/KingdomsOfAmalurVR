@@ -25,6 +25,8 @@ Other dependencies download automatically. Updates keep settings and saves.
 
 **Click on both sticks to open VR settings.**
 
+**Boss finishers: when the boss is down and the A prompt appears, press X + A at the same time.**
+
 ![Quest 3 controller bindings](docs/quest-3-controls.svg)
 
 | Quest input | Action |

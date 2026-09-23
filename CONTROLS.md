@@ -1,5 +1,7 @@
 # Quest controls
 
+**Boss finishers: when the boss is down and the A prompt appears, press X + A at the same time.**
+
 Use the game's gamepad UI. Release the controls after opening/closing menus or the VR settings panel to resume input.
 
 | Quest input | Action |
