@@ -1,6 +1,6 @@
 # Kingdoms of Amalur VR
 
-**[⬇ Download latest release (.zip)](https://github.com/n3rlspce/KingdomsOfAmalurVR/releases/latest/download/KingdomsOfAmalurVR.zip)** — Coming soon.
+**[⬇ Download experimental preview (.zip)](https://github.com/n3rlspce/KingdomsOfAmalurVR/releases/download/v0.1.0-preview.1/KingdomsOfAmalurVR.zip)** — [Release notes](https://github.com/n3rlspce/KingdomsOfAmalurVR/releases/tag/v0.1.0-preview.1) · [Installation guide](docs/INSTALL.md)
 
 Download and extract the ZIP, obtain the one-time Nexus framework dependency, then run **Install and Launch.cmd**. The installer finds Steam, downloads verified geo11/stereo dependencies, backs up changed files and installs the approved VR preset. Updates preserve your settings and saves.
 
