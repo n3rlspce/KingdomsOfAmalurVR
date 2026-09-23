@@ -1,5 +1,6 @@
 #include "../tracking/melee_native_family.hpp"
 #pragma once
+#include "../tracking/melee_vfx_lifetime.hpp"
 #include "../tracking/weapon_family.hpp"
 #include "../tracking/melee_swing_event.hpp"
 #include "../tracking/melee_feedback_capture.hpp"
@@ -90,13 +91,14 @@ inline void inspect(Kind kind,uintptr_t event,uintptr_t record,uintptr_t index,u
 }
 #include "melee_feedback_resolved.hpp"
 #include "melee_longsword_audio.hpp"
+#include "melee_vfx_native.hpp"
 inline void onSwing(const amalur::MeleeSwingEvent& event){
     const auto now=GetTickCount64();
     AcquireSRWLockExclusive(&stateLock);
     const bool accepted=inbox.accept(event,now);
     const bool report=accepted&&swingBudget.allow(now);
     ReleaseSRWLockExclusive(&stateLock);
-    if(accepted)longsword_audio::onSwing(event);
+    if(accepted){longsword_audio::onSwing(event);native_vfx::onSwing(event);}
     if(report)log("VR melee feedback swing tick=%llu owner=%08x weapon=%08x asset=%u hand=%u serial=%u chain=%u generation=%u nativePlayback=%s\n",event.tick,event.owner,event.weapon,event.asset,event.hand,event.serial,event.chainStep,event.generation,amalur::knownLongswordModel(event.asset)?"longsword-audio-pilot":amalur::physicalMeleeRecipe(event.asset).attack?"family-audio-pilot":"unavailable");
 }
 
@@ -116,7 +118,11 @@ template<Kind K> inline uintptr_t __fastcall dispatch(void* self,void*,uintptr_t
     return result;
 }
 inline void install(){
-    if(GetFileAttributesW(L"amalur-melee-effects-probe.enable")==INVALID_FILE_ATTRIBUTES)return;
+    // Production swing/release feedback must not depend on a capture marker.
+    // Without observers, audio validates the native allocator entry directly.
+    if(GetFileAttributesW(L"amalur-melee-effects-probe.enable")==INVALID_FILE_ATTRIBUTES){
+        longsword_audio::install();native_vfx::install();return;
+    }
     // Exact retail instruction prefixes and RTTI-derived virtual dispatch table
     // slots must agree. CharacterWeaponFx contains a relocated cookie address.
     const unsigned char expected[5][8]{
@@ -138,6 +144,7 @@ inline void install(){
     }
     resolved::install();
     longsword_audio::install();
+    native_vfx::install();
     log("VR melee native feedback observation enabled; longsword audio pilot installed when signatures validate\n");
 }
 }

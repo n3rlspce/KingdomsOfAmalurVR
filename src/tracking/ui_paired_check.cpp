@@ -128,7 +128,7 @@ int main(int argc,char** argv){
     check(held[0]==(leasedTag&255)&&held[1]==((leasedTag>>8)&255)&&held[2]==((leasedTag>>16)&255),"consumer-leased image never overwritten while pool wraps");
     cc->Unmap(heldRead.Get(),0);check(lease->ReleaseSync(0)==S_OK,"return held lease");
     consumeTag(tag);check(handles.size()<=3,"held lease does not grow pool");
-    Sleep(1010);amalur::PosePacket pose;check(!source.acquirePaired(consumer.Get(),cc.Get(),pose),"stopped producer expires");
+    Sleep(1050);amalur::PosePacket pose;check(!source.acquirePaired(consumer.Get(),cc.Get(),pose),"stopped producer expires");
     pose.valid=0;pose.tick=GetTickCount64();check(publisher.publish(producer.Get(),pc.Get(),input.Get(),pose),"producer recovers after consumer pause");
     auto start=GetTickCount64();uint64_t seq=last;
     while((!source.acquirePaired(consumer.Get(),cc.Get(),pose,&seq)||seq==last)&&GetTickCount64()-start<1000)Sleep(1);

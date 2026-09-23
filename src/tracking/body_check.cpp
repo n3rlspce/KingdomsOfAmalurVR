@@ -192,6 +192,30 @@ int main(){
         check(length((seam[2].position-seam[1].position)-(shifted[2].position-shifted[1].position))<.001f,"pelvis-spine seam preserves native separation despite 10 cm lateral drift");
         check(length((seam[5].position-seam[1].position)-(shifted[5].position-shifted[1].position))<.001f,"foot stride relative to pelvis preserved");
     }
+    {
+        // A physical turn followed by moving beyond the former 100-unit
+        // cutoff used to restore the native torso while arm IK still ran.
+        // Exercise initial calibration there as well as an existing reference.
+        for(float yaw:{0.f,1.5707963268f,3.1415926536f,-1.5707963268f}){
+            amalur::BodyReference walking=reference;
+            for(int frame=0;frame<60;++frame){
+                const Pose root{{0,0,std::sin(yaw*.5f),std::cos(yaw*.5f)},
+                    {200.f+frame*6.f,300.f-frame*2.f,40}};
+                const Vec3 physical{150.f+frame*.5f,-130.f,0};
+                const Vec3 worldAnchor=root.position+physical+Vec3{0,0,170};
+                const auto local=compose(inverse(root),Pose{{},worldAnchor}).position;
+                memcpy(gait,native,sizeof(gait));gait[5].position.x+=12*std::sin(frame*.2f);
+                check(amalur::stabilizeTrackedBody(gait,out,7,parents,ids,local,walking),"turn plus roomscale and locomotion keeps torso correction");
+                const auto renderedHead=compose(root,amalur::bonePose(out[4])).position;
+                check(std::abs(renderedHead.x-worldAnchor.x)<.002f&&std::abs(renderedHead.y-worldAnchor.y)<.002f,"rendered head remains under tracked anchor beyond one metre");
+                check(std::abs(renderedHead.z-(worldAnchor.z+reference.relative[4].position.z))<.002f,"native calibrated head height preserved");
+                check(length((out[2].position-out[1].position)-(gait[2].position-gait[1].position))<.002f,"walking pelvis and spine remain joined");
+                if(frame==0){amalur::BodyReference fresh;
+                    check(amalur::stabilizeTrackedBody(gait,out,7,parents,ids,local,fresh),"roomscale displaced initial calibration succeeds");}
+            }
+        }
+        puts("PASS: all cardinal turns with roomscale displacement beyond one metre and 60 walking frames");
+    }
     auto stale=reference;stale.ids[2]=123;
     check(amalur::stabilizeTrackedBody(native,out,7,parents,ids,fixedAnchor,stale),"changed valid layout recaptures body pose");
     check(stale.revision==reference.revision+1&&stale.ids[2]==ids[2],"layout recovery commits one revision");

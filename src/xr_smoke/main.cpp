@@ -2,6 +2,7 @@
 #define XR_USE_GRAPHICS_API_D3D11
 #define NOMINMAX
 #include <windows.h>
+#include "source_resolution_control.hpp"
 #include <d3d11.h>
 #include <d3dcompiler.h>
 #include <dxgi1_2.h>
@@ -32,7 +33,9 @@
 #include "stereo_source.hpp"
 #include "render_pose.hpp"
 #include "menu_anchor.hpp"
+#include "../bridge_tracking/menu_image_policy.hpp"
 #include "game_lifetime.hpp"
+#include "game_focus.hpp"
 using Microsoft::WRL::ComPtr;
 using namespace DirectX;
 static XrInstance instance{};
@@ -51,6 +54,7 @@ static XrPath path(const char* s) { XrPath p{}; XR(xrStringToPath(instance,s,&p)
 #include "../bridge_tracking/cinematic_hint.hpp"
 #include "map_panel.hpp"
 #include "wrist_hud.hpp"
+#include "../bridge_tracking/wrist_regions.hpp"
 #include "../bridge_tracking/map_panel_settings.hpp"
 #include "../bridge_tracking/hud_settings.hpp"
 struct Resources {
@@ -69,10 +73,19 @@ struct Resources {
 };
 int main(int argc,char** argv) {
     if(argc==2&&std::string(argv[1])=="--wrist-hud-check"){
-        WristHud hud;amalur::PosePacket hand;hand.valid=1;hand.orientation[3]=1;hand.position[1]=1.25f;hand.position[2]=-.35f;
+        WristHud hud;amalur::PosePacket hand;hand.valid=1;hand.orientation[2]=.5f;hand.orientation[3]=.8660254f;hand.position[1]=1.25f;hand.position[2]=-.35f;
         XrPosef head{{0,0,0,1},{0,1.6f,0}};bool good=true;
         for(uint64_t tick=1000;tick<=1300;tick+=20){hand.tick=tick;hud.update(hand,head,true,tick);}
         good=good&&hud.alpha>.99f;
+        // Regression: this lowered position used to remain latched at alpha=1.
+        hand.position[1]=1.0f;
+        for(uint64_t tick=1320;tick<=1700;tick+=20){hand.tick=tick;hud.update(hand,head,true,tick);}
+        good=good&&hud.alpha==0;
+        hand.position[1]=1.25f;
+        for(uint64_t tick=1720;tick<=2020;tick+=20){hand.tick=tick;hud.update(hand,head,true,tick);}
+        good=good&&hud.alpha>.99f;
+        hud.lastTick=1300;hud.hideSince=0;
+        hand.orientation[2]=0;hand.orientation[3]=1;
         auto p=WristHud::pose(hand,.13f,.045f);
         good=good&&std::abs(p.position.y-1.295f)<.0001f&&std::abs(p.position.z+.22f)<.0001f;
         auto normal=XMVector3Rotate(XMVectorSet(0,0,1,0),XMVectorSet(p.orientation.x,p.orientation.y,p.orientation.z,p.orientation.w));
@@ -170,7 +183,7 @@ int main(int argc,char** argv) {
     amalur::PoseChannel rightHand(L"Local\\AmalurVRRightHandV3",L"Local\\AmalurVRRightHandMutexV3");
     StereoSource stereoSource;
     MenuAnchor menuAnchor;
-    WristHud wristHud;MapPanel wristPanel;
+    WristHud wristHud;MapPanel wristPanel;SourceResolutionControl sourceResolutionControl;
     StereoSource wristSource{L"Local\\UnusedWristLegacy",L"Local\\AmalurWristFrameV1",L"Local\\AmalurWristFrameMutexV1",true};
     amalur::MapPanelSettings wristSettings{L"Local\\AmalurWristHudV1",L"Local\\AmalurWristHudMutexV1"};
     MapPanel mapPanel;StereoSource uiSource{L"Local\\UnusedUiLegacy",L"Local\\AmalurUiFrameV1",L"Local\\AmalurUiFrameMutexV1",true};
@@ -286,6 +299,7 @@ int main(int argc,char** argv) {
         if(gameMode&&!uiSource.initialize(device.Get()))throw std::runtime_error("UI presenter initialization failed");
         if(gameMode&&!wristSource.initialize(device.Get()))throw std::runtime_error("Wrist presenter initialization failed");
         GameLifetime gameLifetime;
+        GameFocusRestorer gameFocus;
         amalur::CinematicResize cinematicResize;
         const int duration=trackingMode?1800:30;
         const int stopKey=trackingMode?VK_F12:VK_ESCAPE;
@@ -303,6 +317,7 @@ int main(int argc,char** argv) {
                 auto result=xrPollEvent(instance,&event); if(result==XR_EVENT_UNAVAILABLE) break; xrcheck(result,"xrPollEvent");
                 if(event.type==XR_TYPE_EVENT_DATA_SESSION_STATE_CHANGED) {
                     auto state=reinterpret_cast<XrEventDataSessionStateChanged*>(&event)->state;sessionState=state;std::cout<<"Session state="<<state<<" tick="<<GetTickCount64()<<std::endl;focused=state==XR_SESSION_STATE_FOCUSED;
+                    if(gameMode)gameFocus.onSessionFocus(focused);
                     if(state==XR_SESSION_STATE_READY){XrSessionBeginInfo b{XR_TYPE_SESSION_BEGIN_INFO};b.primaryViewConfigurationType=XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO;XR(xrBeginSession(r.session,&b));running=true;}
                     if(state==XR_SESSION_STATE_STOPPING){XR(xrEndSession(r.session));running=false;done=true;}
                     if(state==XR_SESSION_STATE_EXITING||state==XR_SESSION_STATE_LOSS_PENDING) done=true;
@@ -335,13 +350,14 @@ int main(int argc,char** argv) {
                 sourceReady=stereoSource.acquirePaired(device.Get(),context.Get(),gameFrame);
                 trackedGame=!settings.interfaceView&&sourceReady&&gameFrame.valid&&gameFrame.projectionX>0&&gameFrame.projectionY>0;
                 render=render&&sourceReady;
+                if(sourceReady)sourceResolutionControl.update(settings.sourceResolutionPercent,latestRig.pid,stereoSource.sourceWidth(),stereoSource.sourceHeight(),GetTickCount64());
                 // The world source no longer contains captured UI. Never place
                 // the native framebuffer on the overlay or cache old HUD behind it.
                 amalur::PosePacket uiFrame;
                 isolatedMenuFrame=sourceReady&&gameFrame.gameMode==7&&!settings.interfaceView;
                 mapPanelFrame=isolatedMenuFrame
                     &&uiSource.acquirePaired(device.Get(),context.Get(),uiFrame)
-                    &&uiFrame.gameMode==7&&uiFrame.tick<=GetTickCount64()&&GetTickCount64()-uiFrame.tick<100;
+                    &&amalur::menuImageVisible(isolatedMenuFrame,true,uiFrame.gameMode,uiFrame.tick,GetTickCount64());
             }
             if(focused) {
                 XrActiveActionSet active{r.actions,XR_NULL_PATH};XrActionsSyncInfo sync{XR_TYPE_ACTIONS_SYNC_INFO};sync.countActiveActionSets=1;sync.activeActionSets=&active;XR(xrSyncActions(r.session,&sync));
@@ -360,12 +376,19 @@ int main(int argc,char** argv) {
                 // Cache across nonblocking mutex misses; expiry still cancels gameplay.
                 amalur::RigStatus freshRig;
                 if(rigStatus.transfer(freshRig,false)&&freshRig.version==1)latestRig=freshRig;
+                if(gameMode){
+                    gameFocus.onMenuSample(touch.menu,latestRig.pid);
+                    const auto focusResult=gameFocus.poll(latestRig.pid);
+                    if(focusResult==GameFocusRestorer::Result::Restored)std::cout<<"Game focus restored after returning to VR.\n";
+                    else if(focusResult==GameFocusRestorer::Result::TimedOut)std::cout<<"Game focus restoration timed out.\n";
+                }
                 const bool gameplay=!settings.interfaceView&&latestRig.pid&&GetTickCount()-latestRig.tick<1000
                     &&latestRig.weaponRemaps>0&&latestRig.paused==0;
-                const bool resizeScreen=gameMode&&render&&sourceReady&&gameFrame.gameMode==6
+                const bool resizeContext=gameMode&&render&&sourceReady&&gameFrame.gameMode==6
                     &&!trackedGame&&!mapPanelFrame&&!settings.panelOpen()&&VrSettings::gameFocused();
+                const bool resizeScreen=amalur::CinematicResize::ownsInput(resizeContext,touch.leftGrip,touch.rightGrip);
                 if(cinematicResize.update(settings.cinematicScale,touch.leftY,touch.rightY,resizeScreen,acquisitionTick))settings.saveCinematicScale();
-                if(resizeScreen){touch.leftY=0;touch.rightY=0;}
+                if(resizeScreen){touch.leftY=0;touch.rightY=0;touch.leftX=0;touch.rightX=0;touch.leftGrip=0;touch.rightGrip=0;}
                 bool panelCapture=settings.pollDeveloperControllers(touch,gameMode&&VrSettings::gameFocused(),developer.busy());
                 auto mapped=touchMapper.map(touch,gameMode&&!panelCapture&&!settings.visible&&!settings.developerVisible&&VrSettings::gameFocused(),gameplay);
                 panelCapture=settings.applyPauseInput(touch,gameMode&&VrSettings::gameFocused(),mapped)||panelCapture;
@@ -422,11 +445,18 @@ int main(int argc,char** argv) {
                 &&!settings.panelOpen()&&trackedGame&&!isolatedMenuFrame&&gameFrame.gameMode!=6
                 &&WristHud::valid(wristHand,wristTick);
             wristSettings.publish(wristActive);
-            const float wristOpacity=wristHud.update(wristHand,head.pose,wristActive,wristTick);
+            const float wristOpacity=wristHud.update(wristHand,head.pose,wristActive,wristTick,settings.wristHud==2);
             amalur::PosePacket wristFrame;
             const bool wristReady=wristActive&&gameFrame.gameMode==8
                 &&wristSource.acquirePaired(device.Get(),context.Get(),wristFrame)
-                &&wristFrame.gameMode==8&&wristFrame.tick<=wristTick&&wristTick-wristFrame.tick<100;
+                &&wristFrame.gameMode==8&&wristFrame.tick<=wristTick&&wristTick-wristFrame.tick<=1000;
+            static uint64_t lastWristLog=0;
+            if(gameMode&&wristTick-lastWristLog>=3000){lastWristLog=wristTick;
+                std::cout<<"Wrist HUD mode="<<gameFrame.gameMode<<" active="<<wristActive
+                    <<" atlas="<<wristReady<<" opacity="<<wristOpacity<<" handValid="<<wristHand.valid
+                    <<" focused="<<focused<<" tracked="<<trackedGame<<std::endl;
+            }
+
 
             if(gameMode&&render){
                 if(trackedGame&&!isolatedMenuFrame)menuAnchor.close();
@@ -454,7 +484,8 @@ int main(int argc,char** argv) {
             if(render)for(int i=0;i<2;++i){
                 uint32_t index{};XrSwapchainImageAcquireInfo acquire{XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO};XR(xrAcquireSwapchainImage(r.chains[i],&acquire,&index));XrSwapchainImageWaitInfo wi{XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO};wi.timeout=XR_INFINITE_DURATION;XR(xrWaitSwapchainImage(r.chains[i],&wi));
                 auto texture=images[i][index].texture;D3D11_TEXTURE2D_DESC td{};texture->GetDesc(&td);ComPtr<ID3D11RenderTargetView> target;D3D11_RENDER_TARGET_VIEW_DESC rtv{};rtv.Format=static_cast<DXGI_FORMAT>(format);rtv.ViewDimension=D3D11_RTV_DIMENSION_TEXTURE2D;hrcheck(device->CreateRenderTargetView(texture,&rtv,&target));
-                float color[]={.015f,.02f,.03f,1};context->ClearRenderTargetView(target.Get(),color);auto rt=target.Get();context->OMSetRenderTargets(1,&rt,nullptr);
+                // A menu without a rendered world uses black, not the diagnostic gray-blue clear.
+                float color[]={0,0,0,1};context->ClearRenderTargetView(target.Get(),color);auto rt=target.Get();context->OMSetRenderTargets(1,&rt,nullptr);
                 D3D11_VIEWPORT viewport{0,0,float(td.Width),float(td.Height),0,1};context->RSSetViewports(1,&viewport);context->RSSetState(raster.Get());
                 if(gameMode){
                     auto f=views[i].fov;
@@ -501,12 +532,15 @@ int main(int argc,char** argv) {
                 auto atlas=wristPanel.draw(r.session,r.local,static_cast<DXGI_FORMAT>(format),device.Get(),context.Get(),wristSource,
                     WristHud::pose(wristHand,.13f,.045f),1.f,0.f,wristOpacity);
                 const int w=atlas.subImage.imageRect.extent.width,h=atlas.subImage.imageRect.extent.height;
-                const int cw=int(w*.3f),ch=int(h*.3f);
+                const int ch=int(h*amalur::WristRegions::topHeight);
                 for(int i=0;i<2;++i){
                     auto& layer=wristLayers[i];layer=atlas;
-                    layer.subImage.imageRect.offset={i?w-cw:0,0};layer.subImage.imageRect.extent={cw,ch};
+                    const int left=i?int(w*amalur::WristRegions::rightStart):0;
+                    const int cw=i?w-left:int(w*amalur::WristRegions::leftWidth);
+                    layer.subImage.imageRect.offset={left,0};layer.subImage.imageRect.extent={cw,ch};
                     layer.pose=WristHud::pose(wristHand,i?-.13f:.13f,i?.085f:.045f);
-                    const float width=(i?.40f:.30f)*scale;
+                    // Preserve original pixel size and aspect, expanding to fit the complete art.
+                    const float width=(i?.40f:.30f)*scale*(float(cw)/w)/.30f;
                     layer.size={width,width*ch/cw};
                     submitted.push_back(reinterpret_cast<const XrCompositionLayerBaseHeader*>(&layer));
                 }
@@ -533,4 +567,3 @@ int main(int argc,char** argv) {
         return frames?0:2;
     }catch(const std::exception& e){std::cerr<<"FAIL tick="<<GetTickCount64()<<": "<<e.what()<<"\n";return 1;}
 }
-

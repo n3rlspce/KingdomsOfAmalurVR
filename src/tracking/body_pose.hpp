@@ -16,12 +16,15 @@ inline bool stabilizeBody(const RigBone* native,RigBone* output,unsigned count,
     }
     if(head==count||!valid(bonePose(native[head])))return false;
     Vec3 offset{headAnchor.x-native[head].position.x,headAnchor.y-native[head].position.y,0};
-    if(dot(offset,offset)>10000)return false;
+    // Room movement is not limited to one metre. Reject invalid arithmetic,
+    // not a legitimate tracking-origin displacement; arms use the same anchor.
+    if(!valid(Pose{{},offset}))return false;
     RigBone result[64];memcpy(result,native,count*sizeof(RigBone));
     for(unsigned i=0;i<count;++i){
         // The game's trailing sentinel is not a transform. Preserve it exactly.
         if(!valid(bonePose(native[i])))continue;
         result[i].position=result[i].position+offset;
+        if(!valid(bonePose(result[i])))return false;
     }
     memcpy(output,result,count*sizeof(RigBone));return true;
 }
@@ -107,13 +110,16 @@ inline bool stabilizeTrackedBody(const RigBone* native,RigBone* output,unsigned 
     // Joint differences within the lower body and its native rotations remain.
     if(!valid(bonePose(native[spine])))return false;
     const auto offset=next.relative[spine].position+anchor-native[spine].position;
-    if(dot(offset,offset)>10000)return false;
+    // Room movement is not limited to one metre. Reject invalid arithmetic,
+    // not a legitimate tracking-origin displacement; arms use the same anchor.
+    if(!valid(Pose{{},offset}))return false;
     RigBone result[64];memcpy(result,native,count*sizeof(RigBone));
     for(unsigned i=0;i<count;++i){
         if(next.upper[i]){
             result[i].position=next.relative[i].position+anchor;
             result[i].orientation=nativeQuaternion(next.relative[i].orientation);
         }else if(valid(bonePose(native[i])))result[i].position=result[i].position+offset;
+        if(valid(bonePose(native[i]))&&!valid(bonePose(result[i])))return false;
     }
     memcpy(output,result,count*sizeof(RigBone));reference=next;return true;
 }

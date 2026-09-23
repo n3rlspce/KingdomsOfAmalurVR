@@ -25,8 +25,9 @@ inline constexpr int invincibilityAction=verifyEquipAction+1;
 inline constexpr int sorceryAction=invincibilityAction+1;
 inline constexpr int spellSetAction=sorceryAction+1;
 inline constexpr int weaponMovesAction=spellSetAction+1;
-inline constexpr int actions=weaponMovesAction+1;
-inline constexpr int panelRows=rows+5;
+inline constexpr int weakenNearbyAction=weaponMovesAction+1;
+inline constexpr int actions=weakenNearbyAction+1;
+inline constexpr int panelRows=rows+6;
 // Keep labels beside the row/action mapping. Extra diagnostic rows must never
 // fall through to indexing the weapon array.
 inline const wchar_t* panelLabel(int row){
@@ -38,6 +39,7 @@ inline const wchar_t* panelLabel(int row){
     if(row==rows+2)return L"Max Sorcery (unlock all spells)";
     if(row==rows+3)return L"Equip spell test set (slots 1-4)";
     if(row==rows+4)return L"Unlock weapon moves (all types)";
+    if(row==rows+5)return L"Weaken nearby enemies to 1 HP (20 m)";
     return L"Unknown developer action";
 }
 inline int panelAction(int row,int destination){
@@ -46,6 +48,7 @@ inline int panelAction(int row,int destination){
     if(row==rows+2)return sorceryAction;
     if(row==rows+3)return spellSetAction;
     if(row==rows+4)return weaponMovesAction;
+    if(row==rows+5)return weakenNearbyAction;
     if(row<0||row>=rows||destination<0||destination>=destinations)return -1;
     return row+(row>=2?destination*rows:0);
 }
@@ -57,6 +60,7 @@ inline std::string command(int row) {
     if(row==sorceryAction)return "amalur_dev.max_sorcery()";
     if(row==spellSetAction)return "amalur_dev.equip_spell_test_set()";
     if(row==weaponMovesAction)return "amalur_dev.unlock_weapon_moves()";
+    if(row==weakenNearbyAction)return "amalur_dev.weaken_nearby()";
     int destination=row/rows;row%=rows;
     if(destination&&row<2)return {};
     if(row==0)return "amalur_dev.probe()";

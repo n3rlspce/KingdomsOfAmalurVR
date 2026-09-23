@@ -9,6 +9,10 @@ class CinematicResize {
     bool armed_{},dirty_{};
     uint64_t last_{};
 public:
+    // Ordinary menu navigation must never resize or lose its stick input.
+    static bool ownsInput(bool screen,float leftGrip,float rightGrip){
+        return screen&&std::isfinite(leftGrip)&&std::isfinite(rightGrip)&&leftGrip>.8f&&rightGrip>.8f;
+    }
     bool update(float& scale,float left,float right,bool active,uint64_t now){
         const float dt=last_&&now>=last_?std::min(float(now-last_)*.001f,.05f):0.f;
         last_=now;

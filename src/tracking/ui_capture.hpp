@@ -10,11 +10,11 @@ namespace amalur {
 // the native viewport, scissor rectangles, textures and stencil are retained.
 class UiCapture {
     template<class T> using Ptr=Microsoft::WRL::ComPtr<T>;
-    UINT width_=0,height_=0,firstSlice_=0;
+    UINT width_=0,height_=0,firstSlice_=0,firstSlices_=1;
     unsigned rejection_=0;
     D3D11_TEXTURE2D_DESC observed_{};D3D11_VIEWPORT viewport_{};
     Ptr<IUnknown> firstEye_;
-    Ptr<ID3D11Texture2D> canvas_;
+    Ptr<ID3D11Texture2D> canvas_,mono_;
     Ptr<ID3D11RenderTargetView> target_;
     Ptr<ID3D11Texture2D> otherCanvas_;
     Ptr<ID3D11RenderTargetView> otherTarget_;
@@ -31,7 +31,21 @@ public:
     const D3D11_TEXTURE2D_DESC& observed()const{return observed_;}
     const D3D11_VIEWPORT& observedViewport()const{return viewport_;}
     unsigned draws()const{return draws_;}
-    ID3D11Texture2D* texture()const{return canvas_.Get();}
+    ID3D11Texture2D* texture(ID3D11DeviceContext* context=nullptr){
+        if(!canvas_)return nullptr;
+        D3D11_TEXTURE2D_DESC d{},old{};canvas_->GetDesc(&d);
+        if(d.ArraySize==1)return canvas_.Get();
+        if(!context)return nullptr;
+        if(mono_)mono_->GetDesc(&old);
+        if(!mono_||d.Width!=old.Width||d.Height!=old.Height||d.Format!=old.Format){
+            Ptr<ID3D11Device> device;context->GetDevice(&device);d.ArraySize=1;
+            Ptr<ID3D11Texture2D> flat;if(FAILED(device->CreateTexture2D(&d,nullptr,&flat)))return nullptr;mono_=flat;
+        }
+        // Keep the native layered draw/depth view intact. Only after rendering
+        // copy eye zero into a mono texture for the compositor/shared channel.
+        context->CopySubresourceRegion(mono_.Get(),0,0,0,0,canvas_.Get(),0,nullptr);
+        return mono_.Get();
+    }
     class Binding {
         UiCapture& owner_;
         ID3D11DeviceContext* context_=nullptr;
@@ -58,12 +72,13 @@ public:
             owner.viewport_=viewport;owner.rejection_=4;
             if(viewportCount!=1||viewport.TopLeftX!=0||viewport.TopLeftY!=0||viewport.Width!=d.Width||viewport.Height!=d.Height)return;
             D3D11_RENDER_TARGET_VIEW_DESC rt{};previous_->GetDesc(&rt);
-            UINT sourceSlice=0;owner.rejection_=5;
+            UINT sourceSlice=0,captureSlices=1;owner.rejection_=5;
             if(rt.ViewDimension==D3D11_RTV_DIMENSION_TEXTURE2DARRAY){
-                if(rt.Texture2DArray.ArraySize!=1||rt.Texture2DArray.FirstArraySlice>=d.ArraySize)return;
+                captureSlices=rt.Texture2DArray.ArraySize;
+                if(captureSlices<1||captureSlices>2||rt.Texture2DArray.FirstArraySlice+captureSlices>d.ArraySize)return;
                 sourceSlice=rt.Texture2DArray.FirstArraySlice;
-                // Capture is a single-slice texture, while geo11's native eyes
-                // can be distinct views into one two-slice texture resource.
+                // Preserve layered routing for geometry shaders writing both eyes.
+                // Single-eye views are still normalized to capture slice zero.
                 rt.Texture2DArray.FirstArraySlice=0;
             }else if(rt.ViewDimension!=D3D11_RTV_DIMENSION_TEXTURE2D)return;
             // A native pause background may sample a full-size scene render
@@ -83,15 +98,15 @@ public:
             Ptr<ID3D11DepthStencilState> ds;UINT stencil{};c->OMGetDepthStencilState(&ds,&stencil);
             D3D11_DEPTH_STENCIL_DESC dd{};if(ds)ds->GetDesc(&dd);
             owner.rejection_=7;if(!ds||(dd.DepthEnable&&dd.DepthWriteMask!=D3D11_DEPTH_WRITE_MASK_ZERO))return;
-            if(!owner.firstEye_){owner.firstEye_=identity;owner.firstSlice_=sourceSlice;}
-            const bool other=owner.firstEye_.Get()!=identity.Get()||owner.firstSlice_!=sourceSlice;
+            if(!owner.firstEye_){owner.firstEye_=identity;owner.firstSlice_=sourceSlice;owner.firstSlices_=captureSlices;}
+            const bool other=owner.firstEye_.Get()!=identity.Get()||owner.firstSlice_!=sourceSlice||owner.firstSlices_!=captureSlices;
             auto& canvas=other?owner.otherCanvas_:owner.canvas_;
             auto& captureTarget=other?owner.otherTarget_:owner.target_;
             auto& cleared=other?owner.otherCleared_:owner.cleared_;
             Ptr<ID3D11Device> device;c->GetDevice(&device);
             if(canvas)canvas->GetDesc(&old);
-            if(!canvas||d.Width!=old.Width||d.Height!=old.Height||d.Format!=old.Format){
-                d.ArraySize=1;d.Usage=D3D11_USAGE_DEFAULT;d.CPUAccessFlags=0;
+            if(!canvas||d.Width!=old.Width||d.Height!=old.Height||d.Format!=old.Format||captureSlices!=old.ArraySize){
+                d.ArraySize=captureSlices;d.Usage=D3D11_USAGE_DEFAULT;d.CPUAccessFlags=0;
                 d.BindFlags=D3D11_BIND_RENDER_TARGET|D3D11_BIND_SHADER_RESOURCE;
                 // This device is below geo-11. Keep the second native eye in
                 // a separate sink to avoid accumulating its alpha twice.

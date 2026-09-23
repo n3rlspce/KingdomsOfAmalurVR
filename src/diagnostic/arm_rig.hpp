@@ -113,6 +113,18 @@ inline bool solveUnsafe(uintptr_t root,Scratch& scratch,bool solveHand=true,uint
             {static_cast<uint32_t>(root),owner,assetId,static_cast<uint32_t>(blob),center});
         if(stabilized&&neutralBody.revision!=previousRevision){neutralArm={};neutralLeftArm={};}
         ReleaseSRWLockExclusive(&calibrationLock);
+        // A rejected body solve otherwise leaves native torso animation while
+        // the independent hand IK can still succeed. Keep that distinction
+        // observable without logging every attachment/frame.
+        if(!stabilized){
+            static std::atomic<uint64_t> nextFailure{};
+            auto due=nextFailure.load();
+            if(now>=due&&nextFailure.compare_exchange_strong(due,now+2000))
+                log("VR body anchor rejected tick=%llu root=%08x owner=%08x model=%u bones=%u local=%.2f,%.2f,%.2f world=%.2f,%.2f,%.2f hands=%u,%u\n",
+                    now,unsigned(root),unsigned(owner),unsigned(assetId),unsigned(count),
+                    local.position.x,local.position.y,local.position.z,anchor.x,anchor.y,anchor.z,
+                    unsigned(handValid),unsigned(leftValid));
+        }
         if(stabilized&&nativeArms&&!amalur::restoreNativeArmAnimation(native,stable,count,parents,ids))return false;
         if(stabilized){
             memcpy(native,stable,count*sizeof(amalur::RigBone));bodyApplied=true;

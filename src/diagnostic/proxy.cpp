@@ -2,6 +2,7 @@
 #define NOMINMAX
 #include "../tracking/snap_pitch.hpp"
 #include "../tracking/head_height.hpp"
+#include "../tracking/camera_depth.hpp"
 #include <windows.h>
 #include <d3d11.h>
 #include <d3d11shader.h>
@@ -327,6 +328,12 @@ static void __fastcall onRebuildCamera(void* camera,void*) {
     // the normal eye so pulling the view back cannot drag the avatar with it.
     const bool nativeInspection=tracked&&firstPerson.load()&&packet.gameMode==1&&amalur::bodyDebug.enabled(amalur::nativeCamera);
     const bool thirdPersonInspection=tracked&&firstPerson.load()&&packet.gameMode==1&&bodyHeadingValid&&developerCamera.enabled();
+    // Apply eye trim after sampling body and hands, along level body heading.
+    // Tilting the head must not turn a forward offset into a height adjustment.
+    if(tracked&&firstPerson.load()&&packet.gameMode==1&&bodyHeadingValid&&!nativeInspection&&!thirdPersonInspection){
+        const auto cameraShift=bodyForward*(amalur::cameraDepth.get()*.01f*packet.worldScale);
+        adjusted.eye=adjusted.eye+cameraShift;adjusted.target=adjusted.target+cameraShift;
+    }
     if(nativeInspection)adjusted=thirdPersonInspection?untrackedInspection:originalCamera;
     if(thirdPersonInspection){
         auto inspectionForward=nativeInspection?untrackedInspection.target-untrackedInspection.eye:bodyForward;
@@ -476,18 +483,19 @@ static void publishStereoFrame(const amalur::PosePacket& metadata){
     ComPtr<ID3D11DeviceContext> context;captureDevice->GetImmediateContext(&context);
     // Executed after geo-11 Present has assembled the packed stereo image on
     // this immediate context, before the next game frame can overwrite it.
-    if(metadata.gameMode==7&&hud_trace::uiCapture.texture()){
+    if(metadata.gameMode==7){
         auto uiPose=metadata;uiPose.tick=GetTickCount64();
-        uiPublisher.publish(captureDevice.Get(),context.Get(),hud_trace::uiCapture.texture(),uiPose);
+        if(auto* image=hud_trace::uiCapture.texture(context.Get()))uiPublisher.publish(captureDevice.Get(),context.Get(),image,uiPose);
     }
     if(metadata.gameMode==8&&hud_trace::wristCapture.draws()){
         auto pose=metadata;pose.tick=GetTickCount64();
-        wristPublisher.publish(captureDevice.Get(),context.Get(),hud_trace::wristCapture.texture(),pose);
+        if(auto* image=hud_trace::wristCapture.texture(context.Get()))wristPublisher.publish(captureDevice.Get(),context.Get(),image,pose);
     }
     static unsigned published=0;
     if(publisher.publish(captureDevice.Get(),context.Get(),stereo.Get(),metadata)&&++published%300==1)
         log("Paired stereo frame published #%u tracked=%u poseTick=%llu\n",published,metadata.valid,metadata.tick);
 }
+#include "vr_cursor.hpp"
 static HRESULT STDMETHODCALLTYPE onPresent(IDXGISwapChain* chain,UINT sync,UINT flags) {
     // Take the completed draw's attribution before Present permits recording
     // the next image. Keep this local packet through geo-11's stereo copy.
@@ -522,9 +530,11 @@ static HRESULT STDMETHODCALLTYPE onPresent(IDXGISwapChain* chain,UINT sync,UINT 
     if(f2&&!f2Down&&motion_controls::gameFocused()){coherentCamera.store(!coherentCamera.load());log("F2: camera input consistency %s\n",coherentCamera.load()?"ON":"OFF");}f2Down=f2;
     static bool f1Down=false;bool f1=(GetAsyncKeyState(VK_F1)&0x8000)!=0;
     if(f1&&!f1Down&&motion_controls::gameFocused()){body_visibility::enabled.store(!body_visibility::enabled.load());log("F1: first-person body hiding %s\n",body_visibility::enabled.load()?"ON":"OFF");}f1Down=f1;
-    body_visibility::update(!interfaceView.load()&&!fullscreenMenuView.load()
-        &&!motion_controls::dialogueActive.load()&&!cinematic_camera::wasActive
-        &&!developerCamera.enabled()&&!amalur::bodyDebug.enabled(amalur::nativeCamera));
+    const bool bodyViewAllowed=!interfaceView.load()&&!fullscreenMenuView.load()
+        &&!developerCamera.enabled()&&!amalur::bodyDebug.enabled(amalur::nativeCamera);
+    const bool finisherBodyView=bodyViewAllowed&&firstPerson.load()&&native_finisher_state::read().nativeSequence;
+    body_visibility::update(bodyViewAllowed&&!motion_controls::dialogueActive.load()&&!cinematic_camera::wasActive,
+        finisherBodyView);
     static bool f4Down=false,bodyBeforeArm=true,weaponBeforeArm=false;bool f4=(GetAsyncKeyState(VK_F4)&0x8000)!=0;
     if(f4&&!f4Down&&motion_controls::gameFocused()){
         if(arm_rig::enabled.exchange(!arm_rig::enabled.load())){body_visibility::enabled.store(bodyBeforeArm);weapon_control::enabled.store(weaponBeforeArm);}
@@ -542,7 +552,13 @@ static HRESULT STDMETHODCALLTYPE onPresent(IDXGISwapChain* chain,UINT sync,UINT 
     rig_status::publish();
     if(count<=3){log("Present #%lu chain=%p sync=%u flags=0x%x\n",count,chain,sync,flags);stack();}
     if(!(flags&DXGI_PRESENT_TEST))melee_debug::draw(chain,meleeVP,presentedPose.valid!=0);
-    HRESULT result=realPresent(chain,sync,flags);
+    HRESULT result;
+    {
+        ComPtr<ID3D11Device> cursorDevice;ComPtr<ID3D11DeviceContext> cursorContext;
+        if(SUCCEEDED(chain->GetDevice(IID_PPV_ARGS(&cursorDevice))))cursorDevice->GetImmediateContext(&cursorContext);
+        vr_cursor::Binding cursor(cursorContext.Get(),!(flags&DXGI_PRESENT_TEST)&&motion_controls::vrCursorHidden());
+        result=realPresent(chain,sync,flags);
+    }
     if(SUCCEEDED(result)&&!(flags&DXGI_PRESENT_TEST))publishStereoFrame(presentedPose);
     if(!(flags&DXGI_PRESENT_TEST)){
         static unsigned uiLogs=0;if(hud_trace::uiCapture.draws()&&uiLogs++<12)log("UI layer: isolated %u draws mode=%u tracked=%u\n",hud_trace::uiCapture.draws(),presentedPose.gameMode,presentedPose.valid);

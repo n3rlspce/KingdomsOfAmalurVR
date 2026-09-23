@@ -14,7 +14,7 @@ public:
         if(!dc||!bitmap){if(bitmap)DeleteObject(bitmap);if(dc)DeleteDC(dc);throw std::runtime_error("Cinematic hint bitmap failed");}
         auto old=SelectObject(dc,bitmap);HFONT font=CreateFontW(-34,0,0,0,FW_NORMAL,FALSE,FALSE,FALSE,DEFAULT_CHARSET,OUT_DEFAULT_PRECIS,CLIP_DEFAULT_PRECIS,ANTIALIASED_QUALITY,DEFAULT_PITCH,L"Segoe UI");auto oldFont=SelectObject(dc,font);
         RECT rect{0,0,width,height};auto brush=CreateSolidBrush(RGB(14,21,31));FillRect(dc,&rect,brush);DeleteObject(brush);
-        SetBkMode(dc,TRANSPARENT);SetTextColor(dc,RGB(237,242,250));DrawTextW(dc,L"Either stick \u2191\u2193 to resize",-1,&rect,DT_CENTER|DT_VCENTER|DT_SINGLELINE|DT_NOPREFIX);GdiFlush();
+        SetBkMode(dc,TRANSPARENT);SetTextColor(dc,RGB(237,242,250));DrawTextW(dc,L"Hold both grips + stick \u2191\u2193 to resize",-1,&rect,DT_CENTER|DT_VCENTER|DT_SINGLELINE|DT_NOPREFIX);GdiFlush();
         pixels.resize(width*height*4);upload.resize(pixels.size());const auto in=static_cast<const unsigned char*>(bits);const bool bgra=format==DXGI_FORMAT_B8G8R8A8_UNORM||format==DXGI_FORMAT_B8G8R8A8_UNORM_SRGB;
         for(size_t i=0;i<pixels.size();i+=4){pixels[i]=in[i+(bgra?0:2)];pixels[i+1]=in[i+1];pixels[i+2]=in[i+(bgra?2:0)];pixels[i+3]=225;}
         SelectObject(dc,oldFont);SelectObject(dc,old);DeleteObject(font);DeleteObject(bitmap);DeleteDC(dc);

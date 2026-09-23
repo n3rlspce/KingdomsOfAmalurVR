@@ -15,9 +15,13 @@ New-Item -ItemType Directory -Force -Path $output | Out-Null
 $source = Join-Path $projectRoot 'src\xr_smoke\main.cpp'
 Push-Location $output
 try {
-    $command = "`"$vcvars`" x86 && cl /nologo /EHsc /W4 /MD /std:c++17 /I`"$include`" `"$source`" /Fe:amalur-xr-smoke.exe /link /LIBPATH:`"$lib`" openxr_loader.lib d3d11.lib dxgi.lib d3dcompiler.lib user32.lib gdi32.lib"
+    $command = "`"$vcvars`" x86 && cl /nologo /EHsc /W4 /MD /std:c++17 /I`"$include`" `"$source`" /Fe:amalur-xr-smoke.exe /link /LIBPATH:`"$lib`" openxr_loader.lib d3d11.lib dxgi.lib d3dcompiler.lib user32.lib gdi32.lib ole32.lib oleaut32.lib"
     & cmd /d /c $command
     if ($LASTEXITCODE -ne 0) { throw "Compilation failed: $LASTEXITCODE" }
     Copy-Item -LiteralPath $loader -Destination (Join-Path $output 'openxr_loader.dll') -Force
 } finally { Pop-Location }
 Write-Host "Built $output\amalur-xr-smoke.exe (x86); no game files changed."
+
+$preset = Join-Path $projectRoot "config/amalur-vr.ini"
+$settings = Join-Path $output "amalur-vr.ini"
+if ((Test-Path -LiteralPath $preset) -and !(Test-Path -LiteralPath $settings)) { Copy-Item -LiteralPath $preset -Destination $settings }

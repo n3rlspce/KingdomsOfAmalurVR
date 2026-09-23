@@ -116,7 +116,7 @@ inline bool commitPhysicalLocked(unsigned side,const amalur::MeleeSwingEvent& pr
     if(!stroke.active())return false;
     if(stroke.emitted())return swingEvents[side].serial==proposed.serial;
     auto chain=familyChains[side];
-    if(visualAsset==1250||visualAsset==1323){
+    if(visualAsset==1250||visualAsset==1323||visualAsset==1520){
         const auto recipe=chain.commit(visualWeapon,visualAsset,generation,now);
         if(recipe.attack!=proposed.attackAsset||recipe.flags!=proposed.attackFlags||recipe.step!=proposed.chainStep)return false;
     }
@@ -135,7 +135,7 @@ inline bool sampleBasicStroke(unsigned side,const amalur::PosePacket& packet,mgs
         event.hand=side;event.serial=++swingSerial[side];event.generation=center;event.tick=packet.tick;
         event.weaponPose=visualPoses[side];amalur::assignBasicStrokeRecipe(event);
     }
-    if(event.serial&&!stroke.emitted()&&(visualAsset==1250||visualAsset==1323)){
+    if(event.serial&&!stroke.emitted()&&(visualAsset==1250||visualAsset==1323||visualAsset==1520)){
         const auto recipe=familyChains[side].preview(visualWeapon,visualAsset,center,packet.tick);
         event.attackAsset=recipe.attack;event.attackFlags=recipe.flags;event.chainStep=recipe.step;
     }

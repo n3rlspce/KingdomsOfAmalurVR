@@ -1,0 +1,10 @@
+{
+  "scripts": [
+    {"trigger": "UI_State_MGR", "path": ".\\mods\\amalur_save_anywhere.lua"},
+    {"trigger": "main_menu", "path": ".\\mods\\amalur_save_anywhere.lua"},
+    {"trigger": "minimap_win", "path": ".\\mods\\amalur_save_anywhere.lua"},
+    {"trigger": "pause_screen", "path": ".\\mods\\amalur_save_anywhere.lua"},
+    {"trigger": "ledger_win", "path": ".\\mods\\amalur_save_anywhere.lua"},
+    {"trigger": "save_restore_win", "path": ".\\mods\\amalur_save_anywhere.lua"}
+  ]
+}

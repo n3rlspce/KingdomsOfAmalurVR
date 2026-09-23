@@ -318,3 +318,43 @@ function dev.give_and_equip(name, slot)
     equip_verified(item, slot)
     return 'granted and equipped: ' .. name .. ' slot ' .. slot
 end
+
+-- Leave the last hit and boss phase/finisher logic to the native encounter.
+function dev.weaken_nearby()
+    require_dispatch()
+    local player = require_function(get_player, 'get_player')()
+    if player == nil or player == false or player == 0 then fail('load gameplay first') end
+    local find = require_function(standardLibrary and standardLibrary.find_enemies_in_radius,
+                                  'standardLibrary.find_enemies_in_radius')
+    local health = require_function(ACTOR and ACTOR.get_current_health, 'ACTOR.get_current_health')
+    local modify = require_function(ACTOR.modify_health, 'ACTOR.modify_health')
+    local enemy = require_function(ACTOR.is_enemy, 'ACTOR.is_enemy')
+    local targets = find(player, 2000, true, player)
+    if targets == nil then return 'No attackable enemies within about 20 metres.' end
+    if type(targets) ~= 'table' then fail('enemy query returned an unexpected value') end
+    local plan, seen = {}, {}
+    for _, target in pairs(targets) do
+        if target ~= player and target ~= nil and target ~= false and target ~= 0 and not seen[target] then
+            seen[target] = true
+            local hostile = enemy(player, target)
+            if hostile == true or hostile == 1 then
+                local hp = health(target)
+                if type(hp) == 'number' and hp == hp and hp > 1 and hp < 1000000000 then
+                    plan[#plan + 1] = target
+                end
+            end
+        end
+    end
+    if #plan > 64 then fail('too many targets; nothing changed') end
+    local changed, resisted = 0, 0
+    for _, target in ipairs(plan) do
+        local hp = health(target)
+        if type(hp) == 'number' and hp == hp and hp > 1 and hp < 1000000000 then
+            modify(target, 1 - hp)
+            local after = health(target)
+            if type(after) == 'number' and after <= 1 then changed = changed + 1 else resisted = resisted + 1 end
+        end
+    end
+    return tostring(changed) .. ' enemies weakened to 1 HP; ' .. tostring(resisted) ..
+        ' resisted. Land the final hit; scripted bosses may require another phase.'
+end

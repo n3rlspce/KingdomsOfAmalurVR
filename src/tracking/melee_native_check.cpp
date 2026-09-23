@@ -1,3 +1,6 @@
+template<class... T> void log(const char*,T...) {}
+#define NOMINMAX
+#include <windows.h>
 // Offline x86 adapter checks: fake memory only, no game process or native calls.
 #include <cstdint>
 #include <cstdio>

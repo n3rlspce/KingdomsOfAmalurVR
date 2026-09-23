@@ -11,7 +11,7 @@ static float requestedMenu=.8f;
 static amalur::MapPanelSettings mapPanelChannel{L"Local\\AmalurUiLayerV2",L"Local\\AmalurUiLayerMutexV2"};
 static bool mapPanelRequested=false,wristRequested=false;
 static amalur::MapPanelSettings wristChannel{L"Local\\AmalurWristHudV1",L"Local\\AmalurWristHudMutexV1"};
-static bool uploadedInterface{},uploadedDialogue{},uploadedMenu{};
+static bool uploadedInterface{},uploadedDialogue{},uploadedMenu{},uploadedGameplay{};
 static amalur::MenuRotation menuRotation;
 static std::array<float,12> uploadedRotation{};
 static ComPtr<ID3D11Texture1D> texture;
@@ -24,7 +24,7 @@ class Binding {
     ComPtr<ID3D11ShaderResourceView> previous;
     ComPtr<ID3D11ShaderResourceView> previousRaw;
 public:
-    Binding(ID3D11DeviceContext* c,bool usesControl,bool flat=false,bool dialogue=false,bool menu=false){
+    Binding(ID3D11DeviceContext* c,bool usesControl,bool flat=false,bool dialogue=false,bool menu=false,bool gameplay=false){
         if(!usesControl)return;
         if(!texture){
             ComPtr<ID3D11Device> device;c->GetDevice(&device);
@@ -34,14 +34,15 @@ public:
             if(FAILED(device->CreateShaderResourceView(texture.Get(),nullptr,&view))){texture.Reset();return;}
         }
         const float size=menu&&!dialogue?requestedMenu:requested;
-        if(uploaded!=size||uploadedInterface!=flat||uploadedDialogue!=dialogue||uploadedMenu!=menu||uploadedRotation!=menuRotation.matrix){
-            float values[16]{size,1,flat?1.f:0.f,dialogue?1.f:(menu?2.f:0.f)};
+        if(uploaded!=size||uploadedInterface!=flat||uploadedDialogue!=dialogue||uploadedMenu!=menu||uploadedGameplay!=gameplay||uploadedRotation!=menuRotation.matrix){
+            float values[16]{size,1,flat?1.f:0.f,dialogue?1.f:(menu?2.f:(gameplay?3.f:0.f))};
             std::copy(menuRotation.matrix.begin(),menuRotation.matrix.end(),values+4);
             c->UpdateSubresource(texture.Get(),0,nullptr,values,sizeof(values),0);
             uploadedRotation=menuRotation.matrix;
             uploadedInterface=flat;
             uploadedDialogue=dialogue;
             uploadedMenu=menu;
+            uploadedGameplay=gameplay;
             if(uploaded!=size)log("HUD size uploaded: %.0f%%\n",size*100);uploaded=size;
         }
         context=c;c->VSGetShaderResources(119,1,&previous);

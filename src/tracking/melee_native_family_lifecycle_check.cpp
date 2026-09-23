@@ -3,6 +3,8 @@
 #include "weapon_contact_profile.hpp"
 #include "melee_fake_access.hpp"
 #include "melee_owned_backend.hpp"
+#include "melee_hand_recipe.hpp"
+#include "melee_stroke_targets.hpp"
 struct RecipeAccess:FakeAccess {
  uint32_t expected{};
  uint32_t create(uintptr_t p,uint32_t asset,uint32_t owner,uint32_t target){
@@ -25,6 +27,29 @@ struct RecipeEnvironment {
  void fault(const char*){broken=true;}
 };
 int main(){using namespace amalur;
+ {
+  RecipeEnvironment right(201),left(200);right.epoch=11;left.epoch=22;
+  MeleeOwnedBackend<RecipeEnvironment> rightBackend(right),leftBackend(left);
+  MeleeContextScope<decltype(rightBackend)> rightScope(rightBackend),leftScope(leftBackend);
+  check(rightScope.open({7,201,201,11})==MeleeScopeResult::Ready,"right step3 opens its recipe");
+  check(leftScope.open({7,200,200,22})==MeleeScopeResult::Ready,"left step2 opens independently");
+  struct Dedup {uintptr_t data;uint32_t count,capacity;};
+  MeleeStrokeTargets attempted[2];
+  check(attempted[0].claim(55)&&attempted[1].claim(55),"each independent hand stroke can attempt same target once");
+  check(attempted[0].claim(56)&&!attempted[0].claim(55),"right cleave adds new actor without retrying old actor");
+  const auto preservedRight=attempted[0];attempted[0]=preservedRight;
+  check(!attempted[0].claim(56)&&attempted[1].available(56),"same-stroke lease recreation retains only that hand's ledger");
+  Dedup actor[2]{{101,7,9},{102,8,10}},rightHits[2]{{201,0,8},{202,0,8}},leftHits[2]{{301,0,8},{302,0,8}},saved[2];
+  beginHandDedup(actor,rightHits,saved);actor[0].count=1;endHandDedup(actor,rightHits,saved);
+  check(actor[0].data==101&&actor[0].count==7&&actor[1].data==102&&actor[1].count==8,"right restores both native dedup arrays");
+  beginHandDedup(actor,leftHits,saved);actor[0].count=2;endHandDedup(actor,leftHits,saved);
+  check(leftHits[0].count==2&&rightHits[0].count==1&&actor[0].data==101&&actor[0].count==7,"left results never contaminate right or native dedup");
+  attempted[0]={};check(attempted[0].claim(55)&&!attempted[1].claim(55),"new right stroke cannot reset left target ownership");
+  ++right.epoch;check(!rightScope.current()&&leftScope.current(),"right recipe epoch advance leaves left context current");
+  check(rightScope.close()&&rightScope.close()&&right.released&&!left.released&&leftScope.current(),"right retires once without closing left");
+  check(leftScope.close()&&leftScope.close()&&left.released&&!right.broken&&!left.broken,"left retires once independently");
+ }
+
  for(uint32_t attack:{199u,200u,201u,202u,417u,418u,419u,420u,16u,17u,18u}){
   const auto r=nativeFamilyAttack(attack);check(supportedNativeFamilyAttack(r.model,attack,r.flags),"exact resolver flags accepted");
   check(!supportedNativeFamilyAttack(r.model,attack,r.flags^1),"wrong resolver flags denied");

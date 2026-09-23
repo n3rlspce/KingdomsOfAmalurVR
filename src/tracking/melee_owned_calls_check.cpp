@@ -1,3 +1,4 @@
+template<class... T> void log(const char*,T...) {}
 // Real MinHook relocation against a synthetic executable image, never the game.
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>

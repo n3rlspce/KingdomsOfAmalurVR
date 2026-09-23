@@ -42,7 +42,11 @@ public:
         const float previous=speed_;speed_=distance*1000.f/float(span);bodySpeed_=bodyDistance*1000.f/float(span);
         const auto delta=body-frames_[0].body;const float net=length(delta);
         const auto dir=net>.0001f?delta*(1.f/net):mgs5vr::Vec3{};
-        const bool backwards=mgs5vr::dot(dir,forward)<-.8f;
+        // Direction is unreliable during quiet hand settling. Treat only actual
+        // contact-speed withdrawal as windup, otherwise slow backward drift
+        // returns before quiet recovery and can prevent rearming indefinitely.
+        const bool backwards=speed_>=handContactSpeed&&bodySpeed_>=handContactSpeed
+            &&mgs5vr::dot(dir,forward)<-.8f;
         if(preparing||backwards){armed_=armed_||active_;active_=qualified_=false;peak_=0;start_=body;gate_="windup";return false;}
         if(speed_<.35f&&bodySpeed_<.35f){
             if(!quietAt_)quietAt_=tick;
@@ -70,23 +74,27 @@ public:
 // Distinct strokes still need actual separation from an already hit actor.
 // No persistent-overlap timeout: embedded blades remain harmless in V1.
 struct LongswordSeparation {
-    struct Entry {uint32_t actor{};uint64_t seen{},hit{},absentSince{};bool separated{true},observed{};};
+    struct Entry {uint32_t actor{};uint64_t seen{},hit{},absentSince{},hitStroke{};bool separated{true},observed{},verifiedExit{};};
     Entry entries[64]{};
-    uint64_t frameTick{},lastComplete{};bool frameOpen{};
-    void interrupt(){for(auto& e:entries)e.absentSince=0;lastComplete=0;frameOpen=false;}
+    uint64_t frameTick{},lastComplete{},frameStroke{};bool frameOpen{};
+    void interrupt(){for(auto& e:entries){e.absentSince=0;e.verifiedExit=false;}lastComplete=0;frameOpen=false;}
     // A frame comprises every collision sphere. Missing queries are not evidence
     // that an embedded weapon left an actor; only complete scans prove absence.
-    void beginFrame(uint64_t now){
+    void beginFrame(uint64_t now,uint64_t stroke=0){
         if(frameOpen||!now||!lastComplete||now<=lastComplete||now-lastComplete>100)interrupt();
-        frameTick=now;frameOpen=now!=0;
+        frameTick=now;frameStroke=stroke;frameOpen=now!=0;
         for(auto& e:entries)e.observed=false;
     }
     void endFrame(bool completed){
         if(!frameOpen||!completed){interrupt();return;}
         for(auto& e:entries){
             if(!e.actor)continue;
-            if(e.observed)e.absentSince=0;
+            if(e.observed){e.absentSince=0;e.verifiedExit=false;}
             else if(!e.separated){
+                // Every sphere's complete swept query missed this actor. A
+                // distinct deliberate stroke may return immediately; elapsed
+                // time alone never supplies this geometric evidence.
+                e.verifiedExit=true;
                 if(!e.absentSince)e.absentSince=frameTick;
                 if(frameTick-e.absentSince>=250)e.separated=true;
             }
@@ -99,8 +107,9 @@ struct LongswordSeparation {
         for(auto& e:entries)if(e.actor==actor){slot=&e;break;}
         if(!slot)for(auto& e:entries)if(!e.actor||(e.separated&&now>=e.seen&&now-e.seen>2000)){slot=&e;*slot={};slot->actor=actor;break;}
         if(!slot)return false;
+        if(slot->verifiedExit&&frameStroke&&slot->hitStroke&&frameStroke!=slot->hitStroke)slot->separated=true;
         slot->seen=now;slot->observed=true;slot->absentSince=0;return !slot->hit||slot->separated;
     }
-    void hit(uint32_t actor,uint64_t now){for(auto& e:entries)if(e.actor==actor){e.hit=now;e.separated=false;e.absentSince=0;return;}}
+    void hit(uint32_t actor,uint64_t now){for(auto& e:entries)if(e.actor==actor){e.hit=now;e.hitStroke=frameStroke;e.separated=false;e.absentSince=0;e.verifiedExit=false;return;}}
 };
 }

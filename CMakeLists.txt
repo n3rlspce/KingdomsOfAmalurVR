@@ -273,3 +273,47 @@ target_include_directories(weapon_drawn_scale_check PRIVATE ${CMAKE_CURRENT_SOUR
 add_executable(weapon_selection_check src/tracking/weapon_selection_check.cpp)
 target_link_libraries(weapon_selection_check PRIVATE mgs5vr_core user32 d3d11 dxgi d3dcompiler dxguid)
 target_include_directories(weapon_selection_check PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+
+add_executable(cinematic_resize_check src/tracking/cinematic_resize_check.cpp)
+target_link_libraries(cinematic_resize_check PRIVATE mgs5vr_core user32 d3d11 dxgi d3dcompiler dxguid)
+target_include_directories(cinematic_resize_check PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+
+add_executable(finisher_automation_check src/tracking/finisher_automation_check.cpp)
+target_link_libraries(finisher_automation_check PRIVATE mgs5vr_core user32 d3d11 dxgi d3dcompiler dxguid)
+target_include_directories(finisher_automation_check PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+
+add_executable(finisher_view_check src/tracking/finisher_view_check.cpp)
+target_link_libraries(finisher_view_check PRIVATE mgs5vr_core user32 d3d11 dxgi d3dcompiler dxguid)
+target_include_directories(finisher_view_check PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+
+add_executable(interaction_trace_schedule_check src/tracking/interaction_trace_schedule_check.cpp)
+target_link_libraries(interaction_trace_schedule_check PRIVATE mgs5vr_core user32 d3d11 dxgi d3dcompiler dxguid)
+target_include_directories(interaction_trace_schedule_check PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+
+add_executable(melee_hand_recipe_check src/tracking/melee_hand_recipe_check.cpp)
+target_link_libraries(melee_hand_recipe_check PRIVATE mgs5vr_core user32 d3d11 dxgi d3dcompiler dxguid)
+target_include_directories(melee_hand_recipe_check PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+
+add_executable(melee_query_recovery_check src/tracking/melee_query_recovery_check.cpp)
+target_link_libraries(melee_query_recovery_check PRIVATE mgs5vr_core user32 d3d11 dxgi d3dcompiler dxguid)
+target_include_directories(melee_query_recovery_check PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+
+add_executable(melee_stroke_targets_check src/tracking/melee_stroke_targets_check.cpp)
+target_link_libraries(melee_stroke_targets_check PRIVATE mgs5vr_core user32 d3d11 dxgi d3dcompiler dxguid)
+target_include_directories(melee_stroke_targets_check PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+
+add_executable(melee_vfx_backend_check src/tracking/melee_vfx_backend_check.cpp)
+target_link_libraries(melee_vfx_backend_check PRIVATE mgs5vr_core user32 d3d11 dxgi d3dcompiler dxguid)
+target_include_directories(melee_vfx_backend_check PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+
+add_executable(melee_vfx_lifetime_check src/tracking/melee_vfx_lifetime_check.cpp)
+target_link_libraries(melee_vfx_lifetime_check PRIVATE mgs5vr_core user32 d3d11 dxgi d3dcompiler dxguid)
+target_include_directories(melee_vfx_lifetime_check PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+
+add_executable(quick_wheel_release_check src/tracking/quick_wheel_release_check.cpp)
+target_link_libraries(quick_wheel_release_check PRIVATE mgs5vr_core user32 d3d11 dxgi d3dcompiler dxguid)
+target_include_directories(quick_wheel_release_check PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+
+add_executable(vr_cursor_check src/tracking/vr_cursor_check.cpp)
+target_link_libraries(vr_cursor_check PRIVATE mgs5vr_core user32 d3d11 dxgi d3dcompiler dxguid)
+target_include_directories(vr_cursor_check PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})

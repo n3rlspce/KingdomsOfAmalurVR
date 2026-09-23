@@ -1,0 +1,46 @@
+function Hash($path) { Hash-Bytes ([IO.File]::ReadAllBytes($path)) }
+function Hash-Bytes([byte[]]$bytes) {
+    $sha = [Security.Cryptography.SHA256]::Create()
+    try { ([BitConverter]::ToString($sha.ComputeHash($bytes))).Replace('-','').ToLowerInvariant() } finally { $sha.Dispose() }
+}
+function Safe-Path($root,$relative) {
+    $base = [IO.Path]::GetFullPath($root).TrimEnd('\')
+    if ([IO.Path]::IsPathRooted($relative) -or $relative.Contains(':')) { throw 'Absolute or alternate-stream manifest path rejected.' }
+    $path = [IO.Path]::GetFullPath((Join-Path $base $relative))
+    if (!$path.StartsWith($base+'\',[StringComparison]::OrdinalIgnoreCase)) { throw 'Manifest path escapes destination.' }
+    $parent = $path
+    while ($parent -and $parent.Length -ge $base.Length) {
+        if (Test-Path -LiteralPath $parent) {
+            if ((Get-Item -LiteralPath $parent -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) { throw "Linked destination rejected: $parent" }
+        }
+        $parent = Split-Path $parent
+    }
+    return $path
+}
+function Assert-Closed {
+    if (Get-Process koa,amalur-xr-smoke -ErrorAction SilentlyContinue) { throw 'Close the game and VR bridge before installing or restoring files.' }
+}
+function Find-Game($explicit) {
+    if ($explicit) { $candidates = @($explicit) } else {
+        $candidates = @()
+        $saved = Join-Path $PSScriptRoot 'installed-game.txt'
+        if (Test-Path -LiteralPath $saved) { $candidates += (Get-Content -LiteralPath $saved -Raw).Trim() }
+        $steam = (Get-ItemProperty 'HKCU:\Software\Valve\Steam' -ErrorAction SilentlyContinue).SteamPath
+        if ($steam) {
+            $libraries = @($steam)
+            $vdf = Join-Path $steam 'steamapps/libraryfolders.vdf'
+            if (Test-Path -LiteralPath $vdf) {
+                foreach ($m in [regex]::Matches((Get-Content -LiteralPath $vdf -Raw),'"path"\s+"([^"]+)"')) { $libraries += $m.Groups[1].Value.Replace('\\','\') }
+            }
+            foreach ($library in $libraries) { $candidates += Join-Path $library 'steamapps/common/Kingdoms of Amalur Re-Reckoning' }
+        }
+    }
+    foreach ($candidate in $candidates) { if (Test-Path -LiteralPath (Join-Path $candidate 'koa.exe')) { return (Resolve-Path -LiteralPath $candidate).Path } }
+    if ($explicit) { throw 'koa.exe was not found in the selected directory.' }
+    Add-Type -AssemblyName System.Windows.Forms
+    $dialog = New-Object System.Windows.Forms.OpenFileDialog
+    $dialog.Title = 'Select Kingdoms of Amalur Re-Reckoning koa.exe'
+    $dialog.Filter = 'Game executable (koa.exe)|koa.exe'
+    if ($dialog.ShowDialog() -ne 'OK') { throw 'Installation cancelled.' }
+    return Split-Path $dialog.FileName
+}

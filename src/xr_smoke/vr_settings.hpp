@@ -7,6 +7,7 @@
 #include <stdexcept>
 #include "../bridge_tracking/developer_commands.hpp"
 #include "../bridge_tracking/head_height.hpp"
+#include "../bridge_tracking/camera_depth.hpp"
 #include "../bridge_tracking/cinematic_mode.hpp"
 #include "../bridge_tracking/arm_thickness_settings.hpp"
 #include "menu_recovery.hpp"
@@ -19,15 +20,16 @@
 struct VrSettings {
     int wristHud=1; // 0 original HUD, 1 left wrist, 2 right wrist
     float wristHudScale=1.f;
+    int sourceResolutionPercent=100;
     float hudSize=.8f,interfaceScale=1.f,cinematicScale=1.3f;
     bool cinematicFullVR=true;
     bool interfaceView=false,interfacePending=false;
     bool physicalCrouch=true,seatedMode=false;
     float gripPitch{},gripYaw{},gripRoll{};unsigned selectedWeapon{};
     float weaponX{},weaponY{},weaponZ{}; // centimetres, weapon-only offsets
-    static constexpr int rowCount=28,wristHudRow=24,cinematicModeRow=23,heavyChargeRow=20,headHeightRow=21,armThicknessRow=22;
+    static constexpr int rowCount=30,sourceResolutionRow=26,cameraDepthRow=25,wristHudRow=24,cinematicModeRow=23,heavyChargeRow=20,headHeightRow=21,armThicknessRow=22;
     unsigned heavyChargeMode{};
-    int headHeightCm{};int armThicknessPercent=100;
+    int cameraDepthCm{};int headHeightCm{};int armThicknessPercent=100;
     float depth=20,convergence=100,alignment=26.5f/2560.f,scale=100,fov=130,renderScale=1,sharpness=.25f;
     bool swap=true,visible=false;int selected=0;unsigned recenter=0;
     bool developerVisible=false,developerTogglePending=false;
@@ -135,9 +137,9 @@ struct VrSettings {
         gripPitch=gripYaw=gripRoll=weaponX=weaponY=weaponZ=0;
         save();
     }
-    void load(){wristHud=int(read(L"WristHud",1,0,2));wristHudScale=read(L"WristHudScale",1,.5f,2.f);cinematicFullVR=read(L"CinematicFullVR",1,0,1)>.5f;amalur::cinematicMode.setFullVR(cinematicFullVR);armThicknessPercent=int(read(L"ArmThicknessPercent",100,50,150));amalur::armThickness.set(armThicknessPercent);cinematicScale=read(L"CinematicScale",1.3f,.5f,3.f);headHeightCm=int(read(L"HeadHeightCm",0,-100,100));amalur::headHeight.set(headHeightCm);heavyChargeMode=read(L"HeavyChargeInput",0,0,1)>.5f?1u:0u;seatedMode=read(L"SeatedMode",0,0,1)>.5f;physicalCrouch=read(L"PhysicalCrouch",1,0,1)>.5f;amalur::playMode.set(read(L"NormalThirdPerson",0,0,1)>.5f);weaponX=read(L"WeaponX",0,-20,20);weaponY=read(L"WeaponY",0,-20,20);weaponZ=read(L"WeaponZ",0,-20,20);interfaceScale=read(L"InterfaceScale",1,.5f,1.5f);gripPitch=read(L"GripPitch",0,-180,180);gripYaw=read(L"GripYaw",0,-180,180);gripRoll=read(L"GripRoll",0,-180,180);hudSize=read(L"HudSize",.8f,.4f,1.2f);depth=read(L"Depth",20,0,100);convergence=read(L"Convergence",100,1,1000);alignment=read(L"Alignment",26.5f/2560.f,-.05f,.05f);scale=read(L"WorldUnitsPerMeter",100,10,500);fov=read(L"HorizontalFov",130,100,150);renderScale=read(L"RenderScale",1,.5f,1.5f);sharpness=read(L"Sharpness",.25f,0,1);swap=read(L"SwapEyes",1,0,1)>.5f;migrateGripBasis();}
+    void load(){sourceResolutionPercent=int(read(L"GameResolutionPercent",100,50,130));cameraDepthCm=int(read(L"CameraDepthCm",0,-100,100));amalur::cameraDepth.set(cameraDepthCm);wristHud=int(read(L"WristHud",1,0,2));wristHudScale=read(L"WristHudScale",1,.5f,2.f);cinematicFullVR=read(L"CinematicFullVR",1,0,1)>.5f;amalur::cinematicMode.setFullVR(cinematicFullVR);armThicknessPercent=int(read(L"ArmThicknessPercent",100,50,150));amalur::armThickness.set(armThicknessPercent);cinematicScale=read(L"CinematicScale",1.3f,.5f,3.f);headHeightCm=int(read(L"HeadHeightCm",0,-100,100));amalur::headHeight.set(headHeightCm);heavyChargeMode=read(L"HeavyChargeInput",0,0,1)>.5f?1u:0u;seatedMode=read(L"SeatedMode",0,0,1)>.5f;physicalCrouch=read(L"PhysicalCrouch",1,0,1)>.5f;amalur::playMode.set(read(L"NormalThirdPerson",0,0,1)>.5f);weaponX=read(L"WeaponX",0,-20,20);weaponY=read(L"WeaponY",0,-20,20);weaponZ=read(L"WeaponZ",0,-20,20);interfaceScale=read(L"InterfaceScale",1,.5f,1.5f);gripPitch=read(L"GripPitch",0,-180,180);gripYaw=read(L"GripYaw",0,-180,180);gripRoll=read(L"GripRoll",0,-180,180);hudSize=read(L"HudSize",.8f,.4f,1.2f);depth=read(L"Depth",20,0,100);convergence=read(L"Convergence",100,1,1000);alignment=read(L"Alignment",26.5f/2560.f,-.05f,.05f);scale=read(L"WorldUnitsPerMeter",100,10,500);fov=read(L"HorizontalFov",130,100,150);renderScale=read(L"RenderScale",1,.5f,1.5f);sharpness=read(L"Sharpness",.25f,0,1);swap=read(L"SwapEyes",1,0,1)>.5f;migrateGripBasis();}
     void saveCinematicScale(){wchar_t text[64];swprintf_s(text,L"%.7g",cinematicScale);WritePrivateProfileStringW(L"VR",L"CinematicScale",text,path.c_str());}
-    void save(){amalur::cinematicMode.setFullVR(cinematicFullVR);amalur::armThickness.set(armThicknessPercent);amalur::headHeight.set(headHeightCm);auto put=[&](const wchar_t* key,float value){wchar_t text[64];swprintf_s(text,L"%.7g",value);WritePrivateProfileStringW(L"VR",key,text,path.c_str());};put(L"WristHud",float(wristHud));put(L"WristHudScale",wristHudScale);put(L"ArmThicknessPercent",float(armThicknessPercent));put(L"CinematicFullVR",cinematicFullVR?1.f:0.f);put(L"HeadHeightCm",float(headHeightCm));put(L"SeatedMode",seatedMode?1.f:0.f);put(L"PhysicalCrouch",physicalCrouch?1.f:0.f);put(L"NormalThirdPerson",amalur::playMode.normal()?1.f:0.f);put(L"GripBasisVersion",1);put(L"WeaponX",weaponX);put(L"WeaponY",weaponY);put(L"WeaponZ",weaponZ);put(L"HeavyChargeInput",float(heavyChargeMode));put(L"InterfaceScale",interfaceScale);put(L"GripPitch",gripPitch);put(L"GripYaw",gripYaw);put(L"GripRoll",gripRoll);put(L"HudSize",hudSize);put(L"Depth",depth);put(L"Convergence",convergence);put(L"Alignment",alignment);put(L"WorldUnitsPerMeter",scale);put(L"HorizontalFov",fov);put(L"RenderScale",renderScale);put(L"Sharpness",sharpness);put(L"SwapEyes",swap?1.f:0.f);}
+    void save(){amalur::cameraDepth.set(cameraDepthCm);amalur::cinematicMode.setFullVR(cinematicFullVR);amalur::armThickness.set(armThicknessPercent);amalur::headHeight.set(headHeightCm);auto put=[&](const wchar_t* key,float value){wchar_t text[64];swprintf_s(text,L"%.7g",value);WritePrivateProfileStringW(L"VR",key,text,path.c_str());};put(L"GameResolutionPercent",float(sourceResolutionPercent));put(L"WristHud",float(wristHud));put(L"WristHudScale",wristHudScale);put(L"ArmThicknessPercent",float(armThicknessPercent));put(L"CinematicFullVR",cinematicFullVR?1.f:0.f);put(L"CameraDepthCm",float(cameraDepthCm));put(L"HeadHeightCm",float(headHeightCm));put(L"SeatedMode",seatedMode?1.f:0.f);put(L"PhysicalCrouch",physicalCrouch?1.f:0.f);put(L"NormalThirdPerson",amalur::playMode.normal()?1.f:0.f);put(L"GripBasisVersion",1);put(L"WeaponX",weaponX);put(L"WeaponY",weaponY);put(L"WeaponZ",weaponZ);put(L"HeavyChargeInput",float(heavyChargeMode));put(L"InterfaceScale",interfaceScale);put(L"GripPitch",gripPitch);put(L"GripYaw",gripYaw);put(L"GripRoll",gripRoll);put(L"HudSize",hudSize);put(L"Depth",depth);put(L"Convergence",convergence);put(L"Alignment",alignment);put(L"WorldUnitsPerMeter",scale);put(L"HorizontalFov",fov);put(L"RenderScale",renderScale);put(L"Sharpness",sharpness);put(L"SwapEyes",swap?1.f:0.f);}
     void poll(){
         MSG message;while(PeekMessageW(&message,nullptr,0,0,PM_REMOVE)){TranslateMessage(&message);DispatchMessageW(&message);}
         if(interfacePending){interfaceView=!interfaceView;interfacePending=false;}
@@ -181,6 +183,7 @@ struct VrSettings {
     void adjustSetting(int direction,bool home){
         if(!direction&&!home)return;
         switch(selected){
+        case sourceResolutionRow:sourceResolutionPercent=home?100:std::clamp(sourceResolutionPercent+direction*10,50,130);break;
         case wristHudRow:wristHud=home?1:(wristHud+direction+3)%3;break;
         case 0:amalur::playMode.set(home?false:!amalur::playMode.normal());++recenter;break;
         case 1:hudSize=home?.8f:std::clamp(hudSize+direction*.05f,.4f,1.2f);break;
@@ -202,6 +205,7 @@ struct VrSettings {
         case 19:{const bool next=home?false:!seatedMode;if(next!=seatedMode){seatedMode=next;++recenter;}break;}
         case cinematicModeRow:cinematicFullVR=home?true:!cinematicFullVR;break;
         case 22:armThicknessPercent=home?100:std::clamp(armThicknessPercent+direction*5,50,150);break;
+        case cameraDepthRow:cameraDepthCm=home?0:std::clamp(cameraDepthCm+direction,-100,100);break;
         case 21:headHeightCm=home?0:std::clamp(headHeightCm+direction,-100,100);break;
         case 20:heavyChargeMode=home?0u:1u-heavyChargeMode;break;
         case 18:physicalCrouch=home?true:!physicalCrouch;break;

@@ -5,7 +5,7 @@
 #include <cmath>
 #include "../bridge_tracking/pose_channel.hpp"
 struct WristHud {
-    float alpha=0;uint64_t lastTick=0;
+    float alpha=0;uint64_t lastTick=0,hideSince=0;
     static XrPosef pose(const amalur::PosePacket& hand,float along,float height){
         using namespace DirectX;
         auto q=XMQuaternionNormalize(XMVectorSet(hand.orientation[0],hand.orientation[1],hand.orientation[2],hand.orientation[3]));
@@ -19,16 +19,24 @@ struct WristHud {
         for(float v:hand.position)if(!std::isfinite(v))return false;
         return length>.5f&&length<1.5f;
     }
-    float update(const amalur::PosePacket& hand,const XrPosef& head,bool active,uint64_t now){
+    float update(const amalur::PosePacket& hand,const XrPosef& head,bool active,uint64_t now,bool rightHand=false){
         using namespace DirectX;
         const float dt=lastTick&&now>=lastTick?std::min(.05f,float(now-lastTick)*.001f):0.f;lastTick=now;
-        if(!active||!valid(hand,now)){alpha=0;return alpha;}
+        if(!active||!valid(hand,now)){alpha=0;hideSince=0;return alpha;}
         auto q=XMQuaternionNormalize(XMVectorSet(hand.orientation[0],hand.orientation[1],hand.orientation[2],hand.orientation[3]));
         auto delta=XMVectorSet(head.position.x-hand.position[0],head.position.y-hand.position[1],head.position.z-hand.position[2],0);
         float distance=XMVectorGetX(XMVector3Length(delta));
         float facing=XMVectorGetX(XMVector3Dot(XMVector3Rotate(XMVectorSet(0,1,0,0),q),XMVector3Normalize(delta)));
-        // Hysteresis avoids flicker on the edge of the inspection gesture.
-        bool shown=distance>.18f&&distance<1.1f&&hand.position[1]>head.position.y-(alpha>.5f?.65f:.55f)&&facing>(alpha>.5f?.20f:.35f);
+        // Preserve the original reveal gesture. Use time, not a substantially
+        // wider angle/height range, to suppress edge flicker when leaving it.
+        // Grip +Y faces the viewer in both measured palm-down and palm-up poses.
+        // Wrist roll is distinguished by grip +X pointing up (left), -X (right).
+        const float palmUp=XMVectorGetY(XMVector3Rotate(XMVectorSet(rightHand?-1.f:1.f,0,0,0),q));
+        const bool inspecting=palmUp>.35f&&distance>.18f&&distance<1.1f&&hand.position[1]>head.position.y-.55f&&facing>.35f;
+        bool shown=inspecting;
+        if(inspecting)hideSince=0;
+        else if(alpha>0){if(!hideSince)hideSince=now;shown=now-hideSince<120;}
+        else hideSince=0;
         alpha=std::clamp(alpha+(shown?1.f:-1.f)*dt*6.f,0.f,1.f);return alpha;
     }
 };

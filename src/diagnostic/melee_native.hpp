@@ -146,18 +146,39 @@ struct HitArray {
 };
 static_assert(sizeof(HitArray)==16,"Native x86 hit vector layout");
 
+// BA57CE skips native melee queries while PartPhysics has no world. The
+// wrapper runs outside native attack windows, including load transitions, so
+// it must preserve that prerequisite before mutating the reusable query shape.
+inline uintptr_t queryPhysics{},queryWorld{};inline uint32_t queryLayer{};
+inline bool queryWorldReady(uintptr_t physics){
+    const auto world=physics?player_rig::word(physics+0x24):0;
+    const auto layer=player_rig::word(gameBase+0x15feb2c);
+    queryPhysics=physics;queryWorld=world;queryLayer=layer;
+    const bool available=physics&&world&&layer<32;
+    // Transition-only and bounded to one line/second, even if the queried
+    // component oscillates. It reports availability without dereferencing world.
+    static uintptr_t reportedPhysics{},reportedWorld{};static uint32_t reportedLayer=~0u;
+    static uint64_t nextReport{};const auto now=GetTickCount64();
+    if(now>=nextReport&&(reportedPhysics!=physics||reportedWorld!=world||reportedLayer!=layer)){
+        nextReport=now+1000;reportedPhysics=physics;reportedWorld=world;reportedLayer=layer;
+        log("VR melee query world tick=%llu physics=%08x world=%08x layer=%u ready=%d\n",now,unsigned(physics),unsigned(world),layer,available);
+    }
+    return available;
+}
+
 inline bool gather(uintptr_t physics,uint32_t owner,const float* from,const float* to,float radius,HitArray& hits,bool* completed=nullptr){
     if(completed)*completed=false;
     if constexpr(!customContactEnabled)return false;
     if(!ready||!queryFunction||!from||!to||hits.data
-        ||!std::isfinite(radius)||radius<=0||radius>20||component(owner,15)!=physics)return false;
+        ||!std::isfinite(radius)||radius<=0||radius>20||component(owner,15)!=physics||!queryWorldReady(physics))return false;
     for(unsigned i=0;i<3;++i)if(!std::isfinite(from[i])||!std::isfinite(to[i]))return false;
+    const auto world=queryWorld;const auto layer=queryLayer;
     auto query=reinterpret_cast<void*>(physics+0x250);
     alignas(16) float start[4]{from[0],from[1],from[2],0},end[4]{to[0],to[1],to[2],0};
     reinterpret_cast<Reset>(gameBase+0x958920)(query);
-    reinterpret_cast<Radius>(gameBase+0x962e70)(query,radius,player_rig::word(gameBase+0x15feb2c));
+    reinterpret_cast<Radius>(gameBase+0x962e70)(query,radius,layer);
     queryFunction(query,reinterpret_cast<uintptr_t>(start),reinterpret_cast<uintptr_t>(end),
-        player_rig::word(physics+0x24),1,reinterpret_cast<uintptr_t>(&hits));
+        world,1,reinterpret_cast<uintptr_t>(&hits));
     if(completed)*completed=true;
     return hits.count>0;
 }
@@ -178,15 +199,16 @@ inline bool resolveHits(uintptr_t physics,const Context& c,HitArray& hits,const 
 inline unsigned contact(uintptr_t physics,const Context& c,const float* from,const float* to,float radius) {
     if(!customContactEnabled)return 0;
     if(!ready||!from||!to||!std::isfinite(radius)||radius<=0||radius>20||!current(c)
-        ||component(c.owner,15)!=physics)return 0;
+        ||component(c.owner,15)!=physics||!queryWorldReady(physics))return 0;
     for(unsigned i=0;i<3;++i)if(!std::isfinite(from[i])||!std::isfinite(to[i]))return 0;
     auto combat=component(c.owner,0);if(!combat)return 0;
     HitArray hits;
+    const auto world=queryWorld;const auto layer=queryLayer;
     auto query=reinterpret_cast<void*>(physics+0x250);
     reinterpret_cast<Reset>(gameBase+0x958920)(query);
-    reinterpret_cast<Radius>(gameBase+0x962e70)(query,radius,player_rig::word(gameBase+0x15feb2c));
+    reinterpret_cast<Radius>(gameBase+0x962e70)(query,radius,layer);
     queryFunction(query,reinterpret_cast<uintptr_t>(from),reinterpret_cast<uintptr_t>(to),
-        player_rig::word(physics+0x24),1,reinterpret_cast<uintptr_t>(&hits));
+        world,1,reinterpret_cast<uintptr_t>(&hits));
     auto count=hits.count;
     if(count&&current(c))reinterpret_cast<Resolve>(gameBase+0xb9d520)(reinterpret_cast<void*>(combat),
         c.flags,&hits,from,to,c.talentIndex,c.key);

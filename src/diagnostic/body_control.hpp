@@ -1,4 +1,5 @@
 #pragma once
+#include "native_finisher_state.hpp"
 // Read-only build 10619381 native ownership. Never changes the user's play mode.
 namespace body_control {
 inline bool cinematic(){
@@ -15,7 +16,7 @@ inline bool cinematic(){
 }
 inline bool suspended(){
     __try {
-        if(!gameBase||cinematic()||game_pause::sample(true)!=0)return true;
+        if(!gameBase||cinematic()||native_finisher_state::read().nativeSequence||game_pause::sample(true)!=0)return true;
         const auto word=player_rig::word;
         const auto g=word(gameBase+0x15fe9c4);if(!g)return true;
         const auto windows=g+0x397c;

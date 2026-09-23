@@ -84,6 +84,8 @@ void vs(uint i:SV_VertexID,out float4 p:SV_POSITION,out float4 d:SV_ClipDistance
     for(auto image:{left.Get(),right.Get()}){
         require(pixel(image,13,10)==std::array<int,4>{0,255,0,255},"left HUD corner removed without world changes");
         require(pixel(image,51,10)==std::array<int,4>{0,255,0,255},"right HUD corner removed without world changes");
+        require(pixel(image,23,10)==std::array<int,4>{0,255,0,255},"status right edge removed from head HUD");
+        require(pixel(image,35,10)==std::array<int,4>{0,255,0,255},"boss left edge removed from head HUD");
         require(pixel(image,32,10)[0]==128&&pixel(image,32,35)[0]==128,"rest of HUD preserved once, without alpha doubling");
     }
     ComPtr<ID3D11ShaderResourceView> restoredClip;context->VSGetShaderResources(117,1,&restoredClip);
@@ -107,6 +109,32 @@ void vs(uint i:SV_VertexID,out float4 p:SV_POSITION,out float4 d:SV_ClipDistance
     D3D11_TEXTURE2D_DESC capturedDesc{};capture.texture()->GetDesc(&capturedDesc);require(capturedDesc.ArraySize==1,"published wrist image is mono");
     D3D11_RENDER_TARGET_VIEW_DESC both{};both.Format=stereoDesc.Format;both.ViewDimension=D3D11_RTV_DIMENSION_TEXTURE2DARRAY;both.Texture2DArray.ArraySize=2;
     ComPtr<ID3D11RenderTargetView> layered;hr(device->CreateRenderTargetView(stereoArray.Get(),&both,&layered));bind(layered.Get());
-    {amalur::UiCapture::Binding layer(capture,context.Get(),true);require(!bool(layer)&&capture.rejection()==5,"ambiguous multi-slice view excluded");}
-    puts("PASS: UI isolation, both eyes, premultiplied coverage, native scissor/full height, state restoration, clear/close/resize, shader exclusions");return 0;
+    auto gsCode=compile(R"(
+struct O{float4 p:SV_POSITION;uint eye:SV_RenderTargetArrayIndex;float4 c:COLOR;};
+[maxvertexcount(6)] void gs(triangle float4 p[3]:SV_POSITION,inout TriangleStream<O> stream){
+ for(uint eye=0;eye<2;++eye){for(uint i=0;i<3;++i){O o;o.p=p[i];o.eye=eye;o.c=eye?float4(0,0,1,.5):float4(1,0,0,.5);stream.Append(o);}stream.RestartStrip();}
+})","gs","gs_5_0");
+    auto eyePsCode=compile("float4 ps(float4 p:SV_POSITION,uint eye:SV_RenderTargetArrayIndex,float4 c:COLOR):SV_TARGET{return c;}","ps","ps_5_0");
+    ComPtr<ID3D11GeometryShader> gs;ComPtr<ID3D11PixelShader> eyePs;
+    hr(device->CreateGeometryShader(gsCode->GetBufferPointer(),gsCode->GetBufferSize(),nullptr,&gs));
+    hr(device->CreatePixelShader(eyePsCode->GetBufferPointer(),eyePsCode->GetBufferSize(),nullptr,&eyePs));
+    D3D11_TEXTURE2D_DESC depthDesc=stereoDesc;depthDesc.Format=DXGI_FORMAT_D24_UNORM_S8_UINT;depthDesc.BindFlags=D3D11_BIND_DEPTH_STENCIL;
+    ComPtr<ID3D11Texture2D> depthArray;ComPtr<ID3D11DepthStencilView> layeredDepth;hr(device->CreateTexture2D(&depthDesc,nullptr,&depthArray));
+    D3D11_DEPTH_STENCIL_VIEW_DESC dv{};dv.Format=depthDesc.Format;dv.ViewDimension=D3D11_DSV_DIMENSION_TEXTURE2DARRAY;dv.Texture2DArray.ArraySize=2;
+    hr(device->CreateDepthStencilView(depthArray.Get(),&dv,&layeredDepth));
+    context->ClearDepthStencilView(layeredDepth.Get(),D3D11_CLEAR_DEPTH|D3D11_CLEAR_STENCIL,1,9);
+    auto nativeLayered=layered.Get();context->OMSetRenderTargets(1,&nativeLayered,layeredDepth.Get());context->ClearRenderTargetView(nativeLayered,background);
+    context->GSSetShader(gs.Get(),nullptr,0);context->PSSetShader(eyePs.Get(),nullptr,0);capture.beginFrame();
+    {amalur::UiCapture::Binding layer(capture,context.Get(),true);require(bool(layer),"two-eye layered target accepted");context->Draw(3,0);}
+    auto mono=capture.texture(context.Get());require(mono!=nullptr,"layered capture produces mono transport texture");
+    mono->GetDesc(&capturedDesc);require(capturedDesc.ArraySize==1,"layered publication is one slice");
+    auto gotMono=pixel(mono,32,24);printf("layered pixel=%d,%d,%d,%d\n",gotMono[0],gotMono[1],gotMono[2],gotMono[3]);
+    require(pixel(mono,32,24)==std::array<int,4>{128,0,0,128},"first eye retained without second-eye blue or double alpha");
+    require(pixel(stereoArray.Get(),32,24)==std::array<int,4>{0,255,0,255},"layered capture leaves native world untouched");
+    ComPtr<ID3D11RenderTargetView> nativeAfter;ComPtr<ID3D11DepthStencilView> depthAfter;
+    context->OMGetRenderTargets(1,&nativeAfter,&depthAfter);require(nativeAfter==layered&&depthAfter==layeredDepth,"both-eye RTV and depth array restored");
+    context->GSSetShader(nullptr,nullptr,0);context->PSSetShader(ps.Get(),nullptr,0);bind(leftRt.Get());capture.beginFrame();
+    {amalur::UiCapture::Binding layer(capture,context.Get(),true);require(bool(layer),"switch back from layered to ordinary target");context->Draw(3,0);}
+    require(pixel(capture.texture(context.Get()),32,24)==std::array<int,4>{128,0,0,128},"ordinary capture after layered frame remains correct");
+    puts("PASS: layered geometry shader writes both eyes; mono publication/alpha/depth restore; UI isolation, both eyes, premultiplied coverage, native scissor/full height, state restoration, clear/close/resize, shader exclusions");return 0;
 }catch(const std::exception& e){printf("FAIL: %s\n",e.what());return 1;}}

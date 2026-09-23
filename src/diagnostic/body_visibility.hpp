@@ -87,14 +87,15 @@ inline void applyOriginal(const Entry* entries,unsigned count){
 inline void restore(){
     applyOriginal(saved,savedCount);savedCount=0;currentOwner=0;
 }
-inline void update(bool gameplayView){
+inline void update(bool gameplayView,bool finisherView=false){
     audit(gameplayView);
     if(!hide||!show)return;
     __try {
-        if(!amalur::playMode.normal()&&amalur::playMode.nativeBody()){if(savedCount)restore();return;}
-        const bool normal=amalur::playMode.normal();
-        bool active=gameplayView&&firstPerson.load()&&headTracking.load()&&trackedCameraAvailable.load();
-        bool wholeBody=!normal&&enabled.load();
+        if(!finisherView&&!amalur::playMode.normal()&&amalur::playMode.nativeBody()){if(savedCount)restore();return;}
+        const bool normal=!finisherView&&amalur::playMode.normal();
+        bool active=(gameplayView||finisherView)&&firstPerson.load()&&headTracking.load()&&trackedCameraAvailable.load();
+        // A native finisher owns body/arms animation; hide only verified head meshes at its eye camera.
+        bool wholeBody=!finisherView&&!normal&&enabled.load();
         if(previousWholeBody!=wholeBody){if(savedCount)restore();previousWholeBody=wholeBody;}
         auto p=reinterpret_cast<uintptr_t>(player_rig::player.load());
         bool validPlayer=p&&(player_rig::word(p)==gameBase+0x1359f14||player_rig::word(p)==gameBase+0x1359e94);

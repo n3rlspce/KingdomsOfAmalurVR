@@ -2,13 +2,13 @@
 
 **[⬇ Download latest release (.zip)](https://github.com/n3rlspce/KingdomsOfAmalurVR/releases/latest/download/KingdomsOfAmalurVR.zip)** — Coming soon.
 
-<!-- Publish the release asset as KingdomsOfAmalurVR.zip to activate this stable direct-download URL. -->
+Download and extract the ZIP, obtain the one-time Nexus framework dependency, then run **Install and Launch.cmd**. The installer finds Steam, downloads verified geo11/stereo dependencies, backs up changed files and installs the approved VR preset. Updates preserve your settings and saves.
 
 ![Kingdoms of Amalur: Re-Reckoning VR — square battle poster with matching gold VR lettering and a gold-trimmed headset on the warrior](docs/amalur-vr-hero.png)
 
 **[Quest controls guide](CONTROLS.md)**
 
-Experimental VR mod for **Kingdoms of Amalur: Re-Reckoning**, targeting **Quest 3 + Virtual Desktop (VDXR)**. Work in progress; no ready-to-install release.
+Experimental VR mod for **Kingdoms of Amalur: Re-Reckoning**, targeting **Quest 3 + Virtual Desktop (VDXR)**. Work in progress; experimental Windows installer preview available.
 
 <sub>Unofficial fan mod. Banner adapted from THQ Nordic's official artwork and logo; [artwork credits](docs/ARTWORK.md).</sub>
 
@@ -36,13 +36,14 @@ In menus, use the game's gamepad UI: face buttons keep native actions and the ri
 - Transparent native UI capture, controller menu handling, wrist HUD and independent bottom-HUD placement.
 - Realtime cutscenes in Full VR or Window mode, resizable cinematic screens, dialogue facing and letterbox adjustments.
 - Developer inventory, health, spell and weapon-skill tools, native pause recovery, and process-once automatic Continue with autosave disabled.
-- VR bridge lifecycle follows the game.
+- VR bridge lifecycle follows the game, with focus recovery and source-resolution control.
+- Experimental native melee effects, wrist/map presentation, cursor/menu handling, and finisher/save-anywhere scripts from the current local build.
 
 ## Known limitations
 
 Weapon jitter and VR session loss remain under investigation. Body stabilization has improved in live tests, but this is not complete visual or stability acceptance. Collision shapes are provisional; faeblades use fitting guides and thrown chakrams remain unsupported. Staff magic is observed for diagnostics, not enabled as physical contact damage. Family feedback and custom trails are experimental; full native combos/heavies for every weapon, bow-arrow offset and general weapon-scale preservation remain unfinished. Latest staff aiming, wrist capture and body changes still require headset validation.
 
-**Experimental physical contacts have caused simulation freezes and can stop after death/reload.** They are compiled out by default. The opt-in build and marker are for controlled diagnostics. Native contact acceptance logs are not proof of enemy health loss. Finger curl, broad weapon-model coverage and startup/pause reliability are unfinished. Cinematic scene coverage, dialogue gaze and the latest hit-stop change need headset validation.
+**Experimental physical contacts have caused simulation freezes and can stop after death/reload.** They are compiled out by default in source builds; this experimental preview enables the tested physical-melee path. The opt-in build and marker are for controlled diagnostics. Native contact acceptance logs are not proof of enemy health loss. Finger curl, broad weapon-model coverage and startup/pause reliability are unfinished. Cinematic scene coverage, dialogue gaze and the latest hit-stop change need headset validation.
 
 ## Development
 
@@ -51,3 +52,5 @@ Build the diagnostic DLL with CMake and Visual Studio using -A Win32. Keep AMALU
 The source under `src/diagnostic` and `src/tracking` is the integrated game baseline. The bridge uses `src/xr_smoke` and its separately preserved `src/bridge_tracking` headers; these snapshots currently differ, so do not substitute one for the other. HUD replacement sources are under `shaders/ShaderFixes` (see `shaders/README.md`). Diagnostic checks are CMake targets; run D3D/WARP checks from a directory without the proxy d3d11.dll to avoid DLL shadowing. Generated binaries, original game files, research dumps and workstation settings are excluded from version control. Never replace the game's geo11 d3d11.dll with the diagnostic output; the established installation name is amalur_camera.dll.
 
 See [developer tools](tools/developer/README.md). Developer commands can alter a save; use a dedicated development save.
+
+The release ZIP ships the current installed binaries with checksums and source-commit provenance. Maintainer packaging and restore tests are documented in [release tooling](tools/release/README.md).

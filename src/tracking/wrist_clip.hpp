@@ -1,8 +1,9 @@
 #pragma once
 #include <d3d11.h>
+#include "wrist_regions.hpp"
 #include <wrl/client.h>
 namespace amalur {
-// Native NDC: both top corners occupy 30% of each canvas dimension.
+// Native NDC: asymmetric corner bounds include whole status and boss panels.
 // Two disjoint remaining rectangles keep every other native HUD pixel.
 class WristClip {
     template<class T> using Ptr=Microsoft::WRL::ComPtr<T>;
@@ -21,8 +22,8 @@ public:
     public:
         Binding(WristClip& owner,ID3D11DeviceContext* c,int region):c_(c){
             // -1 disabled; 0 bottom; 1 central top.
-            float data[8]{-1,1,-1,.4f,1,0,0,0};
-            if(region==1){data[0]=-.4f;data[1]=.4f;data[2]=.4f;data[3]=1;}
+            float data[8]{-1,1,-1,WristRegions::bottomNdc,1,0,0,0};
+            if(region==1){data[0]=WristRegions::leftNdc;data[1]=WristRegions::rightNdc;data[2]=WristRegions::bottomNdc;data[3]=1;}
             if(region<0)data[4]=0;
             c->UpdateSubresource(owner.texture_.Get(),0,nullptr,data,sizeof(data),0);
             c->VSGetShaderResources(117,1,&previous_);auto v=owner.view_.Get();c->VSSetShaderResources(117,1,&v);

@@ -1,9 +1,12 @@
+#define NOMINMAX
 #include <windows.h>
 #include <atomic>
 #include <cstdint>
 #include <cstring>
 #include <cstdio>
 #include <cstdlib>
+#include "arm_pose.hpp"
+namespace rig_probe {inline uintptr_t playerRoot(){return 0;}}
 inline uintptr_t gameBase=0x400000;
 inline void log(const char*,...){}
 inline bool hook(void*,void*,void**,const char*){return true;}
@@ -12,7 +15,7 @@ inline std::atomic<void*> player{};
 inline uintptr_t word(uintptr_t p){return *reinterpret_cast<const uint32_t*>(p);}
 inline uintptr_t resolve(uint32_t){return 0;}
 }
-namespace weapon_control {inline SRWLOCK poseLock=SRWLOCK_INIT; inline uint64_t visualTick{};inline uint32_t visualWeapon{},visualAsset{};inline uintptr_t fab(uint32_t){return 0;}}
+namespace weapon_control {inline SRWLOCK poseLock=SRWLOCK_INIT; inline uint64_t visualTick{};inline uint32_t visualWeapon{},visualAsset{};inline uintptr_t fab(uint32_t){return 0;}inline bool authoritativeSelectedWeapon(uintptr_t){return false;}}
 namespace motion_controls {struct Controls{unsigned selectedWeapon{};};inline Controls viewControls(){return {};}}
 #include "physical_melee_recipe.hpp"
 #include "melee_family_policy.hpp"
@@ -101,9 +104,9 @@ int main(){
     check(d.swing(api,a,1000)&&voiceAllocations==2&&voicePositions==2&&lastSelector==0x0104d903&&lastMode==0);
     check(!d.swing(api,a,1000));a.serial=2;a.tick=1050;check(!d.swing(api,a,1050));
     a.tick=1200;a.attackAsset=7;a.attackFlags=2;check(d.swing(api,a,1200)&&lastSelector==0x01edd57b);
-    d.update(api,100,7,8,2,false,1300);check(voiceStops==4&&d.manager==0);
+    d.update(api,100,7,8,2,false,1300);check(voiceStops==4&&!d.eligible&&d.manager==100);
     d.update(api,100,7,8,2,true,2000);a.serial=3;a.tick=2000;a.attackAsset=81;a.attackFlags=1;check(d.swing(api,a,2000));
-    d.update(api,100,7,8,2,true,6001);check(voiceStops==7);
+    d.update(api,100,7,8,2,true,6001);check(voiceStops==6);
     a.serial=4;a.tick=6100;a.asset=1520;check(!d.swing(api,a,6100));a.asset=2478;a.attackAsset=160;check(!d.swing(api,a,6100));
     a.attackAsset=50;a.attackFlags=0;a.tick=5000;check(!d.swing(api,a,6100));a.tick=6100;failAllocate=true;check(!d.swing(api,a,6100));failAllocate=false;
     a.tick=6300;a.serial=5;check(d.swing(api,a,6300));const auto stopped=voiceStops;d.update(api,200,7,8,2,true,6400);check(voiceStops==stopped); // no old-manager writes

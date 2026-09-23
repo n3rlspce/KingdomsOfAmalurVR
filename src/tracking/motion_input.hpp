@@ -40,7 +40,7 @@ struct TouchInput {
 };
 class TouchMapper {
     bool active_{},gameplay_{true},ready_{},attack_{},previousY_{},turnArmed_{true},movementBlocked_{};
-    bool actionContext_{},abilityContext_{},clicksBlocked_{};float heldAbilities_{};
+    bool modeRearm_{},actionContext_{},abilityContext_{},clicksBlocked_{};float heldAbilities_{};
     uint32_t selected_{},attackOwner_{};float turn_{};
     bool previousLeftClick_{},previousRightClick_{};uint64_t mapPulseUntil_{},stealthPulseUntil_{},leftPressTick_{};bool wheelHeld_{};
     static bool neutral(TouchInput t){
@@ -53,7 +53,7 @@ class TouchMapper {
         for(float v:{t.leftTrigger,t.rightTrigger,t.leftGrip,t.rightGrip})if(!std::isfinite(v)||v<0||v>1)return false;
         return true;
     }
-    void cancel(){ready_=attack_=previousY_=actionContext_=abilityContext_=false;heldAbilities_=0;turnArmed_=true;movementBlocked_=clicksBlocked_=previousLeftClick_=previousRightClick_=false;mapPulseUntil_=stealthPulseUntil_=leftPressTick_=0;wheelHeld_=false;}
+    void cancel(){modeRearm_=false;ready_=attack_=previousY_=actionContext_=abilityContext_=false;heldAbilities_=0;turnArmed_=true;movementBlocked_=clicksBlocked_=previousLeftClick_=previousRightClick_=false;mapPulseUntil_=stealthPulseUntil_=leftPressTick_=0;wheelHeld_=false;}
     static void dpad(MotionInputPacket& p,float x,float y){
         if(x<-.65f)p.buttons|=XINPUT_GAMEPAD_DPAD_LEFT;
         if(x>.65f)p.buttons|=XINPUT_GAMEPAD_DPAD_RIGHT;
@@ -64,9 +64,23 @@ public:
     MotionInputPacket map(TouchInput t,bool active,bool gameplay=true,uint64_t now=GetTickCount64()){
         MotionInputPacket p;p.selectedWeapon=selected_;p.turnYawDegrees=turn_;
         if(!active||!valid(t)){cancel();active_=false;return p;}
-        if(!active_||gameplay_!=gameplay){cancel();active_=true;gameplay_=gameplay;}
+        // The native quick wheel may temporarily pause gameplay while its
+        // left-click hold is still owned. Keep that hold until physical release.
+        const bool continuingWheel=active_&&wheelHeld_&&t.leftClick;
+        if(!active_){cancel();active_=true;gameplay_=gameplay;}
+        else if(gameplay_!=gameplay){
+            if(!continuingWheel){cancel();modeRearm_=true;}
+            gameplay_=gameplay;
+        }
         p.active=1;
-        if(!ready_){if(neutral(t))ready_=true;return p;}
+        if(!ready_){
+            auto rearm=t;
+            // Mode changes are not focus regain: carrying the weapon must not
+            // require releasing both grips to recover locomotion after a wheel.
+            if(modeRearm_)rearm.leftGrip=rearm.rightGrip=0;
+            if(neutral(rearm)){ready_=true;modeRearm_=false;}
+            return p;
+        }
         const bool chord=t.leftClick&&t.rightClick;
         const bool shift=gameplay&&(t.rightThumbrest||chord);
         if(chord||(shift&&(t.leftClick||t.rightClick||previousLeftClick_||previousRightClick_)))clicksBlocked_=true;
@@ -93,7 +107,8 @@ public:
         if(!actionContext_&&(faces||t.rightTrigger>=.65f)){
             actionContext_=true;abilityContext_=t.rightGrip>.65f;heldAbilities_=abilityContext_?t.rightGrip:0;
         }
-        p.abilities=actionContext_?heldAbilities_:(t.rightGrip>.65f?t.rightGrip:0);
+        // Grip selects spells during gameplay; UI confirmations stay unmodified.
+        p.abilities=gameplay?(actionContext_?heldAbilities_:(t.rightGrip>.65f?t.rightGrip:0)):0;
         const bool abilities=actionContext_?abilityContext_:t.rightGrip>.65f;
         const bool attack=t.rightTrigger>=(attack_?.45f:.65f);
         if(attack&&!attack_)attackOwner_=selected_;
