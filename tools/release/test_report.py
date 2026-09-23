@@ -16,12 +16,16 @@ with tempfile.TemporaryDirectory(prefix='amalur-report-') as tmp:
     env=os.environ.copy();env.pop('PSModulePath',None)
     def collect(flag):
         r=subprocess.run(['powershell.exe','-NoProfile','-ExecutionPolicy','Bypass','-File',str(package/'Collect-BugReport.ps1'),
-            '-GameDirectory',str(game),'-SaveDirectory',str(saves),'-OutputDirectory',str(out),flag],env=env,capture_output=True,text=True)
+            '-GameDirectory',str(game),'-SaveDirectory',str(saves),'-OutputDirectory',str(out),flag,'-NoOpenFolder'],env=env,capture_output=True,text=True)
         assert r.returncode==0,r.stdout+r.stderr
         return max(out.glob('*.zip'),key=lambda p:p.stat().st_mtime_ns)
     with zipfile.ZipFile(collect('-IncludeSaves')) as z:
         report=json.loads(z.read('report.json').decode('utf-8-sig'))
         assert report['savesIncluded']==3
+        combined=z.read('diagnostic-report.txt')
+        assert len(combined)<8*1024*1024
+        assert b'normal diagnostic' in combined
+        assert os.environ['USERPROFILE'].encode() not in combined
         assert [z.read(f'save-{i}.sav') for i in range(1,4)]==[f'fake save {i}'.encode() for i in (4,3,2)]
         log=z.read('amalur-diagnostic.log').decode('utf-8-sig')
         assert str(game) not in log and os.environ['USERPROFILE'] not in log

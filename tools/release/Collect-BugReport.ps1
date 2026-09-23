@@ -1,4 +1,4 @@
-param([string]$GameDirectory,[string]$SaveDirectory,[string]$OutputDirectory,[switch]$IncludeSaves,[switch]$LogsOnly)
+param([string]$GameDirectory,[string]$SaveDirectory,[string]$OutputDirectory,[switch]$IncludeSaves,[switch]$LogsOnly,[switch]$OpenForm,[switch]$NoOpenFolder)
 $ErrorActionPreference='Stop'
 . (Join-Path $PSScriptRoot 'Common.ps1')
 if($IncludeSaves -and $LogsOnly){throw 'Choose IncludeSaves or LogsOnly.'}
@@ -75,6 +75,13 @@ if($IncludeSaves){
     }
 }
 $info | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (Join-Path $stage 'report.json') -Encoding UTF8
+# Keep a consolidated text fallback below the form's 10 MB upload limit.
+$combined="Amalur VR diagnostic report`r`n"+($info | ConvertTo-Json -Depth 6)+"`r`n"
+foreach($file in Get-ChildItem -LiteralPath $stage -File | Where-Object Extension -In @('.log','.txt','.ini')){
+    $combined+="`r`n--- $($file.Name) ---`r`n"+(Get-Content -LiteralPath $file.FullName -Raw)
+}
+if($combined.Length -gt 2000000){$combined=$combined.Substring(0,2000000)+"`r`n[Report truncated to fit upload limit]"}
+Set-Content -LiteralPath (Join-Path $stage 'diagnostic-report.txt') -Value $combined -Encoding UTF8
 @'
 Describe what happened, what you expected, and steps to reproduce it.
 Include your headset, connection method and graphics card.
@@ -82,9 +89,21 @@ This ZIP was collected locally. Nothing was uploaded automatically.
 Logs contain bounded tails and common personal paths are redacted; review before sharing.
 Included saves are unmodified binary copies and can contain player information.
 Do not attach saves publicly unless you are comfortable sharing their contents.
+No-login report form: https://tally.so/r/BzNXPK
+Attach the ZIP in the bug-report ZIP field. Logs and any included saves are already inside.
+The form has a 10 MB per-file limit. For a larger ZIP, attach diagnostic-report.txt and up to three saves separately if each fits.
+Tally stores submitted reports and attachments for private review by the form owner.
 '@ | Set-Content -LiteralPath (Join-Path $stage 'READ-ME.txt') -Encoding UTF8
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 $zip=Join-Path $OutputDirectory ($id+'.zip')
 [IO.Compression.ZipFile]::CreateFromDirectory($stage,$zip)
 Write-Host "Report ready: $zip"
 Write-Host "Saves included: $($info.savesIncluded). Review before sharing. Nothing was uploaded."
+if((Get-Item -LiteralPath $zip).Length -ge 10000000){
+    Write-Warning 'ZIP exceeds the form limit. Use diagnostic-report.txt and separate saves from the matching report folder, if each is below 10 MB.'
+}
+if(!$NoOpenFolder){Start-Process explorer.exe -ArgumentList ('/select,"'+[IO.Path]::GetFullPath($zip)+'"')}
+if($OpenForm){
+    Write-Host 'Attach the selected ZIP to the form. Review the form privacy notice before submitting.'
+    Start-Process 'https://tally.so/r/BzNXPK'
+}
