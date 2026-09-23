@@ -3,7 +3,7 @@ $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'Common.ps1')
 $package = $PSScriptRoot
 $manifest = Get-Content -LiteralPath (Join-Path $package 'manifest.json') -Raw | ConvertFrom-Json
-$game = Find-Game $GameDirectory
+$game = Find-Game $GameDirectory -Choose
 Assert-Closed
 $exe = Join-Path $game 'koa.exe'
 $exeHash = Hash $exe
