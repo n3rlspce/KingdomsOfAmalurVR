@@ -13,6 +13,7 @@ def main():
     ap.add_argument('--output',type=Path,required=True)
     ap.add_argument('--version',required=True)
     ap.add_argument('--source-commit',default='uncommitted-test-build')
+    ap.add_argument('--diagnostic',type=Path,help='Validated diagnostic build override; live installation stays unchanged')
     a=ap.parse_args()
     root=Path(__file__).resolve().parents[2]
     out=a.output.resolve()
@@ -24,9 +25,9 @@ def main():
     old,new=original.read_bytes(),(a.game/'koa.exe').read_bytes()
     if sha(original)!='16a400f6e8fc10dbe446a9e57717de9fbe975ef17c004f4ca405e2e4e09cb314':raise SystemExit('Unsupported original game executable')
     out.mkdir(parents=True)
-    for name in ['Install.ps1','Launch.ps1','Uninstall.ps1','Common.ps1']:
+    for name in ['Install.ps1','Launch.ps1','Uninstall.ps1','Common.ps1','Collect-BugReport.ps1']:
         shutil.copy2(Path(__file__).with_name(name),out/name)
-    for title,script,args in [('Install','Install.ps1',''),('Install and Launch','Install.ps1',' -Launch'),('Launch VR','Launch.ps1',''),('Uninstall','Uninstall.ps1','')]:
+    for title,script,args in [('Install','Install.ps1',''),('Install and Launch','Install.ps1',' -Launch'),('Launch VR','Launch.ps1',''),('Uninstall','Uninstall.ps1',''),('Collect Bug Report','Collect-BugReport.ps1','')]:
         (out/(title+'.cmd')).write_text('@echo off\r\npowershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0'+script+'"'+args+'\r\nif errorlevel 1 pause\r\n',encoding='ascii')
     chunks=[];i=0
     while i<len(new):
@@ -41,10 +42,12 @@ def main():
         files.append(dict(target=target,source='payload/'+target,sha256=sha(dest),preserve=preserve))
     def external(source,target,dependency):
         files.append(dict(target=target,name=source.name,sha256=sha(source),dependency=dependency,preserve=False))
-    add(a.game/'amalur_camera.dll','amalur_camera.dll')
+    add(a.diagnostic or a.game/'amalur_camera.dll','amalur_camera.dll')
     for name in ['amalur-xr-smoke.exe','amalur-dev-send.exe','amalur-menu-send.exe']:
         add(a.bridge/name,'AmalurVR/'+name)
     add(root/'config/amalur-vr.ini','AmalurVR/amalur-vr.ini',True)
+    for name in ['AutoStart.ps1','Launch.ps1','Common.ps1']:
+        add(root/'tools/release'/name,'AmalurVR/'+name)
     for name in ['d3dx.ini','d3dxdm.ini','amalur-source.ini']:
         add(a.game/name,name,name=='amalur-source.ini')
     mods=['amalur_dev.lua','amalur_dispatch.json','amalur_dispatch.lua','amalur_menu.json','amalur_menu.lua',

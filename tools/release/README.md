@@ -6,6 +6,7 @@ The maintainer builds the diagnostic DLL and bridge from the integrated source (
 
 ```powershell
 python tools/release/test_installer.py
+python tools/release/test_report.py
 python tools/release/build_package.py --game "<game directory>" --bridge "<bridge directory>" --receipt "<current-installed.json>" --output "build/release-vX/package" --version "X" --source-commit "<published source commit>"
 ```
 
@@ -18,3 +19,7 @@ The builder deliberately excludes saves, game archives, debug logs, native shade
 The installer checks all inputs before mutations, backs up originals, rolls back failed copies, retains existing user settings during updates, and preserves edited files during uninstall. Tests cover these behaviors in a disposable fixture, including path traversal and checksum rejection. The real-package test additionally uses the exact supported original executable, imports framework files locally, downloads the two upstream archives, and verifies all installed files. Never launch fixture executables or use live saves for installer tests.
 
 Packaging validation is not proof of fresh-machine headset compatibility. The current preview targets the tested Steam/Quest/Virtual Desktop setup only.
+
+For a validated source change that must stay separate from the live development installation, pass `--diagnostic "<newly built diagnostic DLL>"`. The builder still verifies the base installation receipt, while the manifest records the packaged override hash and supplied source commit. Never substitute an untested DLL. The release's `AmalurVR/AutoStart.ps1` opts into hidden bridge startup at the game's first Present; absence of this file leaves development startup unchanged. The script and manual launcher share a startup mutex.
+
+The report collector only writes local artifacts. Text logs have bounded tails and common personal paths redacted. Saves are optional unmodified binary copies, limited to the newest three distinct `.sav` files. Never publish collected reports as release assets.

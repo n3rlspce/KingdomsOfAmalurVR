@@ -496,7 +496,9 @@ static void publishStereoFrame(const amalur::PosePacket& metadata){
         log("Paired stereo frame published #%u tracked=%u poseTick=%llu\n",published,metadata.valid,metadata.tick);
 }
 #include "vr_cursor.hpp"
+#include "bridge_autostart.hpp"
 static HRESULT STDMETHODCALLTYPE onPresent(IDXGISwapChain* chain,UINT sync,UINT flags) {
+    if(!(flags&DXGI_PRESENT_TEST))bridge_autostart::once();
     // Take the completed draw's attribution before Present permits recording
     // the next image. Keep this local packet through geo-11's stereo copy.
     float meleeVP[16]{};
