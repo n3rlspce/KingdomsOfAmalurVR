@@ -1,31 +1,35 @@
-# Install the experimental VR preview
+# Install
 
-Supported starting point: Windows 10/11, the Steam version of **Kingdoms of Amalur: Re-Reckoning**, Quest headset and Virtual Desktop. Other stores, executable versions and OpenXR runtimes are not validated.
+**Windows 10/11 · Steam Re-Reckoning · Quest · Virtual Desktop**
 
-1. Install the game through Steam. Install Virtual Desktop Streamer on the PC and connect the headset using Virtual Desktop. Install the Microsoft Visual C++ 2015–2022 **x86** runtime if needed: <https://aka.ms/vs/17/release/vc_redist.x86.exe>.
-2. Extract `KingdomsOfAmalurVR.zip` into a normal writable folder. Do not run from inside the ZIP.
-3. For a fresh setup, download the Re-Reckoning Mod framework from Nexus (linked in `DEPENDENCIES.md`) and extract it into `Dependencies`. Its author prohibits redistribution. The installer downloads geo11 and the stereo shader pack from their original hosts automatically; OpenXR is included. Existing matching dependencies are reused.
-4. Close the game and bridge, then double-click **Install and Launch.cmd**. Choose **1: Detect Steam installation** or **2: Pick game folder**. The folder picker selects the directory containing `koa.exe`. Manual selection still requires the supported Steam executable; it does not add support for other stores. Installation checks the supported executable and every payload/dependency hash before changing the game.
-5. For later sessions, connect the headset and press **Play in Steam**. The installed mod starts the VR bridge hidden and it closes when the game exits. **Launch VR.cmd** remains available for troubleshooting; **Install.cmd** installs without launching. Keep the game focused during startup.
+1. Install the game, [Virtual Desktop Streamer](https://www.vrdesktop.net/) and [Visual C++ x86 runtime](https://aka.ms/vs/17/release/vc_redist.x86.exe).
+2. Extract `KingdomsOfAmalurVR.zip`.
+3. Extract the [Nexus framework](https://www.nexusmods.com/kingdomsofamalurrereckoning/mods/9) into `Dependencies`. One-time download; redistribution prohibited.
+4. Close game and bridge. Connect headset. Run **Install and Launch.cmd**.
+5. Choose **Steam detection** or **Pick game folder** containing `koa.exe`.
 
-The approved VR panel preset is installed on the first installation only. Updates retain the player's existing panel settings and automatic-Continue preference. The preview includes the current experimental physical-melee settings, startup behavior (automatic Continue with autosave disabled), and save-anywhere script. Manual saves remain available; use a separate test save. No save files, save selection, captured logs, game archives or game executable are included. The installer generates the patched executable from the player's exact supported original and retains a backup.
+Other dependencies download automatically. Unsupported game versions stop installation.
 
-## Restore or update
+## Play
 
-Extract a newer package and run Install again. The game-local `.amalur-vr-installer` folder stores checksummed originals and the installation receipt. Keep it until you no longer need rollback. Never copy this folder into a release.
+Connect headset → **Play in Steam**. Keep game focused during startup.
 
-**Uninstall.cmd** restores unchanged installed files from their originals and removes files this installer added. It preserves files edited since installation, reports them, and keeps the backup history. Saves are untouched. Reinstalling the game through Steam may replace its executable; rerun the installer afterward.
+Bridge runs hidden; closes with game. Alternative: **Launch VR.cmd**.
 
-## Troubleshooting
+Automatic Continue enabled; autosave disabled. Save manually.
 
-Run **Report a Bug.cmd** in the extracted download to create a local ZIP of diagnostic logs, VR settings, binary hashes and (with your confirmation) up to three most recent saves. Explorer opens with the ZIP selected and the [no-login report form](https://tally.so/r/BzNXPK) opens in your browser. Attach the ZIP and submit when ready. The form accepts files below 10 MB; larger reports have a separate text log and saves as a fallback. **Collect Bug Report.cmd** opens Explorer without opening the form. Originals are not changed. Common personal paths in text logs are redacted, but binary saves can contain player information. Review before sharing; nothing is uploaded automatically. Reports are written to `BugReports` beside the collector. If saves are not detected, rerun `Collect-BugReport.ps1 -SaveDirectory "your save folder"`. Steam startup errors are recorded in `AmalurVR/logs/steam-autostart.log`.
+## Update / uninstall
 
-- **Missing dependencies:** read the printed source links and `DEPENDENCIES.md`, extract the original downloads, and retry. A similar filename is not sufficient; hashes must match the tested version. No game files change if preflight fails.
-- **Unsupported executable:** this preview supports the specific Steam revision in `manifest.json`. Do not disable the check. GOG/Epic or later revisions need a separately validated build.
-- **Permission denied:** select the correct game folder and ensure your account can write there. The installer does not silently elevate or disable Windows security.
-- **Bridge exits / flat image:** confirm Virtual Desktop Streamer and headset connection, close both game and bridge, then use Launch VR again. Logs are under the game's `AmalurVR/logs` folder.
-- **HUD caches:** the installer backs up and invalidates only four known automatically converted HUD shader-cache pairs, allowing geo11 to regenerate them.
+- Update: extract newer ZIP → **Install.cmd**. Existing settings and saves retained.
+- Remove: **Uninstall.cmd**. Restores originals; preserves later edits.
+- Keep `.amalur-vr-installer` in the game folder for restoration.
 
-Installation/restore can be verified with `powershell -NoProfile -File .\Install.ps1 -GameDirectory "..." -DependencyDirectory "..." -CheckOnly`. This does not launch the game or modify its files.
+## Bugs
 
-This is an unsigned experimental preview. Automated installation checks do not establish headset comfort, full playthrough stability, or compatibility with other mods.
+**Report a Bug.cmd** → Explorer selects ZIP; [report form](https://tally.so/r/BzNXPK) opens. Attach ZIP; submit. No login.
+
+Includes logs and optionally three recent saves. Review before sharing; no automatic upload. Limit: **10 MB**. Larger ZIP: attach separate text log and saves.
+
+- Flat image: reconnect Virtual Desktop; close game/bridge; retry.
+- Missing dependency: follow printed download link; extract into `Dependencies`.
+- Startup log: `AmalurVR/logs/steam-autostart.log`.
