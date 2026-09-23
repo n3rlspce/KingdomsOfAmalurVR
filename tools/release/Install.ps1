@@ -161,5 +161,9 @@ try {
     throw
 }
 Set-Content -LiteralPath (Join-Path $package 'installed-game.txt') -Value $game -Encoding UTF8
-Write-Host 'Installation verified. Saves were not copied or changed. Existing VR settings were preserved.' -ForegroundColor Green
+Write-Host ''
+Write-Host 'INSTALLATION COMPLETE' -ForegroundColor Green
+Write-Host "Installed to: $game"
+Write-Host 'Files verified. Existing VR settings and saves preserved.'
+Write-Host 'Next time: connect your headset, then press Play in Steam.'
 if ($Launch) { & (Join-Path $package 'Launch.ps1') -GameDirectory $game }

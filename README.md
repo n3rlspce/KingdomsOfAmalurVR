@@ -1,6 +1,6 @@
 # Kingdoms of Amalur VR
 
-**[Download (.zip)](https://github.com/n3rlspce/KingdomsOfAmalurVR/releases/download/v0.1.0-preview.6/KingdomsOfAmalurVR.zip)** · [Install guide](docs/INSTALL.md) · [Report a bug](https://tally.so/r/BzNXPK)
+**[Download (.zip)](https://github.com/n3rlspce/KingdomsOfAmalurVR/releases/download/v0.1.0-preview.7/KingdomsOfAmalurVR.zip)** · [Install guide](docs/INSTALL.md) · [Report a bug](https://tally.so/r/BzNXPK)
 
 Experimental VR for **Re-Reckoning · Steam · Quest 3 · Virtual Desktop**.
 

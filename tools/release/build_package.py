@@ -28,7 +28,8 @@ def main():
     for name in ['Install.ps1','Launch.ps1','Uninstall.ps1','Common.ps1','Collect-BugReport.ps1']:
         shutil.copy2(Path(__file__).with_name(name),out/name)
     for title,script,args in [('Install','Install.ps1',''),('Install and Launch','Install.ps1',' -Launch'),('Launch VR','Launch.ps1',''),('Uninstall','Uninstall.ps1',''),('Collect Bug Report','Collect-BugReport.ps1','')]:
-        (out/(title+'.cmd')).write_text('@echo off\r\npowershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0'+script+'"'+args+'\r\nif errorlevel 1 pause\r\n',encoding='ascii')
+        ending=('set "result=%errorlevel%"\necho.\npause\nexit /b %result%\n' if script=='Install.ps1' else 'if errorlevel 1 pause\n')
+        (out/(title+'.cmd')).write_text('@echo off\npowershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0'+script+'"'+args+'\n'+ending,encoding='ascii')
     chunks=[];i=0
     (out/'Report a Bug.cmd').write_text('@echo off\npowershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0Collect-BugReport.ps1" -OpenForm\nif errorlevel 1 pause\n',encoding='ascii')
     while i<len(new):
