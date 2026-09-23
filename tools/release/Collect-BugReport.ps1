@@ -59,9 +59,11 @@ if($IncludeSaves){
         }}
     }
     $candidates=@(foreach($root in $roots | Select-Object -Unique){
-        if(Test-Path -LiteralPath $root){Get-ChildItem -LiteralPath $root -File -Filter '*.sav' | Where-Object { !($_.Attributes -band [IO.FileAttributes]::ReparsePoint) }}
+        if(Test-Path -LiteralPath $root){Get-ChildItem -LiteralPath $root -File -Filter '*.sav' | Where-Object {
+            $_.Name -ine 'svd_fmt_0_0.sav' -and !($_.Attributes -band [IO.FileAttributes]::ReparsePoint)
+        }}
     })
-    if(!$candidates.Count){Write-Host 'No .sav files found. Run again with -SaveDirectory pointing to your save folder to include saves.'}
+    if(!$candidates.Count){Write-Host 'No eligible saves found. Run again with -SaveDirectory pointing to your save folder to include saves.'}
     $seen=@{}
     foreach($save in $candidates | Sort-Object LastWriteTimeUtc -Descending){
         if($info.savesIncluded -ge 3){break}

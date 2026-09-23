@@ -12,6 +12,9 @@ with tempfile.TemporaryDirectory(prefix='amalur-report-') as tmp:
     for i in range(5):
         p=saves/f'{i}.sav';p.write_bytes(f'fake save {i}'.encode());os.utime(p,(time.time()+i,time.time()+i))
     (saves/'private.txt').write_text('never collect')
+    metadata=saves/'svd_fmt_0_0.sav'
+    metadata.write_bytes(b'non-gameplay fixture'.ljust(6144,b'\0'))
+    os.utime(metadata,(time.time()+100,time.time()+100))
     before={p.name:p.read_bytes() for p in saves.iterdir()}
     env=os.environ.copy();env.pop('PSModulePath',None)
     def collect(flag):
@@ -33,4 +36,9 @@ with tempfile.TemporaryDirectory(prefix='amalur-report-') as tmp:
     with zipfile.ZipFile(collect('-LogsOnly')) as z:
         assert not any(n.endswith('.sav') for n in z.namelist())
     assert before=={p.name:p.read_bytes() for p in saves.iterdir()}
-print('PASS: latest three saves, logs-only, path redaction, excluded files, originals unchanged')
+    for i in (2,3,4):(saves/f'{i}.sav').unlink()
+    with zipfile.ZipFile(collect('-IncludeSaves')) as z:
+        assert json.loads(z.read('report.json').decode('utf-8-sig'))['savesIncluded']==2
+        assert [z.read(f'save-{i}.sav') for i in (1,2)]==[b'fake save 1',b'fake save 0']
+    assert metadata.read_bytes()==before[metadata.name]
+print('PASS: latest three eligible saves, excluded svd_fmt_0_0.sav even when newest or fewer saves exist, logs-only, redaction, originals unchanged')
