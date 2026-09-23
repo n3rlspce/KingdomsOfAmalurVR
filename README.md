@@ -1,12 +1,12 @@
 # Kingdoms of Amalur VR
 
-**[Download (.zip)](https://github.com/n3rlspce/KingdomsOfAmalurVR/releases/download/v0.1.0-preview.5/KingdomsOfAmalurVR.zip)** · [Install guide](docs/INSTALL.md) · [Report a bug](https://tally.so/r/BzNXPK)
+**[Download (.zip)](https://github.com/n3rlspce/KingdomsOfAmalurVR/releases/download/v0.1.0-preview.6/KingdomsOfAmalurVR.zip)** · [Install guide](docs/INSTALL.md) · [Report a bug](https://tally.so/r/BzNXPK)
 
 Experimental VR for **Re-Reckoning · Steam · Quest 3 · Virtual Desktop**.
 
 Extract ZIP → add [Nexus framework](https://www.nexusmods.com/kingdomsofamalurrereckoning/mods/9) to `Dependencies` → run **Install and Launch.cmd**.
 
-Other dependencies download automatically. Updates keep settings and saves. Later: **Play in Steam**.
+Other dependencies download automatically. Updates keep settings and saves.
 
 ![Kingdoms of Amalur VR](docs/amalur-vr-hero.png)
 
@@ -37,5 +37,5 @@ Menus: right stick navigates; face buttons keep native actions. Y selects weapon
 - Wrist HUD, controller menus and adjustable rendering.
 - VR cutscenes, dialogue and cinematic screens.
 - Hidden bridge; starts and closes with the game.
-- Automatic Continue; autosave disabled. Manual saves available.
+- Automatic Continue and autosave enabled.
 - **Report a Bug.cmd**: logs + optional three saves → no-login form.

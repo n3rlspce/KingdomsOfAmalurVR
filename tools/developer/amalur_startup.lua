@@ -40,14 +40,14 @@ local function menu_step(host)
                         'SAVE_RESTORE.is_saving_disabled_for_user')()) then return end
     if flag(require_api(GAME and GAME.is_loading_fonts, 'GAME.is_loading_fonts')()) then return end
     if not state.autosaveConfigured then
-        -- Match options_win.on_autosave_change: change the profile option,
-        -- then apply it. Do this before loading so entry autosaves are disabled.
-        require_api(PROFILE.set_enable_autosave, 'PROFILE.set_enable_autosave')(false)
+        -- Match options_win.on_autosave_change and restore the game's normal
+        -- autosave option before loading a character.
+        require_api(PROFILE.set_enable_autosave, 'PROFILE.set_enable_autosave')(true)
         require_api(PROFILE.apply_profile_settings, 'PROFILE.apply_profile_settings')()
         local enabled = require_api(PROFILE.get_enable_autosave, 'PROFILE.get_enable_autosave')()
-        assert(enabled == false or enabled == 0, 'Autosave setting did not turn off')
+        assert(enabled == true or enabled == 1, 'Autosave setting did not turn on')
         state.autosaveConfigured = true
-        print('AMALUR_STARTUP|AUTOSAVE_DISABLED')
+        print('AMALUR_STARTUP|AUTOSAVE_ENABLED')
     end
     -- A Lua state is recreated when returning from gameplay. The native DLL
     -- creates this ticket only once per process, not once per Lua state.

@@ -16,7 +16,7 @@ Connect headset → **Play in Steam**. Keep game focused during startup.
 
 Bridge runs hidden; closes with game. Alternative: **Launch VR.cmd**.
 
-Automatic Continue enabled; autosave disabled. Save manually.
+Automatic Continue and autosave enabled.
 
 ## Update / uninstall
 

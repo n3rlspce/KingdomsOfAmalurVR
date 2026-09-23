@@ -16,13 +16,13 @@ def runtime():
             return function() return skipEnabled end
         end
         os.remove=function(path) assert(path:find('amalur_boot_continue',1,true)); bootTicket=false; return true end; calls = {}; shown = true; disabled = false; fonts = false; slot = 0
-        progress = -1; system_ui = false; autosave = true; autosave_sets = 0; profile_applies = 0
+        progress = -1; system_ui = false; autosave = false; autosave_sets = 0; profile_applies = 0
         function record(name) calls[#calls+1] = name end
         WINDOW = {is_visible = function(window) assert(window == 42); return shown end}
         PROFILE = {
-            set_enable_autosave = function(value) assert(value == false); autosave = value; autosave_sets = autosave_sets + 1 end,
+            set_enable_autosave = function(value) assert(value == true); autosave = value; autosave_sets = autosave_sets + 1 end,
             get_enable_autosave = function() return autosave end,
-            apply_profile_settings = function() assert(autosave == false); profile_applies = profile_applies + 1 end,
+            apply_profile_settings = function() assert(autosave == true); profile_applies = profile_applies + 1 end,
             get_splash_win_progress_state = function() return progress end,
             is_system_ui_being_shown = function() return system_ui end,
             start_splash_win_profile_acquisition = function() record('profile') end
@@ -37,7 +37,7 @@ def runtime():
             on_update_event = function(e,w,arg) assert(e == 7 and w == 42 and arg == 9); record('splash') end}
         main_menu = {m_inited = true, m_window = 42,
             on_update_event = function() record('menu') end,
-            continue_last_save = function() assert(autosave == false and profile_applies == 1); record('continue') end}
+            continue_last_save = function() assert(autosave == true and profile_applies == 1); record('continue') end}
     ''')
     lua.execute(source)
     lua.execute('assert(#calls == 0)')
@@ -103,14 +103,14 @@ lua.execute('''
 ''')
 lua = runtime()
 lua.execute('''slot = -1; main_menu.on_update_event()
-    assert(autosave == false and profile_applies == 1 and #calls == 1)''')
-print('PASS: autosave disabled and applied before Continue, no repeated profile writes, no load on failed verification, setting applied even with no save slot.')
+    assert(autosave == true and profile_applies == 1 and #calls == 1)''')
+print('PASS: autosave enabled and applied before Continue, no repeated profile writes, no load on failed verification, setting applied even with no save slot.')
 
 lua = runtime()
 lua.execute("""skipEnabled=false
 main_menu.on_update_event();main_menu.on_update_event()
-assert(#calls == 2 and autosave == false and profile_applies == 1)""")
-print('PASS: Skip menu OFF leaves main menu visible while autosave is disabled.')
+assert(#calls == 2 and autosave == true and profile_applies == 1)""")
+print('PASS: Skip menu OFF leaves main menu visible while autosave is enabled.')
 
 # Simulate returning to main menu with an entirely new Lua global state.
 lua = runtime()
