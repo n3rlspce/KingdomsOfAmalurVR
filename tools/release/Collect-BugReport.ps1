@@ -104,6 +104,10 @@ if((Get-Item -LiteralPath $zip).Length -ge 10000000){
 }
 if(!$NoOpenFolder){Start-Process explorer.exe -ArgumentList ('/select,"'+[IO.Path]::GetFullPath($zip)+'"')}
 if($OpenForm){
-    Write-Host 'Attach the selected ZIP to the form. Review the form privacy notice before submitting.'
+    Write-Host 'Your browser opens a Tally form to upload bug information.'
+    Write-Host 'Describe the bug, attach the ZIP selected in Explorer, then submit. No login needed.'
+    Write-Host 'Review the report before sharing. Nothing is uploaded until you submit the form.'
     Start-Process 'https://tally.so/r/BzNXPK'
+} else {
+    Write-Host 'Run Report a Bug.cmd to open a Tally form in your browser and upload bug information.'
 }
