@@ -12,6 +12,15 @@ Other dependencies download automatically. Updates keep settings and saves.
 
 <sub>Unofficial fan mod · [Artwork credits](docs/ARTWORK.md)</sub>
 
+## Features
+
+- First-person combat with physical melee. Spells auto-target like the original game.
+- VR dialogue and full-VR cutscenes, except pre-rendered videos.
+- Right grip over shoulder: tap to sheathe; hold to unsheathe.
+- Automatically skips the menu and continues your latest save.
+- Wrist HUD.
+- Snap turning, physical crouching and seated mode.
+
 ## Controls
 
 **Click on both sticks to open VR settings.** Keep both sticks centered.
@@ -31,12 +40,3 @@ Other dependencies download automatically. Updates keep settings and saves.
 Menus: right stick navigates; face buttons keep native actions. Y selects weapon; right trigger attacks.
 
 **[Full controls and gestures](CONTROLS.md)**
-
-## Features
-
-- First-person combat with physical melee. Spells auto-target like the original game.
-- VR dialogue and full-VR cutscenes, except pre-rendered videos.
-- Right grip over shoulder: tap to sheathe; hold to unsheathe.
-- Automatically skips the menu and continues your latest save.
-- Wrist HUD.
-- Snap turning, physical crouching and seated mode.
