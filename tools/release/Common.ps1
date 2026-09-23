@@ -29,22 +29,31 @@ function Find-Game($explicit, [switch]$Choose) {
         do { $choice = Read-Host 'Enter 1 or 2 (Enter = Steam)' } while ($choice -notin @('', '1', '2'))
         $browse = $choice -eq '2'
     }
-    if ($explicit) { $candidates = @($explicit) } else {
+    $candidates = @()
+    if ($explicit) { $candidates = @($explicit) } elseif (!$browse) {
         $candidates = @()
         $saved = Join-Path $PSScriptRoot 'installed-game.txt'
         if (!$Choose -and (Test-Path -LiteralPath $saved)) { $candidates += (Get-Content -LiteralPath $saved -Raw).Trim() }
         $steam = (Get-ItemProperty 'HKCU:\Software\Valve\Steam' -ErrorAction SilentlyContinue).SteamPath
-        if ($steam) {
+        if ($steam -and [IO.Directory]::Exists($steam)) {
             $libraries = @($steam)
             $vdf = Join-Path $steam 'steamapps/libraryfolders.vdf'
             if (Test-Path -LiteralPath $vdf) {
                 foreach ($m in [regex]::Matches((Get-Content -LiteralPath $vdf -Raw),'"path"\s+"([^"]+)"')) { $libraries += $m.Groups[1].Value.Replace('\\','\') }
             }
-            foreach ($library in $libraries) { $candidates += Join-Path $library 'steamapps/common/Kingdoms of Amalur Re-Reckoning' }
+            foreach ($library in $libraries) {
+                if ([IO.Directory]::Exists($library)) {
+                    $candidates += [IO.Path]::Combine($library,'steamapps/common/Kingdoms of Amalur Re-Reckoning')
+                }
+            }
         }
     }
     if (!$browse) {
-        foreach ($candidate in $candidates) { if (Test-Path -LiteralPath (Join-Path $candidate 'koa.exe')) { return (Resolve-Path -LiteralPath $candidate).Path } }
+        foreach ($candidate in $candidates) {
+            if ($candidate -and [IO.Directory]::Exists($candidate) -and [IO.File]::Exists([IO.Path]::Combine($candidate,'koa.exe'))) {
+                return (Resolve-Path -LiteralPath $candidate).Path
+            }
+        }
     }
     if ($explicit) { throw 'koa.exe was not found in the selected directory.' }
     Add-Type -AssemblyName System.Windows.Forms
