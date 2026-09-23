@@ -14,6 +14,8 @@ Other dependencies download automatically. Updates keep settings and saves.
 
 ## Controls
 
+**Click on both sticks to open VR settings.** Keep both sticks centered.
+
 ![Quest 3 controller bindings](docs/quest-3-controls.svg)
 
 | Input | Action |
@@ -23,19 +25,18 @@ Other dependencies download automatically. Updates keep settings and saves.
 | Deflect left stick, then hold both stick clicks | D-pad: left = health; right = mana; up = aggressive mode |
 | Left stick click: tap / hold 350 ms | Map / quick wheel |
 | Left grip near supported weapon | Offhand support |
-| Both stick clicks, centered | Developer panel; release before navigating |
+| Both stick clicks, centered | VR settings; release before navigating |
 | Raised sword / right grip | Experimental longsword charge |
 
 Menus: right stick navigates; face buttons keep native actions. Y selects weapon; right trigger attacks.
 
 **[Full controls and gestures](CONTROLS.md)**
 
-## Current work
+## Features
 
-- Stereo VR, Touch controls, snap turning, crouching and seated mode.
-- Tracked body, arms and weapons; experimental motion combat.
-- Wrist HUD, controller menus and adjustable rendering.
-- VR cutscenes, dialogue and cinematic screens.
-- Hidden bridge; starts and closes with the game.
-- Automatic Continue and autosave enabled.
-- **Report a Bug.cmd**: logs + optional three saves → no-login form.
+- First-person combat with physical melee. Spells auto-target like the original game.
+- VR dialogue and full-VR cutscenes, except pre-rendered videos.
+- Right grip over shoulder: tap to sheathe; hold to unsheathe.
+- Automatically skips the menu and continues your latest save.
+- Wrist HUD.
+- Snap turning, physical crouching and seated mode.
