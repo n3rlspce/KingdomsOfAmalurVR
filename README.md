@@ -34,11 +34,11 @@ Other dependencies download automatically. Updates keep settings and saves.
 | Left stick | Move / navigate menus |
 | Right stick left/right | 30-degree snap turn; return to center between turns |
 | Y | Select primary or secondary weapon in gameplay; native Y action in dialogue and menus (including shop) |
-| Right trigger | Attack with the selected weapon (temporary fallback while physical melee is experimental) |
+| Right trigger | Attack with the selected weapon in gameplay (temporary fallback); native RT for tabs in menus |
 | A | Dodge / confirm |
 | B | Interact, sprint / back |
 | X | Primary weapon attack |
-| Left trigger | Block |
+| Left trigger | Block in gameplay; native LT for tabs in menus |
 | Right grip + A/B/X/Y | Native ability modifier + corresponding gamepad face button |
 | Left grip | Reserved for support-hand grabbing |
 | Left trigger + right trigger | Reckoning mode in the local developer build; unavailable in the linked preview download |

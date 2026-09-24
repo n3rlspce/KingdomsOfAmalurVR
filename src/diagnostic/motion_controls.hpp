@@ -3,6 +3,7 @@
 #include "controller_ui_mode.hpp"
 #include "interaction_prompt_trace.hpp"
 #include "native_finisher_state.hpp"
+#include "game_pause.hpp"
 #include "../tracking/finisher_automation.hpp"
 #include "../tracking/finisher_manual.hpp"
 #include "../tracking/motion_input.hpp"
@@ -116,8 +117,10 @@ inline DWORD WINAPI getState(DWORD index,XINPUT_STATE* state){
     // Head-pose availability is independent of button input.
     controller_ui_mode::update(active);
     if(result!=ERROR_SUCCESS)*state={};
+    // Menu tabs use native RT. The idle melee spell filter must only own RT
+    // while the game clock is in unpaused gameplay.
     const bool physicalMelee=active&&contactEnabled.load()&&firstPerson.load()
-        &&!interfaceView.load()&&!dialogueActive.load();
+        &&!interfaceView.load()&&!dialogueActive.load()&&game_pause::sample(true)==0;
     if(!physicalMelee){spellSequence.reset();explicitSpellUntil.store(0);}
     if(active){
         // Item radial directions belong to its screen-space selector, not the
