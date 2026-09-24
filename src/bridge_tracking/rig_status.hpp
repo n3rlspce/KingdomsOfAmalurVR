@@ -5,9 +5,10 @@
 namespace amalur {
 // Fixed-width, process-independent diagnostics. Contains no native pointers.
 struct RigStatus {
-    uint32_t version{1}, pid{}, tick{}, frames{}, remaps{}, weaponRemaps{};
+    uint32_t version{2}, pid{}, tick{}, frames{}, remaps{}, weaponRemaps{};
     uint32_t focused{}, tracked{}, firstPerson{}, handFresh{}, weaponSlot{}, sourceBone{};
     int32_t paused{-1};
+    uint32_t dialogueActive{};
     uint32_t nativeWeaponSlot{};
     float nativeWrist[3]{}, nativeSocket[3]{}, renderedSocket[3]{};
 };
@@ -17,7 +18,7 @@ public:
     ~RigStatusChannel(){if(memory_)UnmapViewOfFile(memory_);if(mapping_)CloseHandle(mapping_);if(mutex_)CloseHandle(mutex_);}
     bool open(bool writer){
         if(memory_)return true;
-        const auto name=L"Local\\AmalurRigStatusV1",lock=L"Local\\AmalurRigStatusMutexV1";
+        const auto name=L"Local\\AmalurRigStatusV2",lock=L"Local\\AmalurRigStatusMutexV2";
         mapping_=writer?CreateFileMappingW(INVALID_HANDLE_VALUE,nullptr,PAGE_READWRITE,0,sizeof(RigStatus),name):OpenFileMappingW(FILE_MAP_READ,FALSE,name);
         mutex_=writer?CreateMutexW(nullptr,FALSE,lock):OpenMutexW(SYNCHRONIZE|MUTEX_MODIFY_STATE,FALSE,lock);
         if(mapping_&&mutex_)memory_=MapViewOfFile(mapping_,writer?FILE_MAP_WRITE:FILE_MAP_READ,0,0,sizeof(RigStatus));

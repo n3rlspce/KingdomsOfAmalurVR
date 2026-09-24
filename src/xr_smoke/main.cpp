@@ -414,7 +414,7 @@ int main(int argc,char** argv) {
                 touch.rightThumbrest=button(thumbrest,1);
                 // Cache across nonblocking mutex misses; expiry still cancels gameplay.
                 amalur::RigStatus freshRig;
-                if(rigStatus.transfer(freshRig,false)&&freshRig.version==1)latestRig=freshRig;
+                if(rigStatus.transfer(freshRig,false)&&freshRig.version==2)latestRig=freshRig;
                 if(gameMode){
                     gameFocus.onMenuSample(touch.menu,latestRig.pid);
                     const auto focusResult=gameFocus.poll(latestRig.pid);
@@ -422,7 +422,7 @@ int main(int argc,char** argv) {
                     else if(focusResult==GameFocusRestorer::Result::TimedOut)std::cout<<"Game focus restoration timed out.\n";
                 }
                 const bool gameplay=!settings.interfaceView&&latestRig.pid&&GetTickCount()-latestRig.tick<1000
-                    &&latestRig.weaponRemaps>0&&latestRig.paused==0;
+                    &&latestRig.weaponRemaps>0&&latestRig.paused==0&&!latestRig.dialogueActive;
                 const bool resizeContext=gameMode&&render&&sourceReady&&gameFrame.gameMode==6
                     &&!trackedGame&&!mapPanelFrame&&!settings.panelOpen()&&VrSettings::gameFocused();
                 const bool resizeScreen=amalur::CinematicResize::ownsInput(resizeContext,touch.leftGrip,touch.rightGrip);
