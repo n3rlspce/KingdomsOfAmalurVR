@@ -52,7 +52,6 @@ inline void publish(){
     current.remaps=arm_rig::samples.load();current.focused=motion_controls::gameFocused();
     current.firstPerson=firstPerson.load();current.tracked=trackedCameraAvailable.load();
     current.paused=game_pause::sample(current.weaponRemaps!=0);
-    current.dialogueActive=motion_controls::dialogueActive.load();
     AcquireSRWLockShared(&weapon_control::poseLock);
     auto now=GetTickCount64();current.handFresh=weapon_control::tick&&weapon_control::tick<=now&&now-weapon_control::tick<150;
     ReleaseSRWLockShared(&weapon_control::poseLock);
