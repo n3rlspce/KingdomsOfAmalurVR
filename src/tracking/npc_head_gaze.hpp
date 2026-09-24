@@ -16,7 +16,9 @@ inline bool npcHeadGaze(const RigBone* native,RigBone* output,unsigned count,
     }
     if(head==count||!mgs5vr::valid(bonePose(native[head])))return false;
     const Pose worldHead=mgs5vr::compose(root,bonePose(native[head]));
-    Vec3 from=mgs5vr::rotate(worldHead.orientation,{1,0,0}),to=viewer-worldHead.position;
+    // The verified Amalur head bind pose points local +X up the neck. Its
+    // face looks along local -Y; aiming +X pitched every NPC toward the floor.
+    Vec3 from=mgs5vr::rotate(worldHead.orientation,{0,-1,0}),to=viewer-worldHead.position;
     const float distance2=mgs5vr::dot(to,to);
     if(!std::isfinite(distance2)||distance2<900.f||distance2>360000.f||
        !normalize(from)||!normalize(to))return false;
