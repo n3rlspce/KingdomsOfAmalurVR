@@ -1,5 +1,9 @@
 # Preview packaging
 
+Every push to `main` runs `.github/workflows/release.yml`: build Win32 mod, bridge and helpers; run gameplay and installer checks; publish a complete experimental release. The README uses the permanent `releases/latest/download/KingdomsOfAmalurVR.zip` link. Failed runs retain the last successful download. `workflow_dispatch` allows a retry.
+
+CI uses `build_ci_package.py` and the checked-in `baseline/` manifest, sparse executable patch and integration defaults. It needs no game installation, saves or personal token. Source-owned scripts, shaders, settings and binaries are rebuilt/copied from the current commit. External dependencies remain pinned. When changing patch/default baseline files, refresh their matching hashes in the baseline manifest. The original `build_package.py` remains available for validating an updated baseline against a local installation.
+
 End users use the ZIP's Windows launchers; Python and a compiler are not required on their PCs. See [installation instructions](../../docs/INSTALL.md).
 
 The maintainer builds the diagnostic DLL and bridge from the integrated source (Win32, `AMALUR_OWNED_MELEE=ON` for the current experimental preview), builds the developer/menu helpers, and verifies the installed baseline. The package builder consumes that verified installation and a receipt rather than guessing which of several build folders is current. It does not change the game.
@@ -14,7 +18,7 @@ Use a fresh output directory. The game directory must contain the checksummed or
 
 The payload is an explicit list: mod DLL, bridge/helpers, approved fresh-install VR preset, current integration configuration, selected authored Lua scripts/behavior markers, authored shader changes, and the licensed OpenXR loader. Dependency files are imported only by exact name and SHA-256. geo11 v0.6.56 and Mike_ar69's stereo archive are downloaded from the original hosts with pinned archive hashes. The framework is not redistributed or automatically downloaded from behind Nexus login. Its original DLLs must be supplied by the user.
 
-The builder deliberately excludes saves, game archives, debug logs, native shader bytecode caches, runtime requests, game executable, original-file backups, and capture markers/data. `manifest.json` records the release source commit and every payload/dependency hash. Publish the ZIP and its SHA-256 sidecar as a GitHub **prerelease**, with a version-specific README download link (`releases/latest` does not select prereleases).
+The builder deliberately excludes saves, game archives, debug logs, native shader bytecode caches, runtime requests, game executable, original-file backups, and capture markers/data. `manifest.json` records the release source commit and every payload/dependency hash. CI uploads the ZIP and SHA-256 sidecar into a draft before publishing it as the latest release. Releases are explicitly titled experimental; GitHub prerelease status is not used because `releases/latest` excludes prereleases.
 
 The installer checks all inputs before mutations, backs up originals, rolls back failed copies, retains existing user settings during updates, and preserves edited files during uninstall. Tests cover these behaviors in a disposable fixture, including path traversal and checksum rejection. The real-package test additionally uses the exact supported original executable, imports framework files locally, downloads the two upstream archives, and verifies all installed files. Never launch fixture executables or use live saves for installer tests.
 

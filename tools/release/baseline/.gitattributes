@@ -1,0 +1,3 @@
+# Preserve checksummed baseline bytes on Windows and Linux checkouts.
+* -text
+payload/** -text

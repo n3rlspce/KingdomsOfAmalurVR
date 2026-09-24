@@ -1,0 +1,765 @@
+{
+  "version": "0.1.0-preview.8",
+  "sourceCommit": "7ee346ed1c1d9f21dcba28c9b6b88adf5accc983",
+  "game": {
+    "originalHash": "16a400f6e8fc10dbe446a9e57717de9fbe975ef17c004f4ca405e2e4e09cb314",
+    "patchedHash": "6287bce152c088fec927c872f0309573ef1ef09a39d70d81040cd801c16ef8b1",
+    "patch": "game-patch.json",
+    "patchHash": "3a280ce7ae72a2f46fc8e139afbad3a9dd33c4d27939ba2e8e477dc174237d60"
+  },
+  "files": [
+    {
+      "target": "amalur_camera.dll",
+      "source": "payload/amalur_camera.dll",
+      "sha256": "56e033dbe3e7c2996322d9cfdeddbe253a07464222883ee5ce38449cd11dd93f",
+      "preserve": false
+    },
+    {
+      "target": "AmalurVR/amalur-xr-smoke.exe",
+      "source": "payload/AmalurVR/amalur-xr-smoke.exe",
+      "sha256": "e9b229d495419d7c8e011547f4ab31c017e2b0776f019eed460ad96655ead567",
+      "preserve": false
+    },
+    {
+      "target": "AmalurVR/amalur-dev-send.exe",
+      "source": "payload/AmalurVR/amalur-dev-send.exe",
+      "sha256": "be54db8c6d27d3c403993657f7bbbda33406e0bb6e8b286862613ca28ffc8a9b",
+      "preserve": false
+    },
+    {
+      "target": "AmalurVR/amalur-menu-send.exe",
+      "source": "payload/AmalurVR/amalur-menu-send.exe",
+      "sha256": "1a7887c6ff0d2af235c0e65dcfd0be722ab10891bec9ddf1dd33bd0d0f9cde0c",
+      "preserve": false
+    },
+    {
+      "target": "AmalurVR/amalur-vr.ini",
+      "source": "payload/AmalurVR/amalur-vr.ini",
+      "sha256": "b05b04ff3963b5a8dbb1b601204d14f31f935bc88a61e35a295beff2c6d2f04b",
+      "preserve": true
+    },
+    {
+      "target": "AmalurVR/AutoStart.ps1",
+      "source": "payload/AmalurVR/AutoStart.ps1",
+      "sha256": "981c1b9387601ad0ace11c2136bdc9fba53f466f61654cb326d2f418ce15a77f",
+      "preserve": false
+    },
+    {
+      "target": "AmalurVR/Launch.ps1",
+      "source": "payload/AmalurVR/Launch.ps1",
+      "sha256": "fc4eb5bbdf6d3d5f8dcbb75dd84d0040b5a84a8f7911ed91d310f42dad09d9e9",
+      "preserve": false
+    },
+    {
+      "target": "AmalurVR/Common.ps1",
+      "source": "payload/AmalurVR/Common.ps1",
+      "sha256": "cfeb3b3c9150d0489cfd59efbba0f806e8f9ecd0095e9d41cb71f32ee8f28b87",
+      "preserve": false
+    },
+    {
+      "target": "d3dx.ini",
+      "source": "payload/d3dx.ini",
+      "sha256": "eae6b762f0ca2c30a4cfbfbb374e25b9b7a2b67d5d88f0309a8c0c09e5d3ba93",
+      "preserve": false
+    },
+    {
+      "target": "d3dxdm.ini",
+      "source": "payload/d3dxdm.ini",
+      "sha256": "b6e4a467ef4934a4dd842be6533ca4c4716f579d8edbde9c79ac98c296f05057",
+      "preserve": false
+    },
+    {
+      "target": "amalur-source.ini",
+      "source": "payload/amalur-source.ini",
+      "sha256": "b7f39467219a2a32c789453dc12bdbbb61df176a13e6c18bbf292c523c4168c0",
+      "preserve": true
+    },
+    {
+      "target": "mods/amalur_dev.lua",
+      "source": "payload/mods/amalur_dev.lua",
+      "sha256": "ff228cceb7a110b0cc667dd97c5a167c3455bb19d0c9aa4880c2e13b7e63fee8",
+      "preserve": false
+    },
+    {
+      "target": "mods/amalur_dispatch.json",
+      "source": "payload/mods/amalur_dispatch.json",
+      "sha256": "f7e5cc8e8cae014a82bd154334c12debd27136397ac645728df0db7b69e724d1",
+      "preserve": false
+    },
+    {
+      "target": "mods/amalur_dispatch.lua",
+      "source": "payload/mods/amalur_dispatch.lua",
+      "sha256": "5612695ae78e5f7d641dd6dc819f3bc46a37cd54e9d2c60bc25009febbb6795e",
+      "preserve": false
+    },
+    {
+      "target": "mods/amalur_menu.json",
+      "source": "payload/mods/amalur_menu.json",
+      "sha256": "a3412bf2ed02221a7b8c5b5c31406e3d402ea3c8594187e825aa9a0b757bccb3",
+      "preserve": false
+    },
+    {
+      "target": "mods/amalur_menu.lua",
+      "source": "payload/mods/amalur_menu.lua",
+      "sha256": "7b4fe57a4324023eb5948063decd523b14bc6ce5117930846bd6211771af6da4",
+      "preserve": false
+    },
+    {
+      "target": "mods/amalur_startup.json",
+      "source": "payload/mods/amalur_startup.json",
+      "sha256": "98029a0506a9bd65b4dd4b07c05e079e1c06b1c1b91bc41f2bc161f5a19b124c",
+      "preserve": false
+    },
+    {
+      "target": "mods/amalur_startup.lua",
+      "source": "payload/mods/amalur_startup.lua",
+      "sha256": "3847945f489adc68a6b480e92d25944b7bb75670537af83334442436d53cd913",
+      "preserve": false
+    },
+    {
+      "target": "mods/amalur_vr_cinematics.json",
+      "source": "payload/mods/amalur_vr_cinematics.json",
+      "sha256": "e1b4c104cd5ca41e8fbd19cfa8c7465190bc8949beefac3b0f863ab5993aaa70",
+      "preserve": false
+    },
+    {
+      "target": "mods/amalur_vr_cinematics.lua",
+      "source": "payload/mods/amalur_vr_cinematics.lua",
+      "sha256": "de4bd3f56f7c775808cc0aea4a37d87bbad54ddf4c437c2c7b63fb04ebd0ae5c",
+      "preserve": false
+    },
+    {
+      "target": "mods/amalur_vr_cinematics_entry.lua",
+      "source": "payload/mods/amalur_vr_cinematics_entry.lua",
+      "sha256": "d285b84027db61f029f7bf82c4c1bd16820d80790868077c081db2f0ebcd3efb",
+      "preserve": false
+    },
+    {
+      "target": "mods/amalur_vr_dialogue_gaze.lua",
+      "source": "payload/mods/amalur_vr_dialogue_gaze.lua",
+      "sha256": "1e0029e32713920fa31e631b69fb86e3d2d4946196685ad28bdc96d2f94d75a4",
+      "preserve": false
+    },
+    {
+      "target": "mods/amalur_finisher_icon.json",
+      "source": "payload/mods/amalur_finisher_icon.json",
+      "sha256": "df45aa3d09c3e71ce4311dc14da5ee96f9b22bf19d7b3d9dc9c8192935a40eee",
+      "preserve": false
+    },
+    {
+      "target": "mods/amalur_finisher_icon.lua",
+      "source": "payload/mods/amalur_finisher_icon.lua",
+      "sha256": "d82ca98c0805681533ce1580b026e3d4603d13b627bbf5d9e187da617d5d6949",
+      "preserve": false
+    },
+    {
+      "target": "mods/amalur_save_anywhere.json",
+      "source": "payload/mods/amalur_save_anywhere.json",
+      "sha256": "2cafd4d6ccfab2e51b27a4b077ce785e03a017244e15ad40039063cd9c50b5bb",
+      "preserve": false
+    },
+    {
+      "target": "mods/amalur_save_anywhere.lua",
+      "source": "payload/mods/amalur_save_anywhere.lua",
+      "sha256": "01829bce897df5c1891f8a7a8403473869351d5db46ed280d4865c0d92d0fb51",
+      "preserve": false
+    },
+    {
+      "target": "mods/amalur_startup_options.txt",
+      "source": "payload/mods/amalur_startup_options.txt",
+      "sha256": "e9f85a2809c742d84d6a8b57e28cf0cb5b657ba5b923797ad0041567700bb75d",
+      "preserve": true
+    },
+    {
+      "target": "amalur-owned-melee.enable",
+      "source": "payload/amalur-owned-melee.enable",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "preserve": false
+    },
+    {
+      "target": "amalur-melee-contact.enable",
+      "source": "payload/amalur-melee-contact.enable",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "preserve": false
+    },
+    {
+      "target": "amalur-melee-effects-probe.enable",
+      "source": "payload/amalur-melee-effects-probe.enable",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "preserve": false
+    },
+    {
+      "target": "d3d11.dll",
+      "name": "d3d11.dll",
+      "sha256": "a1ac6ef9799672c0db1d5b2ca8d1af027cb4352afd2c7cd79b1b3e300c694396",
+      "dependency": "geo11",
+      "preserve": false
+    },
+    {
+      "target": "nvapi.dll",
+      "name": "nvapi.dll",
+      "sha256": "8eabee0c55ffdfbd57ee4d248ee7a7382dbe29d6e596890384eb4331fc03de9a",
+      "dependency": "geo11",
+      "preserve": false
+    },
+    {
+      "target": "d3dcompiler_47.dll",
+      "name": "d3dcompiler_47.dll",
+      "sha256": "da3767291825d2e98ef253664dcdd0838c448c61d2e8340e6e6d8afe68edf8c1",
+      "dependency": "geo11",
+      "preserve": false
+    },
+    {
+      "target": "d3dcompiler_46.dll",
+      "name": "d3dcompiler_46.dll",
+      "sha256": "60f76ec7169397c425023d5927a3c3c34599fa329814053cace6171e20adb353",
+      "dependency": "stereo",
+      "preserve": false
+    },
+    {
+      "target": "dinput8.dll",
+      "name": "dinput8.dll",
+      "sha256": "46d8bbaa20b09fa000cfd4a3e2e54f5412bc1c925530fe3626eee6a4d2a8c55e",
+      "dependency": "framework",
+      "preserve": false
+    },
+    {
+      "target": "re_mod.dll",
+      "name": "re_mod.dll",
+      "sha256": "41c3db0ad190c47d1906c40b3f22901b8b4157298993823208ba63f537a3d7c6",
+      "dependency": "framework",
+      "preserve": false
+    },
+    {
+      "target": "AmalurVR/openxr_loader.dll",
+      "source": "payload/AmalurVR/openxr_loader.dll",
+      "sha256": "fb1e06de965390f929c2c5f714ce665b673c161ced16aff1cb2b087c022415fa",
+      "preserve": false
+    },
+    {
+      "target": "ShaderFixes/01b4df9794ffefd6-vs_replace.txt",
+      "name": "01b4df9794ffefd6-vs_replace.txt",
+      "sha256": "b27992743182aa430a626f18a9f4c808db86934ec8547880e6233830102a728c",
+      "dependency": "stereo",
+      "preserve": false
+    },
+    {
+      "target": "ShaderFixes/04cea8554d23124c-vs_replace.txt",
+      "name": "04cea8554d23124c-vs_replace.txt",
+      "sha256": "d278f71b840919a98b96c06253133f572821877b5168bbba2b1845cfe9b8aad1",
+      "dependency": "stereo",
+      "preserve": false
+    },
+    {
+      "target": "ShaderFixes/0514e93447dd51c2-vs_replace.txt",
+      "name": "0514e93447dd51c2-vs_replace.txt",
+      "sha256": "b7ccd6f405b6928da19a2bd10565072150ec2af008a9961ca4a7f277cad2a152",
+      "dependency": "stereo",
+      "preserve": false
+    },
+    {
+      "target": "ShaderFixes/0d3ae283d14995cb-vs_replace.txt",
+      "name": "0d3ae283d14995cb-vs_replace.txt",
+      "sha256": "a798cc20c5131e72c296e1d45350e27d471f9789fcda2daeec22aad8ab7c1f00",
+      "dependency": "stereo",
+      "preserve": false
+    },
+    {
+      "target": "ShaderFixes/1157b6758f3dd3d5-vs_replace.txt",
+      "name": "1157b6758f3dd3d5-vs_replace.txt",
+      "sha256": "1e0f76166a9a92a11cb4b141a6c60e36d23c22980573bf2aadd9a269926b1532",
+      "dependency": "stereo",
+      "preserve": false
+    },
+    {
+      "target": "ShaderFixes/1cbc1ada800c00e2-vs_replace.txt",
+      "name": "1cbc1ada800c00e2-vs_replace.txt",
+      "sha256": "b49ce4697ea9661adb5f8a51f84dbd52fb65704dfc0865d84a5ccc97ec8a0062",
+      "dependency": "stereo",
+      "preserve": false
+    },
+    {
+      "target": "ShaderFixes/1cff71683f8c41a4-vs_replace.txt",
+      "name": "1cff71683f8c41a4-vs_replace.txt",
+      "sha256": "eb1017d9ea1f25341efbf38ae49c1ae6ea4e0b231e28f01c3e3b45a16d799373",
+      "dependency": "stereo",
+      "preserve": false
+    },
+    {
+      "target": "ShaderFixes/2174a9945e0d6f19-vs_replace.txt",
+      "name": "2174a9945e0d6f19-vs_replace.txt",
+      "sha256": "15dc15a734e1d18f10d1e49d791c0bc13ce1246c39e4a4797c9fec9d84b835f7",
+      "dependency": "stereo",
+      "preserve": false
+    },
+    {
+      "target": "ShaderFixes/2188e44683ca20ff-vs_replace.txt",
+      "name": "2188e44683ca20ff-vs_replace.txt",
+      "sha256": "ac7aeba309a8f259de6808fc81640bf3ad5b6b6cfe106cf6ffc0b7553055865f",
+      "dependency": "stereo",
+      "preserve": false
+    },
+    {
+      "target": "ShaderFixes/25eec1af3d7a01f1-vs_replace.txt",
+      "name": "25eec1af3d7a01f1-vs_replace.txt",
+      "sha256": "cad4779425b16f4981957bae777ee3baa87fa600c74d8d7bb0842606ba44e0dd",
+      "dependency": "stereo",
+      "preserve": false
+    },
+    {
+      "target": "ShaderFixes/346a65a0beb424fa-vs_replace.txt",
+      "name": "346a65a0beb424fa-vs_replace.txt",
+      "sha256": "cf1080fb65bb0d9a4f58068d1e566d21c6546965c218fad33f32c4fac63ec416",
+      "dependency": "stereo",
+      "preserve": false
+    },
+    {
+      "target": "ShaderFixes/3c8d97af32e23d27-vs_replace.txt",
+      "name": "3c8d97af32e23d27-vs_replace.txt",
+      "sha256": "51d1937604fa605ff6e9379229c1adbb445d78310a7213a56876c7f31df30110",
+      "dependency": "stereo",
+      "preserve": false
+    },
+    {
+      "target": "ShaderFixes/3d8f23c19971d34c-vs_replace.txt",
+      "name": "3d8f23c19971d34c-vs_replace.txt",
+      "sha256": "efd5ddb7fbd12735a5f8f6c68394f1bf4bc81b379dc0a00c21b1a8ee01fce3c6",
+      "dependency": "stereo",
+      "preserve": false
+    },
+    {
+      "target": "ShaderFixes/3dvision2sbs.hlsl",
+      "name": "3dvision2sbs.hlsl",
+      "sha256": "fb9bcb8590ba744c98ffe73cc35b59e8e806359ce56b16c6f0cce2564029ad62",
+      "dependency": "stereo",
+      "preserve": false
+    },
+    {
+      "target": "ShaderFixes/45609ecf4a39f131-vs_replace.txt",
+      "name": "45609ecf4a39f131-vs_replace.txt",
+      "sha256": "711f2022d90a4a9dedd68082034e2d809fecd41d6de6963ca2cb6d77f3d8cce6",
+      "dependency": "stereo",
+      "preserve": false
+    },
+    {
+      "target": "ShaderFixes/45664df137101672-vs_replace.txt",
+      "name": "45664df137101672-vs_replace.txt",
+      "sha256": "626d95714bca0065541c6699631063308b3061da417ca8cdaa5ee559d9be22e2",
+      "dependency": "stereo",
+      "preserve": false
+    },
+    {
+      "target": "ShaderFixes/49731588ccc09555-vs_replace.txt",
+      "name": "49731588ccc09555-vs_replace.txt",
+      "sha256": "083eb0c4fd574c54621c86df43b40a1d7b862ce2517de5be48c4d691e9f17dfa",
+      "dependency": "stereo",
+      "preserve": false
+    },
+    {
+      "target": "ShaderFixes/4e7cf202a1f1344f-vs_replace.txt",
+      "name": "4e7cf202a1f1344f-vs_replace.txt",
+      "sha256": "c529787d91f7422a851a876064e556bfc39485b2c2112894ff31e83a6eff8e77",
+      "dependency": "stereo",
+      "preserve": false
+    },
+    {
+      "target": "ShaderFixes/51efe25f81bce92e-vs_replace.txt",
+      "name": "51efe25f81bce92e-vs_replace.txt",
+      "sha256": "03308fd3cfcc0b5dcb6eb29a901453a4b0b5608366c970f90a634af1f586cef7",
+      "dependency": "stereo",
+      "preserve": false
+    },
+    {
+      "target": "ShaderFixes/5ccd5871a2f11c10-vs_replace.txt",
+      "name": "5ccd5871a2f11c10-vs_replace.txt",
+      "sha256": "943ec37cf652f62aace114c4d2b573d8feafb04c0dfbefa552ce67c602278cf8",
+      "dependency": "stereo",
+      "preserve": false
+    },
+    {
+      "target": "ShaderFixes/607e2b35b199fd2e-vs_replace.txt",
+      "name": "607e2b35b199fd2e-vs_replace.txt",
+      "sha256": "e22754ad1b6682b0d5117c93ea5e3806bdbb88c2177879644f185fbc048c6bef",
+      "dependency": "stereo",
+      "preserve": false
+    },
+    {
+      "target": "ShaderFixes/65feb41e9f657413-vs_replace.txt",
+      "name": "65feb41e9f657413-vs_replace.txt",
+      "sha256": "caee6133a0a7507c8e8602ae95a8ec16cd6057749e1cd407a5fc12cbff07b15a",
+      "dependency": "stereo",
+      "preserve": false
+    },
+    {
+      "target": "ShaderFixes/6906ab062e503c2a-vs_replace.txt",
+      "name": "6906ab062e503c2a-vs_replace.txt",
+      "sha256": "1fdf12074ee611d5b00d53606fa32775e8aecf9cb62b1580a18939704adfef3d",
+      "dependency": "stereo",
+      "preserve": false
+    },
+    {
+      "target": "ShaderFixes/6fc19bd251370dde-vs_replace.txt",
+      "name": "6fc19bd251370dde-vs_replace.txt",
+      "sha256": "d0ff08adf3b0797aac87bc2e06f7a4021b46bfef6a724aee8bcecff21a4bdf05",
+      "dependency": "stereo",
+      "preserve": false
+    },
+    {
+      "target": "ShaderFixes/701dc3a41ca8e260-vs_replace.txt",
+      "name": "701dc3a41ca8e260-vs_replace.txt",
+      "sha256": "98c5fefe1cc798bc5afd318029c14c5c8f642a17ac6dd805a16d1085272733fd",
+      "dependency": "stereo",
+      "preserve": false
+    },
+    {
+      "target": "ShaderFixes/70c4bbd96e64439d-vs_replace.txt",
+      "name": "70c4bbd96e64439d-vs_replace.txt",
+      "sha256": "639f2fe2a7d4d32cba030a739bcc2c4103305b6df45ee5a2a594806310bb1a44",
+      "dependency": "stereo",
+      "preserve": false
+    },
+    {
+      "target": "ShaderFixes/70cb74e8851ceb78-vs_replace.txt",
+      "name": "70cb74e8851ceb78-vs_replace.txt",
+      "sha256": "c27cedc7a280269fbad3385fec827d8096c7adf8b15b41bf5a1455c1ac46ba34",
+      "dependency": "stereo",
+      "preserve": false
+    },
+    {
+      "target": "ShaderFixes/74afef7bfefe4e74-vs_replace.txt",
+      "name": "74afef7bfefe4e74-vs_replace.txt",
+      "sha256": "0fb1f3833fafcd8ce8aa7e96da4ba31170b48e0bf206a291e435bc3348cf3a3c",
+      "dependency": "stereo",
+      "preserve": false
+    },
+    {
+      "target": "ShaderFixes/756461782203e9db-vs_replace.txt",
+      "name": "756461782203e9db-vs_replace.txt",
+      "sha256": "dfafdb23a73c0cbfa03cca803be1a39c32cdc13a84ddc5640a3ebbdb3bb1eee4",
+      "dependency": "stereo",
+      "preserve": false
+    },
+    {
+      "target": "ShaderFixes/78f34dbb6ee48160-vs_replace.txt",
+      "name": "78f34dbb6ee48160-vs_replace.txt",
+      "sha256": "b8fdf004ae490069ac443037b3976297dfb1527e39ff13572b785ded529fa8a7",
+      "dependency": "stereo",
+      "preserve": false
+    },
+    {
+      "target": "ShaderFixes/7e79678845e0787c-ps_replace.txt",
+      "name": "7e79678845e0787c-ps_replace.txt",
+      "sha256": "ce01bb7f253df7e77a253049bde363c6f684ff71bef8f4bb1b6941a5fdd1cfe9",
+      "dependency": "stereo",
+      "preserve": false
+    },
+    {
+      "target": "ShaderFixes/83d2c427d11ac852-vs_replace.txt",
+      "name": "83d2c427d11ac852-vs_replace.txt",
+      "sha256": "aea7dad5e2380d6795641a7f3a08713a12fd22fc74432f129a0edb1aa2f7ed86",
+      "dependency": "stereo",
+      "preserve": false
+    },
+    {
+      "target": "ShaderFixes/86c954fd36054e48-vs_replace.txt",
+      "name": "86c954fd36054e48-vs_replace.txt",
+      "sha256": "4a3a46583400b71a86541919c3b4876b43bfaeed32d64d2778ec66e070272fbb",
+      "dependency": "stereo",
+      "preserve": false
+    },
+    {
+      "target": "ShaderFixes/887f6506d28f9ff1-vs_replace.txt",
+      "source": "payload/ShaderFixes/887f6506d28f9ff1-vs_replace.txt",
+      "sha256": "a80bc34f25de8147394b5654a0802a3c9a494594f18b0e9503c784bee8393592",
+      "preserve": false
+    },
+    {
+      "target": "ShaderFixes/94427b7d0a38b293-vs_replace.txt",
+      "name": "94427b7d0a38b293-vs_replace.txt",
+      "sha256": "81ca72a1ffe65397071bc8c8a3d7a8ca1d661ad445ebf337ad3ddd276172ee6c",
+      "dependency": "stereo",
+      "preserve": false
+    },
+    {
+      "target": "ShaderFixes/98f2714cf8e584d8-vs_replace.txt",
+      "name": "98f2714cf8e584d8-vs_replace.txt",
+      "sha256": "9c2132c5d53c75efd34da0e1e321b3230e91fc50a79f555c3a6f4fa1f85278dc",
+      "dependency": "stereo",
+      "preserve": false
+    },
+    {
+      "target": "ShaderFixes/9c6852a6a2e4ae09-vs_replace.txt",
+      "name": "9c6852a6a2e4ae09-vs_replace.txt",
+      "sha256": "b8b408b25a58a7b2bf86b5277a36e73c80d63b5e3b0dc8b87cb50b4d9b7c2ef1",
+      "dependency": "stereo",
+      "preserve": false
+    },
+    {
+      "target": "ShaderFixes/a5ec1791b0ddbfdf-vs_replace.txt",
+      "name": "a5ec1791b0ddbfdf-vs_replace.txt",
+      "sha256": "fa0fd0eddbb630239111051a6d269249b723b77fd9306837650dd57ad9c6dbd4",
+      "dependency": "stereo",
+      "preserve": false
+    },
+    {
+      "target": "ShaderFixes/a60d571793f92f31-vs_replace.txt",
+      "name": "a60d571793f92f31-vs_replace.txt",
+      "sha256": "20c577091c8a5267e6e7cec59d2724e6e6e61daa2384bc034f80004133a4d520",
+      "dependency": "stereo",
+      "preserve": false
+    },
+    {
+      "target": "ShaderFixes/a980c952c9ed2173-vs_replace.txt",
+      "name": "a980c952c9ed2173-vs_replace.txt",
+      "sha256": "f53927888da4967632d599b7135daba95147282adc553920ed299906ead16c73",
+      "dependency": "stereo",
+      "preserve": false
+    },
+    {
+      "target": "ShaderFixes/a99ff5471ba2b30f-vs_replace.txt",
+      "name": "a99ff5471ba2b30f-vs_replace.txt",
+      "sha256": "bfd9bb5bc158a30296cd7f4eec9c2019c6b936812fbca76ede9100e5eada36fb",
+      "dependency": "stereo",
+      "preserve": false
+    },
+    {
+      "target": "ShaderFixes/acc713f2e93afc1b-vs_replace.txt",
+      "name": "acc713f2e93afc1b-vs_replace.txt",
+      "sha256": "85979dd024ad79227be75cbb86d9e906d34a36fe7e8f7a9dde0e1b900332b7e9",
+      "dependency": "stereo",
+      "preserve": false
+    },
+    {
+      "target": "ShaderFixes/af3c8c36b17e219d-ps_replace.txt",
+      "name": "af3c8c36b17e219d-ps_replace.txt",
+      "sha256": "01f529f01e4805f28a7e8eb7c450ccbaab4d419d7ab011a8b1f55a7d17fdb382",
+      "dependency": "stereo",
+      "preserve": false
+    },
+    {
+      "target": "ShaderFixes/afc4cf3f8cff574c-vs_replace.txt",
+      "name": "afc4cf3f8cff574c-vs_replace.txt",
+      "sha256": "2e0b4e5634a9038fb9c0531a3d953bb610f8fecc9fef0a0bc2b05c9ccc2dd985",
+      "dependency": "stereo",
+      "preserve": false
+    },
+    {
+      "target": "ShaderFixes/b5b179d546795821-vs_replace.txt",
+      "name": "b5b179d546795821-vs_replace.txt",
+      "sha256": "ce0e21501236cb9b9575aaa9cbb3c59de4308dadd7c8b4d2d1da41d38f3d034e",
+      "dependency": "stereo",
+      "preserve": false
+    },
+    {
+      "target": "ShaderFixes/b6757e8d1f13b0d6-vs_replace.txt",
+      "name": "b6757e8d1f13b0d6-vs_replace.txt",
+      "sha256": "e33ad2b6ccbe9086919170c997aa1238a7e24fe3aab58b0601d8b5868c93b4f1",
+      "dependency": "stereo",
+      "preserve": false
+    },
+    {
+      "target": "ShaderFixes/b67ce73de5fb559c-ps_replace.txt",
+      "name": "b67ce73de5fb559c-ps_replace.txt",
+      "sha256": "48f2932e26670c4f5e2926d919db52fa828a173ac4d63f1d611ea6cf42f2f011",
+      "dependency": "stereo",
+      "preserve": false
+    },
+    {
+      "target": "ShaderFixes/b87852f957972fd5-ps_replace.txt",
+      "name": "b87852f957972fd5-ps_replace.txt",
+      "sha256": "8af8b542aea4568d87557042a07469a28933359b3e717b9f3756dcc2887a3bd7",
+      "dependency": "stereo",
+      "preserve": false
+    },
+    {
+      "target": "ShaderFixes/b8d54a3d19c2c87a-vs_replace.txt",
+      "name": "b8d54a3d19c2c87a-vs_replace.txt",
+      "sha256": "ab0e4b178db44d7fac571b302be66cecea90b0968d033d079bbcabcdae77d0ce",
+      "dependency": "stereo",
+      "preserve": false
+    },
+    {
+      "target": "ShaderFixes/bafc902b0a400078-vs_replace.txt",
+      "name": "bafc902b0a400078-vs_replace.txt",
+      "sha256": "daf45d91805a24cd41de42c8faa5015da07a0850578817926c1c8967ceba0be6",
+      "dependency": "stereo",
+      "preserve": false
+    },
+    {
+      "target": "ShaderFixes/bd36cb1c25634725-vs_replace.txt",
+      "name": "bd36cb1c25634725-vs_replace.txt",
+      "sha256": "8c7d4fd7c3a6b6644a89c193ddb1a2db2b61985efc37d5fff2adff45e6906c11",
+      "dependency": "stereo",
+      "preserve": false
+    },
+    {
+      "target": "ShaderFixes/bd5fbc3a2392727f-vs_replace.txt",
+      "name": "bd5fbc3a2392727f-vs_replace.txt",
+      "sha256": "7f1e810a3b4eebe2a8c51496e57e40039b151f25670a03871d231e5dd3e2d059",
+      "dependency": "stereo",
+      "preserve": false
+    },
+    {
+      "target": "ShaderFixes/bd9cebc4f7e1ed36-vs_replace.txt",
+      "source": "payload/ShaderFixes/bd9cebc4f7e1ed36-vs_replace.txt",
+      "sha256": "839878992c671865355a3eb244d5c1ed76e7830aea7d04d9e7fc9fce6eadb7fe",
+      "preserve": false
+    },
+    {
+      "target": "ShaderFixes/be668044531d8aea-vs_replace.txt",
+      "name": "be668044531d8aea-vs_replace.txt",
+      "sha256": "ea7a4991dc8459e78b9e3158b67310f935d7355dfb3e473e29c58bf6cead440a",
+      "dependency": "stereo",
+      "preserve": false
+    },
+    {
+      "target": "ShaderFixes/bf098be2e4587ca5-vs_replace.txt",
+      "source": "payload/ShaderFixes/bf098be2e4587ca5-vs_replace.txt",
+      "sha256": "94c82c6f71b9870ffeeed2c808b3d66b0c5ba38994bd8aa133e94c1e0d4b0376",
+      "preserve": false
+    },
+    {
+      "target": "ShaderFixes/c6643cd8a5be5b2a-ps_replace.txt",
+      "name": "c6643cd8a5be5b2a-ps_replace.txt",
+      "sha256": "0978268eca863025480fbf5b4e640f150b983dec20918b7236a2a563758a1190",
+      "dependency": "stereo",
+      "preserve": false
+    },
+    {
+      "target": "ShaderFixes/cc7258d9790a0bbd-vs_replace.txt",
+      "source": "payload/ShaderFixes/cc7258d9790a0bbd-vs_replace.txt",
+      "sha256": "38016b56fab90e3a99a8327a1cda26fcb97f50204123a3e7e14476ade4c7bc9b",
+      "preserve": false
+    },
+    {
+      "target": "ShaderFixes/ce01b9329090309e-vs_replace.txt",
+      "name": "ce01b9329090309e-vs_replace.txt",
+      "sha256": "a8edc47866315dcabc3dee4f88de8bc684e83aeb9c74e23b1a0029e5d89d436f",
+      "dependency": "stereo",
+      "preserve": false
+    },
+    {
+      "target": "ShaderFixes/cf471462bf9ef8b2-vs_replace.txt",
+      "name": "cf471462bf9ef8b2-vs_replace.txt",
+      "sha256": "9c73f807d1f1e9095254b58d120b2f64ff8d45033b18720fccc790e989f61c4d",
+      "dependency": "stereo",
+      "preserve": false
+    },
+    {
+      "target": "ShaderFixes/cfddbc296de888fd-vs_replace.txt",
+      "name": "cfddbc296de888fd-vs_replace.txt",
+      "sha256": "4cd5a1c245c1b561d72f71849dfa2df511de13b1a6e400076d3c65e224e069c3",
+      "dependency": "stereo",
+      "preserve": false
+    },
+    {
+      "target": "ShaderFixes/d60d7bc20218bc74-vs_replace.txt",
+      "name": "d60d7bc20218bc74-vs_replace.txt",
+      "sha256": "9d5c3a9326d7cb467171a46963f0d963db7cb98bcffda57cda31d006589bb48e",
+      "dependency": "stereo",
+      "preserve": false
+    },
+    {
+      "target": "ShaderFixes/d654bed993acf2db-vs_replace.txt",
+      "name": "d654bed993acf2db-vs_replace.txt",
+      "sha256": "489391fa5b3c9034699de3d4cd02d3b1c42d910367dd8c7a6ae5299b404484c6",
+      "dependency": "stereo",
+      "preserve": false
+    },
+    {
+      "target": "ShaderFixes/e20d1677e7f933b1-vs_replace.txt",
+      "name": "e20d1677e7f933b1-vs_replace.txt",
+      "sha256": "adc81bf290ee41611ab6eef1a762aa696e35a426fbc5184ce8784c9b1d56df72",
+      "dependency": "stereo",
+      "preserve": false
+    },
+    {
+      "target": "ShaderFixes/ea9f889c5de613f7-ps_replace.txt",
+      "name": "ea9f889c5de613f7-ps_replace.txt",
+      "sha256": "eda3dcfc5b7682adcafe331f9304397aa8f056d6f7b96fa67f04f66bdc588e1f",
+      "dependency": "stereo",
+      "preserve": false
+    },
+    {
+      "target": "ShaderFixes/ed2b2da3de527a5b-vs_replace.txt",
+      "name": "ed2b2da3de527a5b-vs_replace.txt",
+      "sha256": "4f995fcb41ecf0d31b7189d4b0bddc4a80b0acd3abcd6d0449a468156e7f0107",
+      "dependency": "stereo",
+      "preserve": false
+    },
+    {
+      "target": "ShaderFixes/ed9ef09e025e4431-vs_replace.txt",
+      "name": "ed9ef09e025e4431-vs_replace.txt",
+      "sha256": "6d590ed87636cac0307cd1764aad9168fffcb67d7fad6685e6eab3cf34236eb7",
+      "dependency": "stereo",
+      "preserve": false
+    },
+    {
+      "target": "ShaderFixes/f0c5c54464d6b312-vs_replace.txt",
+      "name": "f0c5c54464d6b312-vs_replace.txt",
+      "sha256": "98f2e12280051fa8b1fb3957b6b3d232ab6224f6c81e885e4bf7c7132f3a1929",
+      "dependency": "stereo",
+      "preserve": false
+    },
+    {
+      "target": "ShaderFixes/fd04c5b543ef643b-vs_replace.txt",
+      "name": "fd04c5b543ef643b-vs_replace.txt",
+      "sha256": "f100122b2d4eb9f73145e064ae1d7e90cf0396f545a12bb351c42abc53f6b91a",
+      "dependency": "stereo",
+      "preserve": false
+    },
+    {
+      "target": "ShaderFixes/mouse.hlsl",
+      "source": "payload/ShaderFixes/mouse.hlsl",
+      "sha256": "78839a3cfc42dc9cc6f19b1796b550a9dd1acd485a2fb76ea46eac443c212bd3",
+      "preserve": false
+    },
+    {
+      "target": "ShaderFixes/upscale.hlsl",
+      "name": "upscale.hlsl",
+      "sha256": "8cad9b9c98baee612f85a67c22dba0b4d0f524b5d8a87f1038c72d3cc1fd9b17",
+      "dependency": "stereo",
+      "preserve": false
+    }
+  ],
+  "dependencies": [
+    {
+      "id": "framework",
+      "title": "Re-Reckoning Mod framework by crtzrms (Nexus mod 9)",
+      "url": "https://www.nexusmods.com/kingdomsofamalurrereckoning/mods/9",
+      "reason": "Author forbids re-uploading; original download required."
+    },
+    {
+      "id": "geo11",
+      "title": "geo11 x32 (matching tested build)",
+      "url": "https://helixmod.blogspot.com/2022/06/announcing-new-geo-11-3d-driver.html",
+      "reason": "Imported from original distribution; exact file checksums required."
+    },
+    {
+      "id": "stereo",
+      "title": "Kingdoms of Amalur Re-Reckoning stereo fix by Mike_ar69 (Alpha 0.1)",
+      "url": "https://helixmod.blogspot.com/2021/01/kingdoms-of-amalur-re-reckoning.html",
+      "reason": "Downloaded automatically from the original author host; exact archive hash checked."
+    }
+  ],
+  "downloads": [
+    {
+      "id": "geo11",
+      "url": "https://bo3b.s3.amazonaws.com/geo-11+v0.6.56.zip",
+      "name": "geo11.zip",
+      "sha256": "1ce44900b312f6c4848a35292f65bbf31a5fa7e61befa56356d14519091fc182"
+    },
+    {
+      "id": "stereo",
+      "url": "https://s3.amazonaws.com/Mike_Ar69/KOARR_Mike_ar69.rar",
+      "name": "stereo.rar",
+      "sha256": "6663e29452f5cd1b4571ac64bc24d2707a3396f7df4f669179ec48ea5e58bdba"
+    }
+  ],
+  "hudCaches": [
+    "887f6506d28f9ff1",
+    "bd9cebc4f7e1ed36",
+    "cc7258d9790a0bbd",
+    "bf098be2e4587ca5"
+  ]
+}

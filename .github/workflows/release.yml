@@ -1,0 +1,76 @@
+name: Build and publish download
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: main-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    if: github.ref == 'refs/heads/main'
+    runs-on: windows-2022
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Build native mod
+        run: |
+          cmake -S . -B build/native -G 'Visual Studio 17 2022' -A Win32 -DAMALUR_OWNED_MELEE=ON
+          if ($LASTEXITCODE) { throw 'Configure failed' }
+          cmake --build build/native --config Release --parallel 4
+          if ($LASTEXITCODE) { throw 'Native build failed' }
+      - name: Build bridge and helpers
+        run: |
+          ./tools/release/prepare_ci_sdk.ps1
+          ./tools/build-xr-smoke.ps1 -OpenXrSdk build/ci-sdk/loader -OutputDirectory build/bridge
+          ./tools/developer/build.ps1 -OutputDirectory build/helpers
+      - name: Check gameplay and installer
+        run: |
+          New-Item -ItemType Directory -Force build/checks | Out-Null
+          $checks = @('dialogue_check','npc_head_gaze_check','motion_check','finisher_automation_check','finisher_manual_check','finisher_view_check','fresh_swing_contact_check','contact_damage_gate_check','incoming_damage_feedback_check','impact_feedback_check','native_arrow_feedback_check','native_cast_feedback_check','shield_block_feedback_check','melee_vfx_attachment_check','melee_vfx_selection_check','feedback_check','damage_capture_check')
+          foreach ($check in $checks) {
+            Copy-Item "build/native/Release/$check.exe" build/checks
+            & "./build/checks/$check.exe"
+            if ($LASTEXITCODE) { throw "$check failed" }
+          }
+          python tools/release/test_installer.py
+          if ($LASTEXITCODE) { throw 'Installer checks failed' }
+          python tools/release/test_report.py
+          if ($LASTEXITCODE) { throw 'Report checks failed' }
+      - name: Build verified ZIP
+        run: |
+          $tag = "main-$env:GITHUB_RUN_NUMBER-$env:GITHUB_RUN_ATTEMPT"
+          "RELEASE_TAG=$tag" >> $env:GITHUB_ENV
+          python tools/release/build_ci_package.py --output build/release/package --native build/native/Release --bridge build/bridge --helpers build/helpers --commit $env:GITHUB_SHA --version $tag
+          if ($LASTEXITCODE) { throw 'Packaging failed' }
+      - name: Publish complete release
+        run: |
+          $head = gh api "repos/$env:GITHUB_REPOSITORY/git/ref/heads/main" --jq '.object.sha'
+          if ($LASTEXITCODE) { throw 'Could not verify main' }
+          if ($head -ne $env:GITHUB_SHA) { Write-Host 'A newer main push will publish its build.'; exit 0 }
+          @"
+          Experimental VR build from main commit $env:GITHUB_SHA.
+
+          Extract KingdomsOfAmalurVR.zip and run Install and Launch.cmd. See the included install guide for the Nexus framework dependency.
+
+          Built and checked automatically. Headset behavior still requires manual testing.
+          "@ | Set-Content build/release/notes.md
+          gh release create $env:RELEASE_TAG build/release/KingdomsOfAmalurVR.zip build/release/KingdomsOfAmalurVR.zip.sha256 --target $env:GITHUB_SHA --title "Experimental VR — $env:RELEASE_TAG" --notes-file build/release/notes.md --draft
+          if ($LASTEXITCODE) { throw 'Release upload failed; previous download remains available' }
+          gh release edit $env:RELEASE_TAG --draft=false --latest
+          if ($LASTEXITCODE) { throw 'Release publication failed; previous download remains available' }
