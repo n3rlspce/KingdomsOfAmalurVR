@@ -44,11 +44,13 @@ Other dependencies download automatically. Updates keep settings and saves.
 | Left trigger + right trigger | Reckoning mode in the local developer build; unavailable in the linked preview download |
 | Right thumbrest touch | No action; does not interrupt movement |
 | Both stick clicks held + left stick | D-pad: left health, right mana, up aggressive mode |
-| Left stick click, then release quickly | Map |
+| Left stick click, then release quickly | Gamepad BACK/View (opens the map) |
 | Hold left stick click (350 ms) | Quick-access wheel; use left stick to select |
 | Right stick click, then release | Stealth |
 | Left controller menu | Game menu |
 
 **Reckoning:** the linked preview download uses the physical right trigger for a weapon attack and right grip for the game's RT input. It cannot activate Reckoning in physical melee. The current local developer build sends the native LT+RT chord when you press **left trigger + right trigger**, while right trigger alone keeps its attack fallback. This fix is not in the linked preview download yet.
+
+The game's on-screen button prompts still show Xbox controls. In particular, a **BACK/View** prompt means a brief press and release of the **left Touch thumbstick**; the Touch controller has no button labeled BACK.
 
 **Long term:** once physical melee works reliably across weapon families, the right trigger attack fallback can be removed. That also makes the gameplay Y weapon selector unnecessary: Y can return to its native gamepad action, and right trigger can return to the game's RT ability input. X and Y can remain as native button fallbacks. The stick click shortcuts and grip gestures serve VR actions that have no dedicated Touch buttons.
