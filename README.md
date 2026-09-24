@@ -41,7 +41,7 @@ Other dependencies download automatically. Updates keep settings and saves.
 | Left trigger | Block |
 | Right grip + A/B/X/Y | Native ability modifier + corresponding gamepad face button |
 | Left grip | Reserved for support-hand grabbing |
-| Left trigger + right trigger | Reckoning mode in the prepared update; unavailable in the linked preview build |
+| Left trigger + right trigger | Reckoning mode in the local developer build; unavailable in the linked preview download |
 | Right thumbrest touch | No action; does not interrupt movement |
 | Both stick clicks held + left stick | D-pad: left health, right mana, up aggressive mode |
 | Left stick click, then release quickly | Map |
@@ -49,6 +49,6 @@ Other dependencies download automatically. Updates keep settings and saves.
 | Right stick click, then release | Stealth |
 | Left controller menu | Game menu |
 
-**Reckoning:** the linked preview build uses the physical right trigger for a weapon attack and right grip for the game's RT input. It cannot activate Reckoning in physical melee. A paired bridge and game DLL update is prepared so **left trigger + right trigger** sends the native LT+RT chord, while right trigger alone keeps its attack fallback. The update has not been installed or added to the linked download yet.
+**Reckoning:** the linked preview download uses the physical right trigger for a weapon attack and right grip for the game's RT input. It cannot activate Reckoning in physical melee. The current local developer build sends the native LT+RT chord when you press **left trigger + right trigger**, while right trigger alone keeps its attack fallback. This fix is not in the linked preview download yet.
 
 **Long term:** once physical melee works reliably across weapon families, the right trigger attack fallback can be removed. That also makes the gameplay Y weapon selector unnecessary: Y can return to its native gamepad action, and right trigger can return to the game's RT ability input. X and Y can remain as native button fallbacks. The stick click shortcuts and grip gestures serve VR actions that have no dedicated Touch buttons.

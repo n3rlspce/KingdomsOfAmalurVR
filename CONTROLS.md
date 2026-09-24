@@ -16,7 +16,7 @@ Use the game's gamepad UI. Release the controls after opening/closing menus or t
 | Left trigger | Block |
 | Right grip + A/B/X/Y | Native ability modifier + corresponding gamepad face button |
 | Left grip | Reserved for support-hand grabbing |
-| Left trigger + right trigger | Reckoning mode in the prepared update; unavailable in the linked preview build |
+| Left trigger + right trigger | Reckoning mode in the local developer build; unavailable in the linked preview download |
 | Right thumbrest touch | No action; does not interrupt movement |
 | Both stick clicks held + left stick | D-pad: left health, right mana, up aggressive mode |
 | Left stick click, then release quickly | Map |
@@ -26,7 +26,7 @@ Use the game's gamepad UI. Release the controls after opening/closing menus or t
 
 After leaving D-pad mode, center the left stick before moving. In menus, face buttons retain native gamepad actions and the right stick navigates instead of turning.
 
-The current build maps the physical right trigger to an attack button in gameplay, so the game's LT+RT Reckoning prompt does not match the Touch controls. A prepared bridge and game DLL change makes **left trigger + right trigger** send native LT+RT. It has not been added to the downloadable preview yet. Right trigger alone continues to attack until physical melee is reliable enough to remove that fallback; gameplay Y can then return to its native gamepad action.
+The linked preview download maps the physical right trigger to an attack button in gameplay, so the game's LT+RT Reckoning prompt does not work with those Touch controls. The local developer build makes **left trigger + right trigger** send native LT+RT. It has not been added to the downloadable preview yet. Right trigger alone continues to attack until physical melee is reliable enough to remove that fallback; gameplay Y can then return to its native gamepad action.
 
 Y selects an attack slot without firing it. With staff primary and bow secondary, choose secondary with Y, then use the right trigger. Bow drawing/aiming with tracked hands is not implemented. Tracked held weapons support captured dagger, sword, staff, hammer and faeblade models; other skins may remain unsupported.
 
