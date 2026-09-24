@@ -80,6 +80,11 @@ public:
         }
         p.active=1;
         if(!ready_){
+            // Tutorial panels are paused menus. BACK must remain reachable even
+            // while a mode change is waiting for neutral controller input.
+            if(!gameplay&&t.leftClick&&!previousLeftClick_&&!wheelHeld_)mapPulseUntil_=now+120;
+            previousLeftClick_=t.leftClick;
+            if(now<mapPulseUntil_)p.buttons|=XINPUT_GAMEPAD_BACK;
             auto rearm=t;
             // Mode changes are not focus regain: carrying the weapon must not
             // require releasing both grips to recover locomotion after a wheel.
@@ -95,7 +100,8 @@ public:
         // Defer single-click actions until release, allowing the second stick
         // click to arrive on a later XR frame without opening Map first.
         if(!shift&&!clicksBlocked_){
-            if(previousLeftClick_&&!t.leftClick&&!wheelHeld_)mapPulseUntil_=now+80;
+            if(!gameplay&&t.leftClick&&!previousLeftClick_&&!wheelHeld_)mapPulseUntil_=now+120;
+            if(gameplay&&previousLeftClick_&&!t.leftClick&&!wheelHeld_)mapPulseUntil_=now+80;
             if(previousRightClick_&&!t.rightClick)stealthPulseUntil_=now+80;
         }else mapPulseUntil_=stealthPulseUntil_=0;
         if(!t.leftClick||shift||clicksBlocked_)wheelHeld_=false;
