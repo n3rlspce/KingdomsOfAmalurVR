@@ -23,6 +23,8 @@ inline constexpr CapturedHeldWeaponProfile capturedHeldWeaponProfiles[]{
     {HeldWeaponKind::Staff,1514,4,{0x00ae838d,0x006666f1,0x00bbefd6,0x00858053},{-1,0,1,1}},
     {HeldWeaponKind::Greatsword,1250,5,{0x00ae838d,0x006666f1,0x00ed512c,0x00e6c85b,0x00858053},{-1,0,1,1,1}},
     {HeldWeaponKind::Hammer,1323,5,{0x00ae838d,0x006666f1,0x00aea294,0x0017311f,0x00858053},{-1,0,1,1,1}},
+    // Live Reckoning capture20260924, owner000900e0; distinct mesh bone2.
+    {HeldWeaponKind::Hammer,5215,5,{0x00ae838d,0x006666f1,0x01947c74,0x0017311f,0x00858053},{-1,0,1,1,1}},
     {HeldWeaponKind::Faeblades,1689,7,{0x00ae838d,0x00b6fef2,0x01c55ae1,0x00dbd751,0x00a43243,0x01f4f7b1,0x00c7b304},{-1,0,1,1,0,4,4}},
     // PID29620 bow census: native held6 maps left finger36 to handle1.
     {HeldWeaponKind::Bow,1423,6,{0x00ae838d,0x006666f1,0x00963ee1,0x002d04aa,0x0027bb54,0x00168174},{-1,0,1,1,1,1}}

@@ -6,6 +6,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include "arm_pose.hpp"
+#include "weapon_pose.hpp"
 namespace rig_probe {inline uintptr_t playerRoot(){return 0;}}
 inline uintptr_t gameBase=0x400000;
 inline void log(const char*,...){}
@@ -15,7 +16,7 @@ inline std::atomic<void*> player{};
 inline uintptr_t word(uintptr_t p){return *reinterpret_cast<const uint32_t*>(p);}
 inline uintptr_t resolve(uint32_t){return 0;}
 }
-namespace weapon_control {inline SRWLOCK poseLock=SRWLOCK_INIT; inline uint64_t visualTick{};inline uint32_t visualWeapon{},visualAsset{};inline uintptr_t fab(uint32_t){return 0;}inline bool authoritativeSelectedWeapon(uintptr_t){return false;}}
+namespace weapon_control {inline mgs5vr::Pose desired{},desiredLeft{};inline uint64_t tick{},leftTick{};inline SRWLOCK poseLock=SRWLOCK_INIT; inline uint64_t visualTick{};inline uint32_t visualWeapon{},visualAsset{};inline uintptr_t fab(uint32_t){return 0;}inline bool authoritativeSelectedWeapon(uintptr_t){return false;}}
 namespace motion_controls {struct Controls{unsigned selectedWeapon{};};inline Controls viewControls(){return {};}}
 #include "physical_melee_recipe.hpp"
 #include "melee_family_policy.hpp"

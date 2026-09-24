@@ -4,12 +4,6 @@
 #include "melee_native_family.hpp"
 #include <cmath>
 namespace amalur {
-// Provisional Amalur family tuning, NOT PLANCK defaults. Recovery is only a
-// minimum between distinct strokes; it never rearms a continuous sweep.
-inline constexpr unsigned strokeRecoveryMs(uint32_t model){
-    if(knownLongswordModel(model))return 250;
-    switch(model){case 1520:return 180;case 1250:return 300;case 1323:return 350;default:return 550;}
-}
 // Only captured representatives with a native direct-damage definition are
 // admitted. This does not generalize support to other skins in these families.
 inline constexpr bool supportedMeleeHand(uint32_t model,unsigned hand){
@@ -54,7 +48,7 @@ inline bool meleeContactSpeed(uint32_t model,mgs5vr::Vec3 travel,mgs5vr::Vec3 ax
     axis=axis*(1.f/axisLength);
     // The hammer damages with its head: thrusting along its handle is not a
     // blade stab and must not receive the 2 m/s stab threshold.
-    if(model==1323)axis={};
+    if(knownHammerModel(model))axis={};
     return longswordContactSpeed(travel,axis,elapsedMs,unitsPerMetre);
 }
 }

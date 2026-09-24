@@ -5,12 +5,13 @@
 #include <cstdlib>
 #include <cstring>
 #include "arm_pose.hpp"
+#include "weapon_pose.hpp"
 #include "melee_vfx_lifetime.hpp"
 inline uintptr_t gameBase{};
 template<class... T>void log(const char*,T...){}
 namespace player_rig {inline uintptr_t word(uintptr_t p){return *reinterpret_cast<uintptr_t*>(p);}}
 namespace rig_probe {inline uintptr_t playerRoot(){return 0;}}
-namespace weapon_control {inline uintptr_t fab(uintptr_t){return 0;}inline bool authoritativeSelectedWeapon(uintptr_t){return false;}}
+namespace weapon_control {inline SRWLOCK poseLock=SRWLOCK_INIT;inline mgs5vr::Pose desired{},desiredLeft{};inline uint64_t tick{},leftTick{};inline uintptr_t fab(uintptr_t){return 0;}inline bool authoritativeSelectedWeapon(uintptr_t){return false;}}
 namespace resolved {
 using Resolve=uintptr_t(__thiscall*)(void*,uintptr_t,uint32_t);
 using Attach=uintptr_t(__thiscall*)(void*,uintptr_t,uint32_t,uintptr_t,uintptr_t,uint32_t);
@@ -57,5 +58,9 @@ int main(){
  ck(trailDefinition(reinterpret_cast<uintptr_t>(definition)),"exact FXTrail getter accepted");
  *reinterpret_cast<uintptr_t*>(gameBase+0x101c)=gameBase+0x622f91;ck(!trailDefinition(reinterpret_cast<uintptr_t>(definition)),"other effect class rejected");
  amalur::RigBone b{};float scales[]{1,1,1};memcpy(b.opaque,scales,12);ck(finiteScale(b),"finite native scales accepted");scales[1]=NAN;memcpy(b.opaque,scales,12);ck(!finiteScale(b),"invalid native scale rejected");
+ amalur::MeleeSwingEvent right{},left{};right.hand=0;right.asset=1520;right.attackAsset=199;right.owner=1;right.weapon=2;right.generation=3;left=right;left.hand=1;
+ poseIdentity[0].committed(right);poseIdentity[1].committed(left);
+ auto rp=poseIdentity[0].current(1,2,1520,3,200),lp=poseIdentity[1].current(1,2,1520,3,200);
+ ck(rp.hand==0&&lp.hand==1&&amalur::meleeVfxSelection(rp).attachment==0x858053&&amalur::meleeVfxSelection(lp).attachment==0xceac76,"per-hand committed aliases remain independent");
  VirtualFree(image,0,MEM_RELEASE);puts("PASS native VFX binding guards, observer coexistence, in-place reset/reuse and type/scale validation");
 }

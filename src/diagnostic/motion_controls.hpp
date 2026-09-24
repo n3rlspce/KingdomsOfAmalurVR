@@ -4,7 +4,10 @@
 #include "interaction_prompt_trace.hpp"
 #include "native_finisher_state.hpp"
 #include "../tracking/finisher_automation.hpp"
+#include "../tracking/finisher_manual.hpp"
 #include "../tracking/motion_input.hpp"
+#include "walk_input_trace.hpp"
+#include "../tracking/native_attack_input.hpp"
 #include "../tracking/dodge_facing.hpp"
 #include "../tracking/movement_basis.hpp"
 namespace motion_controls {
@@ -20,8 +23,10 @@ inline std::atomic<bool> dialogueActive{false};
 inline std::atomic<uint64_t> daggerSeen{},swingUntil{};
 inline std::atomic<bool> meleeContextReady{false};
 inline std::atomic<uint64_t> primaryAttackUntil{};
+inline amalur::NativeAttackInput nativeAttackInput;
 inline amalur::MeleeSpellSequence spellSequence;
 inline amalur::FinisherAutomation finisherAutomation;
+inline amalur::ManualFinisher manualFinisher;
 inline std::atomic<uint64_t> explicitSpellUntil{};
 inline bool explicitSpellActive(uint64_t now){return now<explicitSpellUntil.load();}
 inline amalur::MovementBasis movementBasis;
@@ -45,6 +50,11 @@ inline ViewControls viewControls(){
     return result;
 }
 inline bool gameFocused(){DWORD pid{};GetWindowThreadProcessId(GetForegroundWindow(),&pid);return pid==GetCurrentProcessId();}
+inline bool nativeAttackContext(){
+    return gameFocused()&&firstPerson.load()&&!interfaceView.load()&&!dialogueActive.load();
+}
+inline bool nativeAttackHeld(uint64_t now){return nativeAttackInput.held(now,nativeAttackContext());}
+
 // Movies can stop XInput polling; read the fresh bridge input independently.
 inline bool vrCursorHidden(){
     AcquireSRWLockExclusive(&lock);
@@ -83,15 +93,19 @@ inline DWORD WINAPI getState(DWORD index,XINPUT_STATE* state){
     }
     if(!connected){
         finisherAutomation.sample({},inputNow);
+        manualFinisher.sample({},false,inputNow);
         controller_ui_mode::update(false);spellSequence.reset();explicitSpellUntil.store(0);
         staff_aim::observe(0,0,false,inputNow);
         const bool delivered=result==ERROR_SUCCESS;
+        nativeAttackInput.observe(delivered,nativeAttackContext(),delivered?state->Gamepad.wButtons:0,
+            delivered?state->Gamepad.bRightTrigger:0,inputNow);
         interaction_prompt_trace::observe(delivered,delivered?state->Gamepad.wButtons:0,inputNow,
             delivered?state->Gamepad.bRightTrigger:0,delivered?state->Gamepad.sThumbLX:0,delivered?state->Gamepad.sThumbLY:0);
         ReleaseSRWLockExclusive(&lock);return result;
     }
     const bool focused=gameFocused();
     bool active=focused&&channel.read(motion);
+    const float walkRawX=active?motion.moveX:0.f,walkRawY=active?motion.moveY:0.f;
     const auto rawButtons=active?motion.buttons:0;
     const bool rawRecoveryNeutral=active&&!motion.buttons&&motion.block<.1f&&motion.abilities<.1f&&motion.supportGrip<.1f;
     const bool rawFinisherNeutral=active&&!motion.buttons&&motion.block<.1f&&motion.abilities<.1f
@@ -118,7 +132,7 @@ inline DWORD WINAPI getState(DWORD index,XINPUT_STATE* state){
     }
     // Initiate native finishers from their incapacitated state. Native mode84/state314 ends
     // automation immediately so the player's native QTE buttons pass untouched.
-    const auto finisher=native_finisher_state::read();
+    const auto finisher=native_finisher_state::read(finisherAutomation.recoveryTarget(inputNow));
     const auto& delivered=state->Gamepad;
     const bool padNeutral=!delivered.wButtons&&delivered.bRightTrigger<25&&delivered.bLeftTrigger<25
         &&std::abs(int(delivered.sThumbLX))<3277&&std::abs(int(delivered.sThumbLY))<3277
@@ -132,6 +146,7 @@ inline DWORD WINAPI getState(DWORD index,XINPUT_STATE* state){
     finisherObservation.nativeSequence=finisher.nativeSequence;
     finisherObservation.distanceMetres=finisher.distanceMetres;
     finisherObservation.specialBoss=finisher.specialBoss;
+    finisherObservation.targetFallback=finisher.usingRecoveryTarget;
     finisherObservation.manualA=((rawButtons|nativeButtons)&XINPUT_GAMEPAD_A)!=0;
     finisherObservation.eligible=active&&inputNow>=motion.tick&&inputNow-motion.tick<100
         &&firstPerson.load()&&headTracking.load()&&!interfaceView.load()&&!dialogueActive.load()
@@ -141,7 +156,23 @@ inline DWORD WINAPI getState(DWORD index,XINPUT_STATE* state){
     // triggers and grips still cancel before they can combine with owned RT.
     finisherObservation.recoveryNeutral=rawRecoveryNeutral&&!delivered.wButtons
         &&delivered.bRightTrigger<25&&delivered.bLeftTrigger<25;
-    const auto automatic=finisherAutomation.sample(finisherObservation,inputNow);
+    const bool manualClear=active&&!(rawButtons&~XINPUT_GAMEPAD_A)
+        &&!(delivered.wButtons&~XINPUT_GAMEPAD_A)&&motion.block<.1f
+        &&motion.abilities<.1f&&motion.supportGrip<.1f
+        &&delivered.bRightTrigger<25&&delivered.bLeftTrigger<25;
+    const auto manual=manualFinisher.sample(finisherObservation,manualClear,inputNow);
+    auto autoObservation=finisherObservation;
+    if(manual.claimed||manualFinisher.blocksAutomatic(inputNow)){autoObservation.eligible=false;autoObservation.neutral=false;autoObservation.recoveryNeutral=false;}
+    const auto automatic=finisherAutomation.sample(autoObservation,inputNow);
+    if(manual.suppressA)state->Gamepad.wButtons&=~XINPUT_GAMEPAD_A;
+    if(manual.x){state->Gamepad.wButtons|=XINPUT_GAMEPAD_X;primaryAttackUntil.store(inputNow+2000);}
+    if(manual.a)state->Gamepad.wButtons|=XINPUT_GAMEPAD_A;
+    static unsigned previousManualPhase{};
+    if(manual.phase!=previousManualPhase){
+        log("VR manual finisher tick=%llu owner=%08x target=%08x phase=%u X=%d A=%d residue=%d nativeSequence=%d\n",
+            inputNow,finisher.owner,finisher.target,manual.phase,manual.x,manual.a,finisher.magicResidue,finisher.nativeSequence);
+        previousManualPhase=manual.phase;
+    }
     if(automatic.claimed)explicitSpellUntil.store(inputNow+250);
     if(automatic.rightTrigger)state->Gamepad.bRightTrigger=255;
     if(automatic.a)state->Gamepad.wButtons|=XINPUT_GAMEPAD_A;
@@ -158,8 +189,8 @@ inline DWORD WINAPI getState(DWORD index,XINPUT_STATE* state){
         |(unsigned(finisherObservation.recoveryNeutral)<<23);
     if(diagnosticState!=previousAutomatic&&(automatic.claimed||previousAutomatic==~0u||
         (previousAutomatic&1u)||inputNow-lastAutomaticLog>=500)){
-        log("VR finisher automation tick=%llu owner=%08x target=%08x output=%u phase=%u reason=%u attempts=%u requests=%u residue=%d nativeSequence=%d distance=%.3f valid=%d known=%d down=%d ready=%d gameplay=%d active=%d focused=%d age=%llu first=%d head=%d interface=%d dialogue=%d spell=%d rawNeutral=%d padNeutral=%d magic=%d manualA=%d recoveryNeutral=%d\n",
-            inputNow,finisher.owner,finisher.target,automaticState,automatic.phase,unsigned(automatic.reason),automatic.attempts,automatic.aRequests,
+        log("VR finisher automation tick=%llu owner=%08x target=%08x currentTarget=%08x fallback=%d output=%u phase=%u reason=%u attempts=%u requests=%u residue=%d nativeSequence=%d distance=%.3f valid=%d known=%d down=%d ready=%d gameplay=%d active=%d focused=%d age=%llu first=%d head=%d interface=%d dialogue=%d spell=%d rawNeutral=%d padNeutral=%d magic=%d manualA=%d recoveryNeutral=%d\n",
+            inputNow,finisher.owner,finisher.target,finisher.currentTarget,finisher.usingRecoveryTarget,automaticState,automatic.phase,unsigned(automatic.reason),automatic.attempts,automatic.aRequests,
             finisher.magicResidue,finisher.nativeSequence,finisher.distanceMetres,finisher.valid,finisher.targetKnown,
             finisher.targetDown,finisher.finisherReady,finisher.gameplay,active,focused,active&&inputNow>=motion.tick?inputNow-motion.tick:~uint64_t(0),
             firstPerson.load(),headTracking.load(),interfaceView.load(),dialogueActive.load(),spellSequence.active(),rawFinisherNeutral,padNeutral,
@@ -179,6 +210,7 @@ inline DWORD WINAPI getState(DWORD index,XINPUT_STATE* state){
             headTracking.load(),interfaceView.load(),dialogueActive.load(),spellSequence.active());
     }
     previousARoute=routeState;
+    nativeAttackInput.observe(true,nativeAttackContext(),state->Gamepad.wButtons,state->Gamepad.bRightTrigger,inputNow);
     // Observe the pad actually returned to the game, including native-controller
     // fallback when XR is stale. Connected path always returns ERROR_SUCCESS.
     interaction_prompt_trace::observe(true,state->Gamepad.wButtons,inputNow,
@@ -197,6 +229,12 @@ inline DWORD WINAPI getState(DWORD index,XINPUT_STATE* state){
     DWORD current=static_cast<DWORD>(state->Gamepad.wButtons)|(static_cast<DWORD>(state->Gamepad.bLeftTrigger)<<16)|(static_cast<DWORD>(state->Gamepad.bRightTrigger)<<24);
     if(current!=lastInput){log("Touch XInput tick=%llu active=%d buttons=%04x LT=%u RT=%u interact=%08x\n",GetTickCount64(),active,state->Gamepad.wButtons,state->Gamepad.bLeftTrigger,state->Gamepad.bRightTrigger,interactionTarget);lastInput=current;}
 
+    const unsigned walkContext=unsigned(firstPerson.load())
+        |(unsigned(headTracking.load())<<1)|(unsigned(interfaceView.load())<<2)
+        |(unsigned(dialogueActive.load())<<3)|(unsigned(physicalMelee)<<4)
+        |(unsigned(spellSequence.active())<<5);
+    walk_input_trace::observe(inputNow,active,focused,walkRawX,walkRawY,motion,
+        state->Gamepad,finisher,walkContext);
     state->dwPacketNumber=++packetNumber;
     ReleaseSRWLockExclusive(&lock);
     return ERROR_SUCCESS;

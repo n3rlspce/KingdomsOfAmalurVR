@@ -192,6 +192,7 @@ inline void __fastcall evaluateBones(void* mapper,void*,uintptr_t slot,uintptr_t
     shield_control::restore(object);
     weapon_drawn_scale::prepare(mapper,source,output,renderSlot,solved&&!nativeMesh);
     originalBones(mapper,renderSlot,input,output,skeleton,extra,flags);
+    npc_gaze::apply(object,output);
     weapon_drawn_scale::finish(object);
     weapon_scale_trace::observe(mapper,slot,renderSlot,source,output);
     bow_attachment_trace::observe(mapper,renderSlot,source,output,solved&&!nativeMesh,scratch);

@@ -1,5 +1,6 @@
 #pragma once
 #include <cstdint>
+#include "weapon_family.hpp"
 namespace amalur {
 // Diagnostic correlation only: these captures do not authorize replay, damage
 // recipes, combo progression, or model variants outside the exact observations.
@@ -15,6 +16,6 @@ inline constexpr uint32_t capturedNativeAttackModel(uint32_t asset){
  }
 }
 inline constexpr bool nativeAttackVisualCorrelation(uint32_t asset,uint32_t model,bool runtimeValid,uint64_t poseTick,uint64_t now,unsigned poseSelection,unsigned selection){
- return runtimeValid&&capturedNativeAttackModel(asset)==model&&model&&poseTick&&poseTick<=now&&now-poseTick<100&&selection<=1&&poseSelection==selection;
+ return runtimeValid&&(capturedNativeAttackModel(asset)==model||(capturedNativeAttackModel(asset)==1323&&knownHammerModel(model)))&&model&&poseTick&&poseTick<=now&&now-poseTick<100&&selection<=1&&poseSelection==selection;
 }
 }

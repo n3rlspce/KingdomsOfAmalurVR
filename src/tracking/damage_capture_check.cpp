@@ -16,6 +16,7 @@ inline uint32_t word(uintptr_t a){auto i=memory.find(a);if(i==memory.end()){++ba
 }
 namespace melee_native {inline uintptr_t component(uint32_t owner,unsigned part){return owner==7?(part==15?0x4000:part==18?0x5000:0):0;}}
 namespace melee_owned_source {inline uintptr_t resident(uintptr_t,uint32_t){return 0;}}
+namespace native_cast_haptics {inline void created(uintptr_t,uint32_t,uint32_t,uint32_t,int,bool){}}
 #include "../diagnostic/damage_capture.hpp"
 void check(bool b,const char* why){if(!b){std::fprintf(stderr,"FAIL: %s\n",why);std::exit(1);}}
 int main(){

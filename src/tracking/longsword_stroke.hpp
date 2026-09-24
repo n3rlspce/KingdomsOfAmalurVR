@@ -9,32 +9,48 @@ namespace amalur {
 class LongswordStroke {
     struct Frame {mgs5vr::Vec3 hand,body;uint64_t tick;};
     Frame frames_[64]{};unsigned count_{},generation_{};
-    mgs5vr::Vec3 start_{},direction_{};
-    float speed_{},bodySpeed_{},peak_{};uint64_t quietAt_{},committedAt_{},stroke_{};
+    mgs5vr::Vec3 start_{},direction_{},recoveryOrigin_{},recoveryDirection_{};
+    bool recoveryLeg_{};
+    float speed_{},bodySpeed_{},peak_{};uint64_t quietAt_{},stroke_{};
     bool armed_{},active_{},emitted_{},qualified_{},peakEvent_{};
     const char* gate_="warming-up";
     static float length(mgs5vr::Vec3 p){return std::sqrt(mgs5vr::dot(p,p));}
     static bool finite(mgs5vr::Vec3 p){return std::isfinite(p.x)&&std::isfinite(p.y)&&std::isfinite(p.z);}
 public:
+    struct ResetInfo {const char* reason="none";uint64_t count{},tick{},gap{};float handDelta{};unsigned generation{};};
+private:
+    ResetInfo resetInfo_{};
+public:
     static constexpr float airSpeed=4.5f,handContactSpeed=1.f;
-    void reset(){*this=LongswordStroke{};}
+    const ResetInfo& resetInfo()const{return resetInfo_;}
+    unsigned stateBits()const{return unsigned(armed_)|unsigned(active_)<<1|unsigned(qualified_)<<2|unsigned(recoveryLeg_)<<3;}
+    void reset(const char* reason="external",uint64_t tick=0,uint64_t gap=0,float handDelta=0){
+        auto info=resetInfo_;
+        // Repeated disabled samples are one reset edge, not frame-count spam.
+        if(count_)info={reason,info.count+1,tick?tick:frames_[count_-1].tick,gap,handDelta,generation_};
+        *this=LongswordStroke{};resetInfo_=info;
+    }
     float speed()const{return speed_;}
     const char* gate()const{return gate_;}
     bool active()const{return active_&&qualified_;}
     bool contactReady()const{return active()&&speed_>=handContactSpeed&&bodySpeed_>=handContactSpeed;}
     bool emitted()const{return emitted_;}
     uint64_t stroke()const{return stroke_;}
-    bool commit(uint64_t tick){if(!active()||emitted_)return false;emitted_=true;committedAt_=tick;return true;}
-    bool sample(mgs5vr::Vec3 hand,mgs5vr::Vec3 head,mgs5vr::Vec3 forward,uint64_t tick,unsigned generation,bool eligible,bool preparing,unsigned recoveryMs=550){
+    bool commit(uint64_t /*tick*/){if(!active()||emitted_)return false;emitted_=true;return true;}
+    bool sample(mgs5vr::Vec3 hand,mgs5vr::Vec3 head,mgs5vr::Vec3 forward,uint64_t tick,unsigned generation,bool eligible,bool preparing){
         peakEvent_=false;
-        if(!eligible||!tick||!finite(hand)||!finite(head)||!finite(forward)){reset();return false;}
+        if(!eligible||!tick||!finite(hand)||!finite(head)||!finite(forward)){
+            reset(!eligible?"ineligible":!tick?"zero-tick":"nonfinite",tick);return false;}
         const auto body=hand-head;
         if(count_&&(generation!=generation_||tick<frames_[count_-1].tick||tick-frames_[count_-1].tick>100
-            ||length(hand-frames_[count_-1].hand)>.5f)){reset();}
+            ||length(hand-frames_[count_-1].hand)>.5f)){
+            const auto previousTick=frames_[count_-1].tick;
+            reset(generation!=generation_?"generation":tick<previousTick?"clock-backwards":tick-previousTick>100?"tracking-gap":"hand-jump",
+                tick,tick>=previousTick?tick-previousTick:0,length(hand-frames_[count_-1].hand));}
         if(count_&&tick==frames_[count_-1].tick)return false;
-        if(!count_){generation_=generation;frames_[count_++]={hand,body,tick};start_=body;return false;}
+        if(!count_){generation_=generation;frames_[count_++]={hand,body,tick};start_=recoveryOrigin_=body;return false;}
         while(count_>1&&tick-frames_[1].tick>=56){for(unsigned i=1;i<count_;++i)frames_[i-1]=frames_[i];--count_;}
-        if(count_==64){reset();return false;}
+        if(count_==64){reset("sample-capacity",tick);return false;}
         frames_[count_++]={hand,body,tick};
         const auto span=tick-frames_[0].tick;if(span<50)return false;
         float distance=0,bodyDistance=0;
@@ -42,6 +58,16 @@ public:
         const float previous=speed_;speed_=distance*1000.f/float(span);bodySpeed_=bodyDistance*1000.f/float(span);
         const auto delta=body-frames_[0].body;const float net=length(delta);
         const auto dir=net>.0001f?delta*(1.f/net):mgs5vr::Vec3{};
+        // After a reset the first continuous movement remains harmless. A
+        // measured 12 cm recovery leg followed by a real reversal can arm a
+        // subsequent stroke without requiring the player to stop mid-combat.
+        // Qualification still needs another 12 cm after that reversal.
+        if(preparing){recoveryLeg_=false;recoveryOrigin_=body;}
+        else if(!active_&&!armed_&&speed_>=handContactSpeed&&bodySpeed_>=handContactSpeed&&net>.025f){
+            if(!recoveryLeg_&&length(body-recoveryOrigin_)>=.12f){recoveryDirection_=dir;recoveryLeg_=true;}
+            else if(recoveryLeg_&&mgs5vr::dot(dir,recoveryDirection_)<-.25f){armed_=true;start_=body;recoveryLeg_=false;}
+        }
+        if(active_||armed_)recoveryLeg_=false;
         // Direction is unreliable during quiet hand settling. Treat only actual
         // contact-speed withdrawal as windup, otherwise slow backward drift
         // returns before quiet recovery and can prevent rearming indefinitely.
@@ -60,7 +86,9 @@ public:
         }
         if(active_){
             const auto travel=body-start_;const float displacement=length(travel);
-            if(displacement>=.12f&&net>=.025f&&(!committedAt_||tick-committedAt_>=recoveryMs))qualified_=true;
+            // Fresh stroke geometry supplies recovery; elapsed time since the
+            // previous hit or air swing must not veto a deliberate return cut.
+            if(displacement>=.12f&&net>=.025f)qualified_=true;
             if(!qualified_)direction_=dir;
             peak_=speed_>peak_?speed_:peak_;
             peakEvent_=qualified_&&!emitted_&&peak_>=airSpeed&&speed_<previous-.03f;

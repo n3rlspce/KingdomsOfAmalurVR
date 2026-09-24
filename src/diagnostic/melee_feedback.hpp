@@ -1,6 +1,7 @@
 #include "../tracking/melee_native_family.hpp"
 #pragma once
 #include "../tracking/melee_vfx_lifetime.hpp"
+#include "../tracking/melee_vfx_selection.hpp"
 #include "../tracking/weapon_family.hpp"
 #include "../tracking/melee_swing_event.hpp"
 #include "../tracking/melee_feedback_capture.hpp"

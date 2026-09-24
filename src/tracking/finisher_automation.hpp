@@ -9,7 +9,7 @@ struct FinisherObservation {
     uintptr_t player{};
     bool valid{},down{},magicResidue{},nativeSequence{},eligible{},neutral{};
     float distanceMetres{};
-    bool magicMode{},specialBoss{},manualA{},recoveryNeutral{};
+    bool magicMode{},specialBoss{},manualA{},recoveryNeutral{},targetFallback{};
 };
 enum class FinisherReason : unsigned { Idle, Invalid, NativeSequence, Ineligible, UserInput, Range,
  MagicMode, TargetChanged, PollReset, Cooldown, RetryLimit, CleanupWait, CleanupTimeout, Delivered, Complete, Consumed, AwaitApproach, ARequestLimit, WaitNeutral };
@@ -19,10 +19,10 @@ class FinisherAutomation {
     std::unordered_map<uint32_t,Episode> episodes_;
     uint32_t owner_{},session_{},target_{},pending_{},lastRequest_{};
     uintptr_t player_{};
-    uint64_t last_{},phaseAt_{},neutralAt_{};
+    uint64_t last_{},phaseAt_{},neutralAt_{},targetLostAt_{};
     bool previousManualA_{},pulseRecorded_{};
     unsigned phase_{}; // 0 idle, 1 RT, 2 release, 3 A, 4 cleaned modifier waiting neutral
-    void cancel(){phase_=0;pulseRecorded_=false;target_=0;pending_=0;neutralAt_=0;}
+    void cancel(){phase_=0;pulseRecorded_=false;target_=0;pending_=0;neutralAt_=0;targetLostAt_=0;}
     Episode* episode(uint32_t target,bool down){
         const auto found=episodes_.find(target);
         if(found!=episodes_.end())return &found->second;
@@ -43,6 +43,12 @@ class FinisherAutomation {
         cancel();return {false,false,false,why,0,attempts};
     }
 public:
+    // Reader may revalidate this actor only while native target is zero.
+    // Never exposes a cached actor beyond the bounded recovery-only window.
+    uint32_t recoveryTarget(uint64_t now)const{
+        return (phase_==1||phase_==2)&&last_&&now>=last_&&now-last_<250
+            &&(!targetLostAt_||(now>=targetLostAt_&&now-targetLostAt_<500))?target_:0;
+    }
     FinisherInput sample(const FinisherObservation& s,uint64_t now){
         if(s.valid&&s.owner&&(s.owner!=owner_||s.player!=player_)){episodes_.clear();owner_=s.owner;player_=s.player;lastRequest_=0;cancel();}
         const bool manualRise=s.manualA&&!previousManualA_;previousManualA_=s.manualA;
@@ -60,6 +66,12 @@ public:
         }
         if(discontinuity&&phase_)return stop(FinisherReason::PollReset,now);
         if(discontinuity)cancel();
+        if(s.targetFallback){
+            if((phase_!=1&&phase_!=2)||s.target!=target_||!s.valid)
+                return stop(FinisherReason::TargetChanged,now);
+            if(!targetLostAt_)targetLostAt_=now;
+            if(now<targetLostAt_||now-targetLostAt_>=500)return stop(FinisherReason::TargetChanged,now);
+        }else targetLostAt_=0;
         Episode* e=s.valid&&s.owner==owner_&&s.target?episode(s.target,s.down):nullptr;
         if(e&&!s.down)*e=Episode{};
         if(e&&s.down&&s.eligible&&manualRise&&!e->consumed){e->attempts=0;e->retryAt=now+1500;}
@@ -89,7 +101,7 @@ public:
         // Native dispatch owns finisher reach; no invented3m cutoff.
         if(phase_==1&&now-phaseAt_>=2000){phase_=2;phaseAt_=now;}
         else if(phase_==2&&now-phaseAt_>=800)return stop(FinisherReason::CleanupTimeout,now);
-        else if(phase_==2&&now-phaseAt_>=120&&!s.magicResidue&&!s.magicMode){phase_=4;phaseAt_=now;neutralAt_=0;}
+        else if(phase_==2&&now-phaseAt_>=120&&!s.magicResidue&&!s.magicMode&&!s.targetFallback){phase_=4;phaseAt_=now;neutralAt_=0;}
         else if(phase_==3&&now-phaseAt_>=80)return stop(FinisherReason::Complete,now);
         if(phase_==4){
             if(s.magicResidue||s.magicMode)return stop(FinisherReason::CleanupWait,now);

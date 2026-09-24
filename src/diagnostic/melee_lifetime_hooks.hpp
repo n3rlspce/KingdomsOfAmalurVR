@@ -14,6 +14,7 @@ inline DWORD requestThread{};
 inline bool installed{};
 // Optional read-only recipe observer, installed before the hooks. It never
 // participates in the ownership registry or changes native initialization.
+inline void(*resetObserver)(uintptr_t){};
 inline void(*creationObserver)(uintptr_t,uint32_t,uint32_t,uint32_t,int,bool){};
 
 inline bool begin(){
@@ -67,6 +68,7 @@ inline void __fastcall erase(void* self,void*,uint32_t key){
     originalErase(self,key);
 }
 inline void __fastcall reset(void* self,void*){
+    if(resetObserver)resetObserver(reinterpret_cast<uintptr_t>(self));
     AcquireSRWLockExclusive(&lock);
     observation.reset(reinterpret_cast<uintptr_t>(self));
     ReleaseSRWLockExclusive(&lock);

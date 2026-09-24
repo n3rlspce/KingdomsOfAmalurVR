@@ -9,13 +9,11 @@ struct Replay {
     LongswordStroke hands[2];mgs5vr::Vec3 positions[2]{};uint64_t tick=100;uint32_t model=1520;
     void run(unsigned ms,mgs5vr::Vec3 right={},mgs5vr::Vec3 left={}){
         for(unsigned i=0;i<ms;i+=10){tick+=10;positions[0]=positions[0]+right*.01f;positions[1]=positions[1]+left*.01f;
-            for(unsigned h=0;h<2;++h)hands[h].sample(positions[h],{},{0,0,-1},tick,1,true,false,strokeRecoveryMs(model));
+            for(unsigned h=0;h<2;++h)hands[h].sample(positions[h],{},{0,0,-1},tick,1,true,false);
         }
     }
 };
 int main(){
-    check(strokeRecoveryMs(1520)==180&&strokeRecoveryMs(2478)==250&&strokeRecoveryMs(5457)==250
-        &&strokeRecoveryMs(1250)==300&&strokeRecoveryMs(1323)==350,"explicit provisional family recovery");
     for(const auto model:{1520u,1250u,1323u}){
         const auto recipe=physicalMeleeRecipe(model);
         for(unsigned hand=0;hand<recipe.hands;++hand){
@@ -64,14 +62,14 @@ int main(){
         Replay fast;fast.model=model;fast.run(200);fast.run(120,{6,0,0},{-6,0,0});
         const auto first=fast.tick;
         for(unsigned h=0;h<physicalMeleeRecipe(model).hands;++h)check(fast.hands[h].commit(fast.tick),"first family contact");
-        // Keep moving in the first direction beyond recovery; time alone must
-        // not create another swing even at the new, shorter recovery values.
-        fast.run(static_cast<unsigned>(strokeRecoveryMs(model)),{6,0,0},{-6,0,0});
+        // One pass still cannot commit twice; the return cut below must
+        // qualify before every former family cooldown.
+        fast.run(10,{6,0,0},{-6,0,0});
         for(unsigned h=0;h<physicalMeleeRecipe(model).hands;++h)check(!fast.hands[h].commit(fast.tick),"continuous stroke never rearms");
         fast.run(120,{-6,0,0},{6,0,0});
-        check(fast.tick-first<550,"family reversal precedes old 550ms recovery");
+        check(fast.tick-first<180,"fresh reversal precedes every old family cooldown");
         for(unsigned h=0;h<physicalMeleeRecipe(model).hands;++h)
             check(fast.hands[h].contactReady()&&fast.hands[h].commit(fast.tick),"fresh family reversal commits independently");
     }
-    std::puts("PASS exact family recipes, hand/epoch/frame identity, contact speed units, hammer head gate, unsupported families, dual independence, per-family recovery/reversal and continuous-sweep dedup");
+    std::puts("PASS exact family recipes, hand/epoch/frame identity, contact speed units, hammer head gate, unsupported families, dual independence, physical recovery/reversal and continuous-sweep dedup");
 }

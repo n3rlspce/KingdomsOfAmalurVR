@@ -53,5 +53,28 @@ int main(){
  FinisherAutomation many;auto m=ready();tick=1000;
  for(uint32_t actor=1;actor<=200;++actor){m.target=actor;many.sample(m,tick);assert(many.sample(m,tick+100).a);many.sample(m,tick+180);tick+=200;}
  for(uint32_t actor=1;actor<=200;++actor){m.target=actor;assert(!many.sample(m,tick++).a);}
+ // Owned recovery survives native target disappearance only with a freshly
+ // revalidated original actor and a500ms budget. Never A on fallback identity.
+ FinisherAutomation lost;auto l=ready();l.magicResidue=true;lost.sample(l,1000);lost.sample(l,1100);
+ assert(lost.recoveryTarget(1150)==2);l.targetFallback=true;
+ assert(lost.sample(l,1150).rightTrigger);assert(lost.sample(l,1300).rightTrigger);
+ l.targetFallback=false;assert(lost.sample(l,1400).rightTrigger);polls(lost,l,1450,3100);
+ l.targetFallback=true;l.magicResidue=false;assert(!lost.sample(l,3150).a);
+ assert(!lost.sample(l,3300).a);assert(lost.recoveryTarget(3400)==2);
+ l.targetFallback=false;assert(!lost.sample(l,3400).a);assert(lost.sample(l,3500).a);
+ assert(lost.recoveryTarget(3500)==0);
+ // Expired loss cannot be refreshed forever by repeated valid fallback reads.
+ FinisherAutomation expiry;l=ready();l.magicResidue=true;expiry.sample(l,1000);expiry.sample(l,1100);
+ l.targetFallback=true;expiry.sample(l,1150);polls(expiry,l,1200,1600);
+ assert(expiry.recoveryTarget(1649)==2);assert(expiry.recoveryTarget(1650)==0);
+ assert(!expiry.sample(l,1650).claimed);assert(expiry.recoveryTarget(1651)==0);
+ // A different native nonzero target never inherits the old recovery lease.
+ FinisherAutomation changed;l=ready();l.magicResidue=true;changed.sample(l,1000);changed.sample(l,1100);
+ l.target=3;assert(changed.sample(l,1150).reason==FinisherReason::TargetChanged);
+ // Focus/controls and failed fallback validation still cancel immediately.
+ FinisherAutomation bad;l=ready();l.magicResidue=true;bad.sample(l,1000);bad.sample(l,1100);
+ l.targetFallback=true;l.eligible=false;assert(!bad.sample(l,1150).claimed);
+ FinisherAutomation invalid;l=ready();l.magicResidue=true;invalid.sample(l,1000);invalid.sample(l,1100);
+ l.targetFallback=true;l.valid=false;assert(!invalid.sample(l,1150).claimed);
  return 0;
 }

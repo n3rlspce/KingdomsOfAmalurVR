@@ -26,6 +26,8 @@
 #include "../bridge_tracking/motion_input.hpp"
 #include "../bridge_tracking/heavy_charge_frame.hpp"
 #include "../bridge_tracking/charged_feedback_channel.hpp"
+#include "../bridge_tracking/impact_feedback_channel.hpp"
+#include "../bridge_tracking/action_feedback_channel.hpp"
 #include "../bridge_tracking/physical_crouch.hpp"
 #include "../bridge_tracking/snap_pitch.hpp"
 #include "../bridge_tracking/rig_status.hpp"
@@ -175,6 +177,12 @@ int main(int argc,char** argv) {
     amalur::ChargedFeedbackChannel chargedFeedbackChannel;
     amalur::ChargedFeedbackPacket chargedFeedbackPacket;
     amalur::ChargedFeedbackReceiver chargedFeedback;
+    amalur::ImpactFeedbackChannel impactChannel;amalur::ImpactFeedbackPacket impactPacket;
+    amalur::ImpactFeedbackReceiver impactFeedback;
+    amalur::ActionFeedbackChannel actionChannel;
+    amalur::ActionFeedbackPacket actionPacket;
+    amalur::ActionFeedbackReceiver actionFeedback;
+    uint64_t actionPulseUntil[2]{};uint64_t chargedPulseUntil{};
     amalur::TouchMapper touchMapper;
     amalur::PhysicalCrouch physicalCrouch;
     amalur::SnapPitchChannel snapPitch; snapPitch.publish(0);
@@ -301,12 +309,41 @@ int main(int argc,char** argv) {
         GameLifetime gameLifetime;
         GameFocusRestorer gameFocus;
         amalur::CinematicResize cinematicResize;
+        // Observation only: sample raw stick before any UI/cinematic mutation,
+        // then the exact mapped packet handed to the game. No per-frame flush.
+        uint64_t movementLogTick{},movementLastMotion{};unsigned movementLogMode=~0u;
+        auto movementTrace=[&](uint64_t now,float rawX,float rawY,bool rawAvailable,
+            const amalur::MotionInputPacket& mapped,bool gameplay,bool panelCapture,bool resizeScreen){
+            if(!gameMode)return;
+            const auto rigAge=DWORD(GetTickCount()-latestRig.tick);
+            const bool gameFocusNow=VrSettings::gameFocused();
+            const bool moving=std::fabs(rawX)>.2f||std::fabs(rawY)>.2f||mapped.moveX!=0||mapped.moveY!=0;
+            if(moving)movementLastMotion=now;
+            const unsigned mode=unsigned(focused)|(unsigned(gameFocusNow)<<1)|(unsigned(mapped.active!=0)<<2)
+                |(unsigned(gameplay)<<3)|(unsigned(panelCapture)<<4)|(unsigned(resizeScreen)<<5)
+                |(unsigned(settings.panelOpen())<<6)|(unsigned(settings.interfaceView)<<7)
+                |(unsigned(rigAge<1000&&latestRig.pid!=0)<<8)|(unsigned(latestRig.weaponRemaps!=0)<<9)
+                |(unsigned(latestRig.paused==0)<<10)|(unsigned(rawAvailable)<<11)
+                |((unsigned(latestRig.paused+1)&3u)<<12)|(unsigned(latestRig.focused!=0)<<14)|(unsigned(latestRig.tracked!=0)<<15);
+            const bool tail=movementLastMotion&&now>=movementLastMotion&&now-movementLastMotion<=500;
+            if((!moving&&!tail&&mode==movementLogMode)||(movementLogTick&&now-movementLogTick<50))return;
+            movementLogTick=now;movementLogMode=mode;
+            std::cout<<"VR movement bridge tick="<<now<<" raw="<<rawX<<','<<rawY<<" rawAvailable="<<rawAvailable
+                <<" mapped="<<mapped.moveX<<','<<mapped.moveY<<" active="<<mapped.active<<" gameplay="<<gameplay
+                <<" panelCapture="<<panelCapture<<" panel="<<settings.panelOpen()<<" resize="<<resizeScreen
+                <<" interface="<<settings.interfaceView<<" rigAge="<<rigAge<<" paused="<<latestRig.paused
+                <<" weaponRemaps="<<latestRig.weaponRemaps<<" pid="<<latestRig.pid<<" xrFocus="<<focused
+                <<" gameFocus="<<gameFocusNow<<" rigFocus="<<latestRig.focused<<" rigTracked="<<latestRig.tracked
+                <<" mode="<<mode<<" buttons="<<mapped.buttons<<"\n";
+        };
         const int duration=trackingMode?1800:30;
         const int stopKey=trackingMode?VK_F12:VK_ESCAPE;
-        std::cout<<"Session test: "<<duration<<" seconds, "<<(trackingMode?"F12":"ESC")<<" exits.\n";
+        if(gameMode)std::cout<<"Gameplay session: no time limit, F12 exits.\n";
+        else std::cout<<"Session test: "<<duration<<" seconds, "<<(trackingMode?"F12":"ESC")<<" exits.\n";
         if(gameMode)std::cout<<"EXPERIMENTAL GAME STEREO: menu panel until F10 camera is active; waiting for geo-11 Katanga surface. Scale/eye convergence uncalibrated.\n";
         else if(trackingMode)std::cout<<"POSE BRIDGE: desktop camera diagnostic only. The headset still shows triangles, not Amalur.\n";
-        while(!done && std::chrono::steady_clock::now()-start<std::chrono::seconds(duration) && !(GetAsyncKeyState(stopKey)&0x8000)) {
+        // Gameplay lasts until explicit exit, runtime shutdown, or game process exit.
+        while(!done && (gameMode || std::chrono::steady_clock::now()-start<std::chrono::seconds(duration)) && !(GetAsyncKeyState(stopKey)&0x8000)) {
             if(gameMode&&gameLifetime.gameExited()){
                 std::cout<<"Game process exited; closing VR bridge.\n";
                 break;
@@ -365,10 +402,12 @@ int main(int argc,char** argv) {
                     XrActionStateFloat v{XR_TYPE_ACTION_STATE_FLOAT};XR(xrGetActionStateFloat(r.session,&g,&v));return v.isActive?v.currentState:0.f;};
                 auto button=[&](XrAction a,int hand){XrActionStateGetInfo g{XR_TYPE_ACTION_STATE_GET_INFO};g.action=a;g.subactionPath=handPaths[hand];
                     XrActionStateBoolean v{XR_TYPE_ACTION_STATE_BOOLEAN};XR(xrGetActionStateBoolean(r.session,&g,&v));return v.isActive&&v.currentState;};
-                amalur::TouchInput touch;
+                amalur::TouchInput touch;bool rawLeftAvailable=false;
                 for(int hand=0;hand<2;++hand){XrActionStateGetInfo g{XR_TYPE_ACTION_STATE_GET_INFO};g.action=move;g.subactionPath=handPaths[hand];
                     XrActionStateVector2f v{XR_TYPE_ACTION_STATE_VECTOR2F};XR(xrGetActionStateVector2f(r.session,&g,&v));
+                    if(hand==0)rawLeftAvailable=v.isActive!=0;
                     if(v.isActive){if(hand==0){touch.leftX=v.currentState.x;touch.leftY=v.currentState.y;}else{touch.rightX=v.currentState.x;touch.rightY=v.currentState.y;}}}
+                const float rawLeftX=touch.leftX,rawLeftY=touch.leftY;
                 touch.leftTrigger=scalar(trigger,0);touch.rightTrigger=scalar(trigger,1);touch.leftGrip=scalar(squeeze,0);touch.rightGrip=scalar(squeeze,1);
                 touch.x=button(primary,0);touch.y=button(secondary,0);touch.a=button(primary,1);touch.b=button(secondary,1);
                 touch.leftClick=button(stickClick,0);touch.rightClick=button(stickClick,1);touch.menu=button(menuAction,0);
@@ -390,7 +429,7 @@ int main(int argc,char** argv) {
                 if(cinematicResize.update(settings.cinematicScale,touch.leftY,touch.rightY,resizeScreen,acquisitionTick))settings.saveCinematicScale();
                 if(resizeScreen){touch.leftY=0;touch.rightY=0;touch.leftX=0;touch.rightX=0;touch.leftGrip=0;touch.rightGrip=0;}
                 bool panelCapture=settings.pollDeveloperControllers(touch,gameMode&&VrSettings::gameFocused(),developer.busy());
-                auto mapped=touchMapper.map(touch,gameMode&&!panelCapture&&!settings.visible&&!settings.developerVisible&&VrSettings::gameFocused(),gameplay);
+                auto mapped=touchMapper.map(touch,gameMode&&!panelCapture&&!settings.visible&&!settings.developerVisible&&VrSettings::gameFocused(),gameplay,GetTickCount64(),settings.interfaceView);
                 panelCapture=settings.applyPauseInput(touch,gameMode&&VrSettings::gameFocused(),mapped)||panelCapture;
                 settings.selectedWeapon=mapped.selectedWeapon;
                 const bool crouchActive=gameplay&&mapped.active&&!panelCapture&&!settings.panelOpen()
@@ -400,6 +439,7 @@ int main(int argc,char** argv) {
                     (mapped.buttons&XINPUT_GAMEPAD_RIGHT_SHOULDER)!=0,acquisitionTick))
                     mapped.buttons|=XINPUT_GAMEPAD_RIGHT_SHOULDER;
                 snapPitch.publish(touchMapper.pitchSteps());
+                movementTrace(acquisitionTick,rawLeftX,rawLeftY,rawLeftAvailable,mapped,gameplay,panelCapture,resizeScreen);
                 motionInput.publish(mapped);
                 for(int i=0;i<2;++i){XrActionStateGetInfo get{XR_TYPE_ACTION_STATE_GET_INFO};get.action=trigger;get.subactionPath=handPaths[i];XrActionStateFloat value{XR_TYPE_ACTION_STATE_FLOAT};XR(xrGetActionStateFloat(r.session,&get,&value));
                     bool down=value.isActive&&value.currentState>.75f;
@@ -429,14 +469,39 @@ int main(int argc,char** argv) {
                     &&latestRig.firstPerson&&latestRig.focused&&latestRig.tracked&&!amalur::playMode.normal();
                 const auto pulse=chargedFeedback.sample(chargedFeedbackPacket,GetTickCount64(),feedbackAllowed,
                     latestRig.pid,GetCurrentProcessId(),settings.recenter);
-                if(pulse.kind){
+                if(pulse.kind){chargedPulseUntil=GetTickCount64()+pulse.milliseconds;
                     XrHapticActionInfo hi{XR_TYPE_HAPTIC_ACTION_INFO};hi.action=haptic;hi.subactionPath=handPaths[1];
                     XrHapticVibration vibration{XR_TYPE_HAPTIC_VIBRATION};vibration.duration=static_cast<XrDuration>(pulse.milliseconds)*1000000;
                     vibration.amplitude=pulse.amplitude;vibration.frequency=XR_FREQUENCY_UNSPECIFIED;
                     const auto applied=xrApplyHapticFeedback(r.session,&hi,reinterpret_cast<XrHapticBaseHeader*>(&vibration));
                     std::cout<<"Charged haptic kind="<<pulse.kind<<" durationMs="<<pulse.milliseconds<<" result="<<applied<<std::endl;
                 }
-            } else {if(cinematicResize.update(settings.cinematicScale,0,0,false,acquisitionTick))settings.saveCinematicScale();chargedFeedback.reset();pressed={};settings.pollDeveloperControllers({},false,developer.busy());motionInput.publish(touchMapper.map({},false));if(trackingMode){amalur::PosePacket invalid;leftHand.publish(invalid);rightHand.publish(invalid);}}
+                amalur::ImpactFeedbackPacket freshImpact;
+                if(impactChannel.transfer(freshImpact,false))impactPacket=freshImpact;
+                const auto impactNow=GetTickCount64();
+                const auto impacts=impactFeedback.sample(impactPacket,impactNow,feedbackAllowed,
+                    latestRig.pid,GetCurrentProcessId(),settings.recenter);
+                amalur::ActionFeedbackPacket freshAction;
+                if(actionChannel.transfer(freshAction,false))actionPacket=freshAction;
+                const bool actionAllowed=gameplay&&!panelCapture&&!settings.panelOpen()&&VrSettings::gameFocused()
+                    &&latestRig.firstPerson&&latestRig.focused&&latestRig.tracked&&!amalur::playMode.normal();
+                const auto actions=actionFeedback.sample(actionPacket,impactNow,actionAllowed,
+                    latestRig.pid,GetCurrentProcessId(),settings.recenter);
+                for(unsigned side=0;side<2;++side){
+                    const auto& action=actions.hand[side];
+                    const amalur::ImpactPulse hit=action.milliseconds
+                        ?amalur::ImpactPulse{action.milliseconds,action.amplitude}:impacts.hand[side];
+                    const auto& trackedHand=side==0?snapshot.right:snapshot.left;
+                    if(!hit.milliseconds||!trackedHand.valid||trackedHand.tick>impactNow||impactNow-trackedHand.tick>=150
+                       ||(side==0&&impactNow<chargedPulseUntil)||(!action.milliseconds&&impactNow<actionPulseUntil[side]))continue;
+                    if(action.milliseconds)actionPulseUntil[side]=impactNow+action.milliseconds;
+                    // Game hand0 is right; OpenXR subaction index1 is right.
+                    XrHapticActionInfo hi{XR_TYPE_HAPTIC_ACTION_INFO};hi.action=haptic;hi.subactionPath=handPaths[side==0?1:0];
+                    XrHapticVibration vibration{XR_TYPE_HAPTIC_VIBRATION};vibration.duration=XrDuration(hit.milliseconds)*1000000;
+                    vibration.amplitude=hit.amplitude;vibration.frequency=XR_FREQUENCY_UNSPECIFIED;
+                    xrApplyHapticFeedback(r.session,&hi,reinterpret_cast<XrHapticBaseHeader*>(&vibration));
+                }
+            } else {if(cinematicResize.update(settings.cinematicScale,0,0,false,acquisitionTick))settings.saveCinematicScale();chargedFeedback.reset();impactFeedback.reset();actionFeedback.reset();actionPulseUntil[0]=actionPulseUntil[1]=0;pressed={};settings.pollDeveloperControllers({},false,developer.busy());const auto inactiveMapped=touchMapper.map({},false);movementTrace(acquisitionTick,0,0,false,inactiveMapped,false,false,false);motionInput.publish(inactiveMapped);if(trackingMode){amalur::PosePacket invalid;leftHand.publish(invalid);rightHand.publish(invalid);}}
             std::array<XrCompositionLayerProjectionView,2> projectionViews{};
             if(trackingMode)trackingSnapshots.publish(snapshot);
             const auto wristTick=GetTickCount64();

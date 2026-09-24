@@ -178,6 +178,7 @@ static bool hook(void* target,void* detour,void** original,const char* name) {
 #include "near_clip.hpp"
 #include "weapon_control.hpp"
 #include "body_visibility.hpp"
+#include "npc_gaze.hpp"
 #include "rig_probe.hpp"
 #include "melee_probe.hpp"
 #include "melee_feedback.hpp"

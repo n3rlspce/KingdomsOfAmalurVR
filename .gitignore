@@ -31,3 +31,11 @@ __pycache__/
 /REPOSITORY_SETUP.md
 /V0_1_PLAN.md
 /VR_CONVERSION_PLAN.md
+
+# Local agent instructions and coordination notes.
+AGENTS.md
+COORDINATOR-HANDOFF.md
+HANDOFF.md
+OWNERSHIP.md
+PROTOCOL.md
+TASKS.md

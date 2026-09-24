@@ -14,7 +14,7 @@ inline constexpr NativeFamilyRecipe nativeFamilyRecipe(uint32_t model,unsigned s
     if(model==1250){switch(step){
         case 1:return {model,417,0,0x0100e002,true,step};case 2:return {model,418,1,0x0100e002,false,step};
         case 3:return {model,419,1,0x0100e002,false,step};case 4:return {model,420,2,0x0100c002,false,step};}}
-    if(model==1323){switch(step){
+    if(knownHammerModel(model)){switch(step){
         case 1:return {model,16,1,0x0100e002,true,step};case 2:return {model,17,1,0x0100e002,true,step};
         case 3:return {model,18,2,0x0100c002,true,step};}}
     return {};
@@ -25,7 +25,7 @@ inline constexpr NativeFamilyRecipe nativeFamilyAttack(uint32_t attack){
     return {};
 }
 inline constexpr bool supportedNativeFamilyAttack(uint32_t model,uint32_t attack,uint32_t flags){
-    const auto r=nativeFamilyAttack(attack);return r.attack&&r.model==model&&r.flags==flags;
+    const auto r=nativeFamilyAttack(attack);return r.attack&&(r.model==model||(r.model==1323&&knownHammerModel(model)))&&r.flags==flags;
 }
 inline constexpr bool matchesFamilyDefinition(uint32_t attack,const DirectWeaponDefinition& d){
     const auto r=nativeFamilyAttack(attack);
@@ -60,7 +60,7 @@ inline constexpr NativeSwingSounds nativeSwingSounds(uint32_t model,uint32_t att
     if(!supportedNativeFamilyAttack(model,attack,flags))return {};
     if(model==1520)return {0x0078678b,attack==200?0u:0x01c9d985u};
     if(model==1250)return {0x012e49bf,attack==420?0x01edd57bu:0x0104d903u};
-    if(model==1323)return {attack==16?0x00fca83bu:attack==17?0x00e72c9au:0x00e78ed9u,
+    if(knownHammerModel(model))return {attack==16?0x00fca83bu:attack==17?0x00e72c9au:0x00e78ed9u,
         attack==18?0x01edd57bu:0x0104d903u};
     return {};
 }

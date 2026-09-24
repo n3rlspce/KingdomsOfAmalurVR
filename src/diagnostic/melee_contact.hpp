@@ -1,13 +1,19 @@
 #include "../tracking/melee_stroke_targets.hpp"
 #pragma once
+#include "../tracking/contact_damage_gate.hpp"
 #include "melee_native.hpp"
 #include "melee_lifetime_hooks.hpp"
 #include "melee_owned_source.hpp"
 #include "../tracking/melee_hand_recipe.hpp"
-#include "damage_capture.hpp"
 #include "../tracking/melee_owned_backend.hpp"
 #include "../tracking/melee_hit_identity.hpp"
 #include "game_pause.hpp"
+#include "native_action_haptics.hpp"
+#include "native_arrow_haptics.hpp"
+#include "incoming_damage_feedback.hpp"
+#include "native_cast_haptics.hpp"
+#include "damage_capture.hpp"
+#include "shield_block_feedback.hpp"
 #include "melee_debug.hpp"
 #include "../tracking/weapon_contact_profile.hpp"
 #include "physical_hitstop.hpp"
@@ -15,9 +21,14 @@
 #include "back_sheath_dispatch.hpp"
 #include "../tracking/melee_family_policy.hpp"
 #include "../tracking/melee_query_recovery.hpp"
+#include "../tracking/impact_feedback_channel.hpp"
+#include "impact_health.hpp"
 namespace melee_contact {
 using Update=void(__thiscall*)(void*);
 inline Update originalUpdate{};
+inline amalur::ImpactFeedbackWriter impactWriter;
+inline amalur::ImpactFeedbackChannel impactChannel;
+inline void publishImpact(){auto p=impactWriter.packet();impactChannel.transfer(p,true);}
 inline std::atomic<DWORD> updateThread{0};
 inline std::atomic<bool> faulted{false};
 inline bool querySuspended{};
@@ -58,6 +69,7 @@ struct Progress {
     uint32_t blocked{};
     unsigned actorHits{},selfHits{},otherHits{},resolverCalls{},resolverRejected{};
     unsigned separationRejected{},damageGateRejected{},commitRejected{};
+    unsigned damageNotReady{},damageGestureMismatch{},damageConsumed{},damageTargetBudget{},damageContactSpeed{};
 };
 inline Progress progress;
 inline void reportProgress(){
@@ -66,8 +78,9 @@ inline void reportProgress(){
         progress.blocked,progress.updates,progress.ready,progress.fresh[0],progress.fresh[1],progress.continuous[0],progress.continuous[1],
         progress.swings[0],progress.swings[1],progress.fast[0],progress.fast[1],progress.sweeps,progress.queryHits,contextsCreated,contextsClosed,
         progress.actorHits,progress.selfHits,progress.otherHits,progress.resolverCalls,progress.resolverRejected);
-    if(progress.actorHits)log("VR physical contact gates tick=%llu actorHits=%u separationRejected=%u damageGateRejected=%u commitRejected=%u\n",
-        now,progress.actorHits,progress.separationRejected,progress.damageGateRejected,progress.commitRejected);
+    if(progress.actorHits)log("VR physical contact gates tick=%llu actorHits=%u separationRejected=%u damageGateRejected=%u commitRejected=%u firstNotReady=%u firstGestureMismatch=%u firstConsumed=%u firstTargetBudget=%u firstContactSpeed=%u\n",
+        now,progress.actorHits,progress.separationRejected,progress.damageGateRejected,progress.commitRejected,
+        progress.damageNotReady,progress.damageGestureMismatch,progress.damageConsumed,progress.damageTargetBudget,progress.damageContactSpeed);
     progress={};progress.reportTick=now;
 }
 inline void fault(const char* reason){
@@ -113,7 +126,8 @@ inline Equipped equipped(unsigned side=0){
     return result;
 }
 inline bool eligible(uintptr_t physics,bool recovering=false){
-    if(weapon_control::weaponSheathed.load()||weapon_control::backGripClaimed.load())return false;
+    if(weapon_control::weaponSheathed.load()||weapon_control::backGripClaimed.load()
+        ||motion_controls::nativeAttackHeld(GetTickCount64()))return false;
     return !faulted.load()&&(!querySuspended||recovering)&&motion_controls::contactEnabled.load()&&melee_probe::local(physics)
         &&headTracking.load()&&firstPerson.load()&&!interfaceView.load()&&arm_rig::enabled.load()
         &&motion_controls::gameFocused()&&!motion_controls::explicitSpellActive(GetTickCount64())&&motion_controls::viewControls().selectedWeapon<=1;
@@ -211,6 +225,7 @@ inline HandState hands[2];
 inline amalur::LongswordSeparation swordSeparation[2];
 inline uint32_t separationWeapon{};inline unsigned separationGeneration{};
 inline bool swordQuery{},swordDamage{},queryFrameComplete{};inline unsigned queryHand{};
+inline amalur::ContactDamageGate damageGateReason{amalur::ContactDamageGate::NotPhysical};
 inline amalur::MeleeSwingEvent contactSnapshot;
 inline uint64_t contactFrame{};
 // The native resolver obtains its weapon through player virtual +44 (C0CBD0),
@@ -311,7 +326,17 @@ inline unsigned contactOperation(uintptr_t physics,HandState& hand,melee_native:
             ++progress.actorHits;
             const bool separated=!swordQuery||swordSeparation[queryHand].observe(actor,GetTickCount64());
             if(!separated)++progress.separationRejected;
-            else if(swordQuery&&!swordDamage)++progress.damageGateRejected;
+            else if(swordQuery&&!swordDamage){
+                ++progress.damageGateRejected;
+                switch(damageGateReason){
+                case amalur::ContactDamageGate::NotReady:++progress.damageNotReady;break;
+                case amalur::ContactDamageGate::GestureMismatch:++progress.damageGestureMismatch;break;
+                case amalur::ContactDamageGate::Consumed:++progress.damageConsumed;break;
+                case amalur::ContactDamageGate::TargetBudget:++progress.damageTargetBudget;break;
+                case amalur::ContactDamageGate::ContactSpeed:++progress.damageContactSpeed;break;
+                default:break;
+                }
+            }
             if(separated&&(!swordQuery||swordDamage)&&(!swordQuery||(hand.targets.available(actor)&&targetCount<64-hand.targets.count))){
                 actorContact=true;
                 if(swordQuery){
@@ -347,7 +372,10 @@ inline unsigned contactOperation(uintptr_t physics,HandState& hand,melee_native:
         ++hand.attempts;
     }else if(hand.attempts++>=4)return 0;
     traceContact=++traceSequence;checkpoint("actor-contact");
+    const auto healthBefore=impact_health::before(hits,source.owner);
     Operation operation(physics,hand.side);auto accepted=runOperation(&operation,physics,hand,hits,from,to);
+    if(accepted&&!faulted.load()&&impact_health::decreased(healthBefore)
+       &&impactWriter.confirmed(hand.side,hand.serial,GetTickCount64(),source.asset==81&&source.flags==1))publishImpact();
     // Separation is conservatively marked for ATTEMPTED actors. The aggregate
     // native dedup growth does not identify which actors received damage.
     if(swordQuery)for(unsigned n=0;n<targetCount;++n)swordSeparation[queryHand].hit(targets[n],GetTickCount64());
@@ -494,7 +522,7 @@ inline void contacts(uintptr_t physics){
         // One candidate per deliberate stroke; contact is independently gated.
         // Native recipe identity and per-hand consumption remain transactional.
         bool sameGesture=amalur::sameMeleeContact(swings[i],swings[i],weapon,model,generation,i,frame,frame,source.asset,source.flags);
-        if(amalur::knownLongswordModel(equipment.model)||equipment.model==1250||equipment.model==1323||equipment.model==1520)sameGesture=sameGesture&&(equipment.model==1520||i==0)&&equipment.serial==swings[i].serial
+        if(amalur::knownLongswordModel(equipment.model)||equipment.model==1250||amalur::knownHammerModel(equipment.model)||equipment.model==1520)sameGesture=sameGesture&&(equipment.model==1520||i==0)&&equipment.serial==swings[i].serial
             &&equipment.generation==swings[i].generation&&equipment.attack==swings[i].attackAsset
             &&equipment.flags==swings[i].attackFlags;
         const bool newStroke=sword?(continuous&&swings[i].serial&&h.serial!=swings[i].serial):(sameGesture&&h.window.accept(swings[i].serial,swings[i].tick,now,continuous));
@@ -515,8 +543,10 @@ inline void contacts(uintptr_t physics){
                 auto from=amalur::contactCenter(*profile,segment,h.previous);
                 auto to=amalur::contactCenter(*profile,segment,poses[i]);
                 const auto axis=mgs5vr::rotate(poses[i].orientation,{0,0,1});
-                swordDamage=sword&&swordReady[i]&&sameGesture&&!h.consumed&&h.targets.count<64
-                    &&amalur::meleeContactSpeed(model,to-from,axis,frame-h.tick,sampleScale);
+                damageGateReason=amalur::contactDamageGate(sword,swordReady[i],sameGesture,h.consumed,h.targets.count,[&]{
+                    return amalur::meleeContactSpeed(model,to-from,axis,frame-h.tick,sampleScale);
+                });
+                swordDamage=damageGateReason==amalur::ContactDamageGate::Allowed;
                 melee_debug::record(i,segment,from,to,weapon);
                 const auto accepted=contact(physics,h,&from.x,&to.x,profile->radius);
                 // Native multi-runtime/heavy effects retain their existing
@@ -542,8 +572,11 @@ inline void feedback(uintptr_t physics){
     const auto now=GetTickCount64();
     const bool allowed=!weapon_control::weaponSheathed.load()&&!weapon_control::backGripClaimed.load()&&headTracking.load()&&firstPerson.load()&&!interfaceView.load()
         &&motion_controls::gameFocused()&&!motion_controls::explicitSpellActive(now)&&!motion_controls::dialogueActive.load()&&arm_rig::enabled.load()
-        &&motion_controls::contactEnabled.load()&&frame&&frame<=now&&now-frame<100
+        &&motion_controls::contactEnabled.load()&&!motion_controls::nativeAttackHeld(now)&&frame&&frame<=now&&now-frame<100
         &&selection<=1&&selection==motion_controls::viewControls().selectedWeapon;
+    unsigned impactBridge;AcquireSRWLockShared(&weapon_control::poseLock);impactBridge=weapon_control::heavySession;ReleaseSRWLockShared(&weapon_control::poseLock);
+    impactWriter.sample(GetCurrentProcessId(),impactBridge,center,weapon,player_rig::word(physics+0x18),now,allowed);
+    publishImpact();
     melee_feedback::longsword_audio::update(player_rig::word(physics+0x18),weapon,model,center,allowed);
     melee_feedback::native_vfx::update(player_rig::word(physics+0x18),weapon,model,center,allowed,now);
     weapon_control::physicalActor.store(allowed?player_rig::word(physics+0x18):0);
@@ -558,6 +591,8 @@ inline void __fastcall update(void* self,void*){
         if(updateThread.load()!=GetCurrentThreadId())fault("native update thread changed");}}
     __except(EXCEPTION_EXECUTE_HANDLER){fault("native update identity exception");}
     originalUpdate(self);if(inContact||updateThread.load()!=GetCurrentThreadId())return;
+    __try{if(melee_probe::local(reinterpret_cast<uintptr_t>(self)))native_action_haptics::update(player_rig::word(reinterpret_cast<uintptr_t>(self)+0x18));}
+    __except(EXCEPTION_EXECUTE_HANDLER){}
     weapon_selection::sample(reinterpret_cast<uintptr_t>(self));
     back_sheath_dispatch::sample(reinterpret_cast<uintptr_t>(self));
     weapon_control::recoverCapturedVisibility();
@@ -567,15 +602,20 @@ inline void __fastcall update(void* self,void*){
     inContact=false;
 }
 inline void install(){
+    if(originalUpdate)return; // Native observer patches must not be re-initialized.
     if constexpr(!melee_native::customContactEnabled){return;}else{
     if(GetFileAttributesW(L"amalur-owned-melee.enable")==INVALID_FILE_ATTRIBUTES)return;
     if(!melee_native::initialize()||!melee_probe::original){log("VR owned melee prerequisites rejected\n");return;}
     auto u=reinterpret_cast<unsigned char*>(gameBase+0xba57b0);const unsigned char prefix[]{0x83,0xec,0x44,0xa1};
     if(memcmp(u,prefix,sizeof(prefix))||player_rig::word(reinterpret_cast<uintptr_t>(u)+4)!=gameBase+0x157713c)return;
     melee_lifetime_hooks::creationObserver=&melee_recipe_capture::created;
+    melee_lifetime_hooks::resetObserver=&native_cast_haptics::retired;
     if(!melee_lifetime_hooks::install())return;
     log("VR physical hitstop hook=%s\n",physical_hitstop::install()?"enabled":"signature-rejected");
     if(hook(u,reinterpret_cast<void*>(&update),reinterpret_cast<void**>(&originalUpdate),"Owned physical dagger contact")){
+        shield_block_feedback::install();
+        native_arrow_haptics::install();
+        incoming_damage_feedback::install();
         motion_controls::contactEnabled.store(true);log("VR owned melee enabled; verified dagger/longsword/greatsword/hammer; per-hand peak/contact strokes; native resident damage recipes\n");}
     }
 }

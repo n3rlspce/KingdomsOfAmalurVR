@@ -40,6 +40,11 @@ inline constexpr auto staffContact=contactLine({0,0,0},{0,0,81.89f},12,4.f);
 inline constexpr auto greatswordContact=contactLine({0,0,18.79f},{.32f,0,136},16,4.f);
 // Only a head-centred provisional volume: do not treat the long handle as a blade.
 inline constexpr auto hammerContact=contactLine({0,0,92.33f},{0,0,92.33f},1,10.f);
+// Reckoning5215 captured head marker0017311f in handle006666f1 frame:
+// (.4039895,.00003048,92.341949), resident bind bone3 at blob+0x100;
+// corroborated by live census9268687. Same provisional
+// head radius; distinct profile avoids assuming identical authored geometry.
+inline constexpr auto reckoningHammerContact=contactLine({.404f,0,92.342f},{.404f,0,92.342f},1,10.f);
 // Screenshot122007 disproves the old +X envelope: it crossed the hand.
 // No fitted collision volume until the handle's blade axis is established.
 // Diagnostic renderer shows coloured axis guides for this captured model.
@@ -49,7 +54,7 @@ inline const WeaponContactProfile* capturedContactProfile(uint32_t asset){
         case 1520:return &prototypeDaggers;case 2478:return &longswordContact;
         case 5457:return &rustyLongswordContact;
         case 1514:return &staffContact;case 1250:return &greatswordContact;
-        case 1323:return &hammerContact;case 1689:return &faebladesContact;
+        case 1323:return &hammerContact;case 5215:return &reckoningHammerContact;case 1689:return &faebladesContact;
         default:return nullptr; // Chakrams thrown/held transitions unverified.
     }
 }

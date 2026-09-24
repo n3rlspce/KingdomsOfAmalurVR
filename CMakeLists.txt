@@ -321,3 +321,75 @@ target_include_directories(quick_wheel_release_check PRIVATE ${CMAKE_CURRENT_SOU
 add_executable(vr_cursor_check src/tracking/vr_cursor_check.cpp)
 target_link_libraries(vr_cursor_check PRIVATE mgs5vr_core user32 d3d11 dxgi d3dcompiler dxguid)
 target_include_directories(vr_cursor_check PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+
+add_executable(action_feedback_check src/tracking/action_feedback_check.cpp)
+target_link_libraries(action_feedback_check PRIVATE mgs5vr_core user32 d3d11 dxgi d3dcompiler dxguid)
+target_include_directories(action_feedback_check PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+
+add_executable(contact_damage_gate_check src/tracking/contact_damage_gate_check.cpp)
+target_link_libraries(contact_damage_gate_check PRIVATE mgs5vr_core user32 d3d11 dxgi d3dcompiler dxguid)
+target_include_directories(contact_damage_gate_check PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+
+add_executable(finisher_manual_check src/tracking/finisher_manual_check.cpp)
+target_link_libraries(finisher_manual_check PRIVATE mgs5vr_core user32 d3d11 dxgi d3dcompiler dxguid)
+target_include_directories(finisher_manual_check PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+
+add_executable(fresh_swing_contact_check src/tracking/fresh_swing_contact_check.cpp)
+target_link_libraries(fresh_swing_contact_check PRIVATE mgs5vr_core user32 d3d11 dxgi d3dcompiler dxguid)
+target_include_directories(fresh_swing_contact_check PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+
+add_executable(impact_feedback_check src/tracking/impact_feedback_check.cpp)
+target_link_libraries(impact_feedback_check PRIVATE mgs5vr_core user32 d3d11 dxgi d3dcompiler dxguid)
+target_include_directories(impact_feedback_check PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+
+add_executable(impact_health_check src/tracking/impact_health_check.cpp)
+target_link_libraries(impact_health_check PRIVATE mgs5vr_core user32 d3d11 dxgi d3dcompiler dxguid)
+target_include_directories(impact_health_check PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+
+add_executable(incoming_damage_backend_check src/tracking/incoming_damage_backend_check.cpp)
+target_link_libraries(incoming_damage_backend_check PRIVATE mgs5vr_core user32 d3d11 dxgi d3dcompiler dxguid)
+target_include_directories(incoming_damage_backend_check PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+
+add_executable(incoming_damage_feedback_check src/tracking/incoming_damage_feedback_check.cpp)
+target_link_libraries(incoming_damage_feedback_check PRIVATE mgs5vr_core user32 d3d11 dxgi d3dcompiler dxguid)
+target_include_directories(incoming_damage_feedback_check PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+
+add_executable(melee_vfx_attachment_check src/tracking/melee_vfx_attachment_check.cpp)
+target_link_libraries(melee_vfx_attachment_check PRIVATE mgs5vr_core user32 d3d11 dxgi d3dcompiler dxguid)
+target_include_directories(melee_vfx_attachment_check PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+
+add_executable(melee_vfx_selection_check src/tracking/melee_vfx_selection_check.cpp)
+target_link_libraries(melee_vfx_selection_check PRIVATE mgs5vr_core user32 d3d11 dxgi d3dcompiler dxguid)
+target_include_directories(melee_vfx_selection_check PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+
+add_executable(native_arrow_feedback_check src/tracking/native_arrow_feedback_check.cpp)
+target_link_libraries(native_arrow_feedback_check PRIVATE mgs5vr_core user32 d3d11 dxgi d3dcompiler dxguid)
+target_include_directories(native_arrow_feedback_check PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+
+add_executable(native_attack_input_check src/tracking/native_attack_input_check.cpp)
+target_link_libraries(native_attack_input_check PRIVATE mgs5vr_core user32 d3d11 dxgi d3dcompiler dxguid)
+target_include_directories(native_attack_input_check PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+
+add_executable(native_cast_feedback_check src/tracking/native_cast_feedback_check.cpp)
+target_link_libraries(native_cast_feedback_check PRIVATE mgs5vr_core user32 d3d11 dxgi d3dcompiler dxguid)
+target_include_directories(native_cast_feedback_check PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+
+add_executable(npc_head_gaze_check src/tracking/npc_head_gaze_check.cpp)
+target_link_libraries(npc_head_gaze_check PRIVATE mgs5vr_core user32 d3d11 dxgi d3dcompiler dxguid)
+target_include_directories(npc_head_gaze_check PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+
+add_executable(reckoning_hammer_check src/tracking/reckoning_hammer_check.cpp)
+target_link_libraries(reckoning_hammer_check PRIVATE mgs5vr_core user32 d3d11 dxgi d3dcompiler dxguid)
+target_include_directories(reckoning_hammer_check PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+
+add_executable(shield_block_backend_check src/tracking/shield_block_backend_check.cpp)
+target_link_libraries(shield_block_backend_check PRIVATE mgs5vr_core user32 d3d11 dxgi d3dcompiler dxguid)
+target_include_directories(shield_block_backend_check PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+
+add_executable(shield_block_feedback_check src/tracking/shield_block_feedback_check.cpp)
+target_link_libraries(shield_block_feedback_check PRIVATE mgs5vr_core user32 d3d11 dxgi d3dcompiler dxguid)
+target_include_directories(shield_block_feedback_check PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+
+add_executable(walk_trace_schedule_check src/tracking/walk_trace_schedule_check.cpp)
+target_link_libraries(walk_trace_schedule_check PRIVATE mgs5vr_core user32 d3d11 dxgi d3dcompiler dxguid)
+target_include_directories(walk_trace_schedule_check PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})

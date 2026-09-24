@@ -116,7 +116,7 @@ inline bool commitPhysicalLocked(unsigned side,const amalur::MeleeSwingEvent& pr
     if(!stroke.active())return false;
     if(stroke.emitted())return swingEvents[side].serial==proposed.serial;
     auto chain=familyChains[side];
-    if(visualAsset==1250||visualAsset==1323||visualAsset==1520){
+    if(visualAsset==1250||amalur::knownHammerModel(visualAsset)||visualAsset==1520){
         const auto recipe=chain.commit(visualWeapon,visualAsset,generation,now);
         if(recipe.attack!=proposed.attackAsset||recipe.flags!=proposed.attackFlags||recipe.step!=proposed.chainStep)return false;
     }
@@ -128,14 +128,14 @@ inline bool commitPhysicalLocked(unsigned side,const amalur::MeleeSwingEvent& pr
 inline bool sampleBasicStroke(unsigned side,const amalur::PosePacket& packet,mgs5vr::Vec3 head,unsigned center,bool allowed){
     auto& stroke=basicStrokes[side];auto& event=basicContacts[side];
     const bool peak=stroke.sample({packet.position[0],packet.position[1],packet.position[2]},head,frameHeadForward,
-        packet.tick,center,allowed&&amalur::supportedMeleeHand(visualAsset,side),false,amalur::strokeRecoveryMs(visualAsset));
+        packet.tick,center,allowed&&amalur::supportedMeleeHand(visualAsset,side),false);
     if(!stroke.active())event={};
     else if(basicStrokeIds[side]!=stroke.stroke()||!event.serial){
         basicStrokeIds[side]=stroke.stroke();event={};event.weapon=visualWeapon;event.asset=visualAsset;
         event.hand=side;event.serial=++swingSerial[side];event.generation=center;event.tick=packet.tick;
         event.weaponPose=visualPoses[side];amalur::assignBasicStrokeRecipe(event);
     }
-    if(event.serial&&!stroke.emitted()&&(visualAsset==1250||visualAsset==1323||visualAsset==1520)){
+    if(event.serial&&!stroke.emitted()&&(visualAsset==1250||amalur::knownHammerModel(visualAsset)||visualAsset==1520)){
         const auto recipe=familyChains[side].preview(visualWeapon,visualAsset,center,packet.tick);
         event.attackAsset=recipe.attack;event.attackFlags=recipe.flags;event.chainStep=recipe.step;
     }
@@ -180,7 +180,7 @@ inline void sample(amalur::CameraPose rig,mgs5vr::Pose origin,float scale,unsign
     if(leftValid)leftValid=amalur::gripInGame(rig,mgs5vr::compose(mgs5vr::inverse(origin),leftLocal),scale,leftResult);
     auto now=GetTickCount64();
     bool gestures=!amalur::bodyDebug.enabled(amalur::nativeArms)&&motion_controls::contactEnabled.load()&&firstPerson.load()&&!interfaceView.load()
-        &&motion_controls::gameFocused()&&!motion_controls::dialogueActive.load()&&!motion_controls::explicitSpellActive(now);
+        &&motion_controls::gameFocused()&&!motion_controls::dialogueActive.load()&&!motion_controls::explicitSpellActive(now)&&!motion_controls::nativeAttackHeld(now);
     AcquireSRWLockExclusive(&poseLock);locomotionFrame=locomotion;desired=result;tick=valid?p.tick:0;desiredLeft=leftResult;leftTick=leftValid?l.tick:0;generation=recenter;worldScale=scale;
     const bool backEligible=gestures&&valid&&headTracking.load()&&trackedCameraAvailable.load()
         &&backWeapon&&backSelectionTick&&backSelectionTick<=now&&now-backSelectionTick<100;
@@ -203,7 +203,8 @@ inline void sample(amalur::CameraPose rig,mgs5vr::Pose origin,float scale,unsign
     const bool heavyChanged=chosenMode!=heavyMode||(heavyFresh&&heavyPacket.session!=heavySession)||heavyGeneration!=recenter;
     heavyMode=chosenMode;heavyGeneration=recenter;if(heavyFresh)heavySession=heavyPacket.session;
     if(heavyChanged)log("VR heavy input mode=%s session=%u generation=%u\n",heavyMode?"right-grip":"position",heavySession,recenter);
-    if(!gestures||gestureWeapon!=visualWeapon||gestureAsset!=visualAsset||heavyChanged){gripCharge.reset();rightSwing.reset();leftSwing.reset();swingChain.reset();longswordGesture.reset();longswordHold.reset();longswordStroke.reset();longswordContact={};contactStroke=0;longswordContactReady=false;for(unsigned side=0;side<2;++side){basicStrokes[side].reset();familyChains[side].reset();basicContacts[side]={};basicStrokeIds[side]=0;basicContactReady[side]=false;}gestureWeapon=gestures?visualWeapon:0;gestureAsset=gestures?visualAsset:0;}
+    const char* strokeResetCause=!gestures?"caller-eligibility":gestureWeapon!=visualWeapon||gestureAsset!=visualAsset?"caller-identity":"caller-heavy-mode-or-generation";
+    if(!gestures||gestureWeapon!=visualWeapon||gestureAsset!=visualAsset||heavyChanged){gripCharge.reset();rightSwing.reset();leftSwing.reset();swingChain.reset();longswordGesture.reset();longswordHold.reset();longswordStroke.reset(strokeResetCause,p.tick);longswordContact={};contactStroke=0;longswordContactReady=false;for(unsigned side=0;side<2;++side){basicStrokes[side].reset(strokeResetCause,p.tick);familyChains[side].reset();basicContacts[side]={};basicStrokeIds[side]=0;basicContactReady[side]=false;}gestureWeapon=gestures?visualWeapon:0;gestureAsset=gestures?visualAsset:0;}
     if(offsetValid)weaponCentimetres=offset;
     auto tip=[&](const amalur::PosePacket& v){return amalur::meleeTipRelative(mgs5vr::Pose{{v.orientation[0],v.orientation[1],v.orientation[2],v.orientation[3]},{v.position[0],v.position[1],v.position[2]}},headLocal);};
     const bool selectedPose=visualSelection<=1&&visualSelection==motion_controls::viewControls().selectedWeapon;
@@ -222,7 +223,7 @@ inline void sample(amalur::CameraPose rig,mgs5vr::Pose origin,float scale,unsign
     const bool chargeAllowed=gestures&&valid&&longsword&&(!gripMode||(heavyFresh&&heavyPacket.active&&!heavyPacket.spell));
     const bool preparation=longsword&&!gripMode&&relativeHand.y>-.45f
         &&(longswordGesture.ready()?longswordHold.risingNow():longswordHold.raising());
-    bool r=longsword?longswordStroke.sample({p.position[0],p.position[1],p.position[2]},headLocal,frameHeadForward,p.tick,recenter,gestures&&valid,preparation,amalur::strokeRecoveryMs(visualAsset))
+    bool r=longsword?longswordStroke.sample({p.position[0],p.position[1],p.position[2]},headLocal,frameHeadForward,p.tick,recenter,gestures&&valid,preparation)
         :basic?sampleBasicStroke(0,p,headLocal,recenter,gestures&&valid):rightSwing.sample(tip(p),p.tick,recenter,gestures&&valid);
     bool left=basic?sampleBasicStroke(1,l,headLocal,recenter,gestures&&visualDual&&leftValid):leftSwing.sample(tip(l),l.tick,recenter,gestures&&visualDual&&leftValid);
     if(r&&!longsword&&!basic)++swingSerial[0];if(left&&!basic)++swingSerial[1];
@@ -253,7 +254,7 @@ inline void sample(amalur::CameraPose rig,mgs5vr::Pose origin,float scale,unsign
         longswordContactReady=longswordStroke.contactReady();
         if(r)r=commitLongswordLocked(longswordContact.serial,recenter,visualWeapon,visualAsset,p.tick);
         if(r)swordStrike={longswordContact.chainStep,longswordContact.attackAsset,longswordContact.attackFlags,longswordContact.heavy};
-    }else {longswordStroke.reset();longswordContact={};longswordContactReady=false;contactStroke=0;}
+    }else {longswordStroke.reset("caller-not-selected-longsword",p.tick);longswordContact={};longswordContactReady=false;contactStroke=0;}
     longswordCharge=longswordGesture.progress();longswordReady=longswordGesture.ready();
     longswordDebug={chargeAllowed,raised,true,gripMode||stableHold,
         preparation,longswordReady,longswordCharge,longswordStroke.speed(),relativeHand.y,bladeUp.z,swingSerial[0],now,longswordStroke.gate()};
@@ -273,6 +274,9 @@ inline void sample(amalur::CameraPose rig,mgs5vr::Pose origin,float scale,unsign
     const auto rg=longsword?longswordStroke.gate():basic?basicStrokes[0].gate():rightSwing.gate(),lg=basic?basicStrokes[1].gate():leftSwing.gate();
     const auto rightSerial=swingSerial[0],leftSerial=swingSerial[1];
     const auto charge=longswordCharge;const bool charged=longswordReady;
+    const auto diagnosticReset=(longsword?longswordStroke:basicStrokes[0]).resetInfo();
+    const auto diagnosticBits=(longsword?longswordStroke:basicStrokes[0]).stateBits();
+    const auto diagnosticVisualAge=now>=visualTick?now-visualTick:0;
     ReleaseSRWLockExclusive(&poseLock);
     static uint64_t nextDebugLog{};
     if(longsword&&now>=nextDebugLog){nextDebugLog=now+250;log("VR longsword guide tick=%llu height=%.3f heightOK=%d up=%.3f angleOK=%d steady=%d preparation=%d progress=%.3f ready=%d gate=%s\n",now,relativeHand.y,raised,bladeUp.z,true,stableHold,preparation,charge,charged,rg);}
@@ -300,6 +304,9 @@ inline void sample(amalur::CameraPose rig,mgs5vr::Pose origin,float scale,unsign
     }
     static uint64_t nextReport{};
     if(now>=nextReport){nextReport=now+2000;
+        const auto& reset=diagnosticReset;
+        log("VR stroke reset status tick=%llu count=%llu cause=%s resetTick=%llu gap=%llu handDelta=%.4f previousGeneration=%u bits=%u eligible=%d poseValid=%d selected=%d visualAge=%llu\n",
+            now,reset.count,reset.reason,reset.tick,reset.gap,reset.handDelta,reset.generation,diagnosticBits,gestures,valid,selectedPose,diagnosticVisualAge);
         log("VR swing detector tick=%llu model=%u weapon=%08x selection=%u currentSelection=%u poseTick=%llu allowed=%d rightTracked=%d leftTracked=%d speed=%.3f,%.3f threshold=%.2f focused=%d firstPerson=%d interface=%d dialogue=%d nativeArms=%d\n",
             now,reportModel,reportWeapon,reportSelection,motion_controls::viewControls().selectedWeapon,reportFrame,gestures,valid,leftValid,rs,ls,(longsword||basic)?double(amalur::LongswordStroke::airSpeed):.9,
             motion_controls::gameFocused(),firstPerson.load(),interfaceView.load(),motion_controls::dialogueActive.load(),amalur::bodyDebug.enabled(amalur::nativeArms));

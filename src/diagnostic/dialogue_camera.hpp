@@ -3,7 +3,7 @@
 
 namespace dialogue_camera {
 struct State {
-    uintptr_t dialog{},core{},playerCore{};uint32_t owner{};
+    uintptr_t dialog{},core{},playerCore{};uint32_t owner{},npc{};
     mgs5vr::Vec3 position{},facing{};
 };
 // Read native ownership; never call Lua wrappers or suppress dialogue updates.
@@ -42,6 +42,7 @@ static bool sample(State& out){
         // entry toward that participant, not the player's leftover movement yaw.
         // DialogueView latches this once: subsequent head turns remain free.
         const auto npcHandle=static_cast<uint32_t>(word(dialog+0x5c));
+        s.npc=npcHandle;
         const auto npcEntity=player_rig::resolve(npcHandle);
         const auto npcLocation=player_rig::part(npcEntity,6,npcHandle,0x1355cdc);
         if(npcLocation){
@@ -55,37 +56,28 @@ static bool sample(State& out){
 static amalur::DialogueView view;
 static amalur::CameraInputs inputs;
 static bool wasActive{},resumeGameplay{};
-static uint32_t inputOwner{};
-static uintptr_t inputDialog{};
+static State retained{};
+static uint64_t lastSample{};
 static uint64_t lastOpen{};
-static amalur::DialogueNpcFollow npcFollow;
-static uintptr_t failedFacingDialog{};
 
-// Use the same native motion accumulator as set_facing, with fractional yaw
-// deltas so small headset translations do not cause integer-degree stepping.
-static void faceParticipant(const State& s,mgs5vr::Vec3 eye){
-    if(!player_rig::nativeFineFacing||failedFacingDialog==s.dialog)return;
+// The dialogue manager briefly clears its active record between a line and
+// the next choice. Keep the selected scene camera through that gap, but only
+// while its owner and both camera objects still belong to the same player.
+static bool retainedCamera(State& out){
     __try {
         const auto word=player_rig::word;
-        const auto npc=static_cast<uint32_t>(word(s.dialog+0x5c));
-        if(!npc||npc==s.owner){npcFollow.reset();return;}
-        const auto entity=player_rig::resolve(npc);
-        const auto loc=player_rig::part(entity,6,npc,0x1355cdc);
-        if(!loc){npcFollow.reset();return;}
-        const auto motion=word(entity+0x3c+42*4);
-        if(!motion||word(motion+0x18)!=npc||word(motion+0x1c)!=42||
-           !(word(motion+0x20)&1)||!(word(loc+0x20)&1)){npcFollow.reset();return;}
-        mgs5vr::Vec3 position{};memcpy(&position,reinterpret_cast<void*>(loc+0x24),12);
-        const double before=uint32_t(word(loc+0xb0))*(360.0/4294967296.0);
-        if(!npcFollow.active||npcFollow.dialog!=s.dialog||npcFollow.npc!=npc)
-            log("Dialogue NPC continuous facing: npc=%08x yaw=%.3f maxRate=60deg/s\n",npc,before);
-        uint32_t delta{},zero{};
-        if(npcFollow.step(s.dialog,npc,GetTickCount64(),before,position,eye,delta))
-            player_rig::nativeFineFacing(reinterpret_cast<void*>(motion),&delta,&zero);
-    } __except(EXCEPTION_EXECUTE_HANDLER){
-        failedFacingDialog=s.dialog;npcFollow.reset();
-        log("Dialogue NPC continuous facing unavailable for this conversation\n");
-    }
+        const auto globals=word(gameBase+0x15fe9c4),p=reinterpret_cast<uintptr_t>(player_rig::player.load());
+        if(!globals||!retained.core||!p||word(p+0x1ec)!=retained.owner||word(p+0x108)+8!=retained.playerCore)return false;
+        const auto windows=globals+0x397c,entries=word(windows+4),game=entries?word(entries+4):0;
+        const auto scene=game?word(game+0x40c):0,camera=scene?word(scene+0x410):0;
+        if(word(windows)!=gameBase+0x134e60c||word(windows+8)!=1||
+           (game&&word(game)!=gameBase+0x1328914&&word(game)!=gameBase+0x132ae7c)||
+           !scene||word(scene)!=gameBase+0x1326e9c||!camera||
+           word(camera)!=gameBase+0x1335d08||word(camera+8)!=1||camera+8!=retained.core)return false;
+        State s=retained;
+        if(!player_rig::location(reinterpret_cast<void*>(s.playerCore),s.position))return false;
+        out=s;return true;
+    }__except(EXCEPTION_EXECUTE_HANDLER){return false;}
 }
 
 // Called before the gameplay camera's FOV/identity gates. Return true when the
@@ -93,24 +85,29 @@ static void faceParticipant(const State& s,mgs5vr::Vec3 eye){
 // the dialogue is active. UI and dialogue logic never pass through this hook.
 static bool rebuild(void* camera){
     auto core=static_cast<unsigned char*>(camera);
-    State s;const bool dialogue=sample(s);
+    const auto now=GetTickCount64();
+    State s;const bool sampled=sample(s);
+    if(sampled){retained=s;lastSample=now;}
+    State previous{};
+    const bool sameCamera=retainedCamera(previous);
+    const bool dialogue=sampled||(sameCamera&&wasActive&&now>=lastSample&&now-lastSample<=350);
+    if(!sampled&&dialogue)s=previous;
     motion_controls::dialogueActive.store(dialogue);
-    const bool active=dialogue&&firstPerson.load()&&headTracking.load();
     if(inputs.core==core){
-        // The same address alone is not a lifetime guarantee.
-        if(dialogue&&inputOwner==s.owner&&inputDialog==s.dialog){
-            __try {inputs.restore();} __except(EXCEPTION_EXECUTE_HANDLER){inputs.core=nullptr;}
+        if(sameCamera&&previous.dialog==retained.dialog&&previous.owner==retained.owner&&previous.core==retained.core){
+            __try {inputs.restore();}__except(EXCEPTION_EXECUTE_HANDLER){inputs.core=nullptr;}
         }else inputs.core=nullptr;
     }
+    const bool active=dialogue&&firstPerson.load()&&headTracking.load();
     if(!active){
+        npc_gaze::clear();
         if(wasActive){resumeGameplay=true;view.reset();inputs.core=nullptr;log("First-person dialogue inactive\n");}
-        wasActive=false;failedFacingDialog=0;npcFollow.reset();return false;
+        wasActive=false;return false;
     }
     if(!wasActive){log("First-person dialogue active core=%p playerCore=%p\n",reinterpret_cast<void*>(s.core),reinterpret_cast<void*>(s.playerCore));}
     wasActive=true;
     motion_controls::sampleMovementBasis({}, {},false,GetTickCount64());
     if(reinterpret_cast<uintptr_t>(camera)!=s.core){realRebuildCamera(camera);return true;}
-    const auto now=GetTickCount64();
     if(now-lastOpen>1000){poseChannel.open(false);lastOpen=now;}
     amalur::PosePacket packet{};poseChannel.read(packet);
     amalur::CameraPose native{},adjusted{};
@@ -120,12 +117,18 @@ static bool rebuild(void* camera){
         {packet.position[0],packet.position[1],packet.position[2]}};
     const bool tracked=packet.version==3&&packet.valid&&packet.gameMode==1&&packet.tick<=now&&now-packet.tick<250&&
         std::isfinite(packet.horizontalFov)&&packet.horizontalFov>50&&packet.horizontalFov<179&&
-        view.apply(s.dialog,s.owner,recenterGeneration.load(),packet.recenter,s.position,s.facing,head,packet.worldScale,adjusted);
+        view.apply(s.dialog,s.owner,s.npc,recenterGeneration.load(),packet.recenter,s.position,s.facing,head,packet.worldScale,adjusted,packet.tick);
     if(tracked){
-        faceParticipant(s,adjusted.eye);
+        if(view.continuityAdjusted)log("Dialogue tracking-space reset bridged tick=%llu\n",packet.tick);
+        // The dialogue scene camera bypasses the gameplay path that normally
+        // publishes the headset-aligned visual body target. Keep the avatar
+        // rig moving with the viewer while native dialogue owns actor physics.
+        arm_rig::sampleBody(amalur::dialogueBodyAnchor(adjusted.eye,view.heading),packet.tick);
+        npc_gaze::publish(s.npc,adjusted.eye,now);
+        npc_gaze::report(now);
         memcpy(core+4,&adjusted.eye,12);memcpy(core+0x14,&adjusted.target,12);memcpy(core+0x1c0,&adjusted.up,12);
         *reinterpret_cast<float*>(core+0x2c)=packet.horizontalFov;
-    }else npcFollow.reset();
+    }else npc_gaze::clear();
     // Dialogue's native controller may cache its narrow lens. Always rebuild
     // when applying or withdrawing the override, even for equal headset ticks.
     core[0x35e]|=1;realRebuildCamera(camera);
@@ -135,9 +138,11 @@ static bool rebuild(void* camera){
     if(frameChannel.open(true))frameChannel.publish(packet);
     render_pose::camera(core,packet);trackedCameraAvailable.store(tracked);
     camera_status::publish(packet,tracked,true,s.position,native,tracked?adjusted:native,core);
+    // Match the cached view matrices with their inputs until the next rebuild.
+    // The next call restores only fields that still contain this exact pose.
     if(tracked&&coherentCamera.load()){
-        inputs={core,native,adjusted,fov,packet.horizontalFov};inputOwner=s.owner;inputDialog=s.dialog;
-    }else{
+        inputs={core,native,adjusted,fov,packet.horizontalFov};
+    }else if(tracked){
         memcpy(core+4,&native.eye,12);memcpy(core+0x14,&native.target,12);memcpy(core+0x1c0,&native.up,12);
         *reinterpret_cast<float*>(core+0x2c)=fov;
     }

@@ -17,7 +17,7 @@ inline mgs5vr::Pose bonePose(const RigBone& b){return {nativeQuaternion(b.orient
 // and quaternion (0x1c) active at +0x2c. Consumers may otherwise substitute
 // zero translation / identity rotation even when the stored floats changed.
 inline void publishRigOverrides(const RigBone* original,RigBone* output,unsigned count){
-    if(!original||!output||count>64)return;
+    if(!original||!output||count>128)return;
     for(unsigned i=0;i<count;++i){
         if(!mgs5vr::valid(bonePose(output[i])))continue;
         auto& flags=output[i].opaque[12]; // RigBone + 0x2c; scale stays untouched.

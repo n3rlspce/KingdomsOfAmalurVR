@@ -130,7 +130,7 @@ inline void install(){
         if(!allocator||memcmp(reinterpret_cast<void*>(gameBase+0x823680),position,sizeof(position))
             ||memcmp(reinterpret_cast<void*>(gameBase+0x82b2f0),stop,sizeof(stop))){log("VR longsword audio pilot rejected reason=native-backend-signature\n");return;}
         backend={allocator,reinterpret_cast<Position>(gameBase+0x823680),reinterpret_cast<Stop>(gameBase+0x82b2f0)};
-        ready=true;log("VR longsword audio pilot enabled models=2478,5457,1520,1250,1323 slots=8 lifetime=4000ms backend=%s\n",resolved::originalAllocate?"capture-trampoline":"native-direct");
+        ready=true;log("VR longsword audio pilot enabled models=2478,5457,1520,1250,1323,5215 slots=8 lifetime=4000ms backend=%s\n",resolved::originalAllocate?"capture-trampoline":"native-direct");
     }__except(EXCEPTION_EXECUTE_HANDLER){ready=false;}
 }
 #endif

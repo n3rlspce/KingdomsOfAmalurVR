@@ -39,8 +39,8 @@ struct TouchInput {
     bool a{},b{},x{},y{},leftClick{},rightClick{},menu{},rightThumbrest{};
 };
 class TouchMapper {
-    bool active_{},gameplay_{true},ready_{},attack_{},reckoningUsed_{},previousY_{},turnArmed_{true},movementBlocked_{};
-    bool modeRearm_{},actionContext_{},abilityContext_{},clicksBlocked_{};float heldAbilities_{};
+    bool active_{},gameplay_{true},interface_{},ready_{},attack_{},reckoningUsed_{},previousY_{},turnArmed_{true},movementBlocked_{};
+    bool modeRearm_{},wheelPaused_{},resumeWheel_{},actionContext_{},abilityContext_{},clicksBlocked_{};float heldAbilities_{};
     uint32_t selected_{},attackOwner_{};float turn_{};
     bool pitchArmed_{true};int32_t pitchSteps_{};
     bool previousLeftClick_{},previousRightClick_{};uint64_t mapPulseUntil_{},stealthPulseUntil_{},leftPressTick_{};bool wheelHeld_{};
@@ -54,7 +54,7 @@ class TouchMapper {
         for(float v:{t.leftTrigger,t.rightTrigger,t.leftGrip,t.rightGrip})if(!std::isfinite(v)||v<0||v>1)return false;
         return true;
     }
-    void cancel(){modeRearm_=false;pitchArmed_=true;ready_=attack_=reckoningUsed_=previousY_=actionContext_=abilityContext_=false;heldAbilities_=0;turnArmed_=true;movementBlocked_=clicksBlocked_=previousLeftClick_=previousRightClick_=false;mapPulseUntil_=stealthPulseUntil_=leftPressTick_=0;wheelHeld_=false;}
+    void cancel(){modeRearm_=wheelPaused_=resumeWheel_=false;pitchArmed_=true;ready_=attack_=reckoningUsed_=previousY_=actionContext_=abilityContext_=false;heldAbilities_=0;turnArmed_=true;movementBlocked_=clicksBlocked_=previousLeftClick_=previousRightClick_=false;mapPulseUntil_=stealthPulseUntil_=leftPressTick_=0;wheelHeld_=false;}
     static void dpad(MotionInputPacket& p,float x,float y){
         if(x<-.65f)p.buttons|=XINPUT_GAMEPAD_DPAD_LEFT;
         if(x>.65f)p.buttons|=XINPUT_GAMEPAD_DPAD_RIGHT;
@@ -63,20 +63,21 @@ class TouchMapper {
     }
 public:
     int32_t pitchSteps()const{return pitchSteps_;}
-    MotionInputPacket map(TouchInput t,bool active,bool gameplay=true,uint64_t now=GetTickCount64()){
+    MotionInputPacket map(TouchInput t,bool active,bool gameplay=true,uint64_t now=GetTickCount64(),bool objectInterface=false){
         MotionInputPacket p;p.selectedWeapon=selected_;p.turnYawDegrees=turn_;
         if(!active||!valid(t)){cancel();active_=false;return p;}
         // The native quick wheel may temporarily pause gameplay while its
         // left-click hold is still owned. Keep that hold until physical release.
         const bool continuingWheel=active_&&wheelHeld_&&t.leftClick;
-        if(!active_){cancel();active_=true;gameplay_=gameplay;}
-        else if(gameplay_!=gameplay){
+        if(!active_){cancel();active_=true;gameplay_=gameplay;interface_=objectInterface;}
+        else if(gameplay_!=gameplay||interface_!=objectInterface){
+            const bool returningFromWheel=gameplay&&wheelPaused_&&!t.leftClick;
             // The Reckoning tutorial unpauses as LT+RT is held. Keep the chord
             // through that transition so the game can finish activating it.
-            const bool enteringReckoning=gameplay&&!gameplay_
+            const bool enteringReckoning=gameplay&&!gameplay_&&!interface_&&!objectInterface
                 &&t.leftTrigger>=.65f&&t.rightTrigger>=.65f&&!t.a&&!t.b&&!t.x&&!t.y;
-            if(!continuingWheel&&!enteringReckoning){cancel();modeRearm_=true;}
-            gameplay_=gameplay;
+            if(!continuingWheel&&!enteringReckoning){cancel();modeRearm_=true;resumeWheel_=returningFromWheel;}
+            gameplay_=gameplay;interface_=objectInterface;
         }
         p.active=1;
         if(!ready_){
@@ -89,7 +90,8 @@ public:
             // Mode changes are not focus regain: carrying the weapon must not
             // require releasing both grips to recover locomotion after a wheel.
             if(modeRearm_)rearm.leftGrip=rearm.rightGrip=0;
-            if(neutral(rearm)){ready_=true;modeRearm_=false;}
+            if(resumeWheel_)rearm.leftX=rearm.leftY=0;
+            if(neutral(rearm)){ready_=true;modeRearm_=resumeWheel_=false;}
             return p;
         }
         const bool chord=t.leftClick&&t.rightClick;
@@ -97,6 +99,7 @@ public:
         if(chord||(shift&&(t.leftClick||t.rightClick||previousLeftClick_||previousRightClick_)))clicksBlocked_=true;
         if(t.leftClick&&!previousLeftClick_)leftPressTick_=now;
         if(gameplay&&!shift&&!clicksBlocked_&&t.leftClick&&now>=leftPressTick_&&now-leftPressTick_>=350)wheelHeld_=true;
+        if(!gameplay&&wheelHeld_)wheelPaused_=true;
         // Defer single-click actions until release, allowing the second stick
         // click to arrive on a later XR frame without opening Map first.
         if(!shift&&!clicksBlocked_){
@@ -105,6 +108,7 @@ public:
             if(previousRightClick_&&!t.rightClick)stealthPulseUntil_=now+80;
         }else mapPulseUntil_=stealthPulseUntil_=0;
         if(!t.leftClick||shift||clicksBlocked_)wheelHeld_=false;
+        if(gameplay&&!t.leftClick)wheelPaused_=false;
         previousLeftClick_=t.leftClick;previousRightClick_=t.rightClick;
         if(!t.leftClick&&!t.rightClick)clicksBlocked_=false;
         const bool leftNeutral=std::abs(t.leftX)<.25f&&std::abs(t.leftY)<.25f;
@@ -145,8 +149,12 @@ public:
         if(now<mapPulseUntil_)p.buttons|=XINPUT_GAMEPAD_BACK;
         if(now<stealthPulseUntil_)p.buttons|=XINPUT_GAMEPAD_RIGHT_SHOULDER;
         if(t.menu)p.buttons|=XINPUT_GAMEPAD_START;
-        if(!gameplay)dpad(p,t.rightX,t.rightY);
-        else {
+        if(!gameplay){
+            // Object interfaces need the native analog stick even when the
+            // user has not switched the display to Interface View.
+            p.lookX=t.rightX;p.lookY=t.rightY;deadzone(p.lookX,p.lookY);
+            if(!objectInterface)dpad(p,t.rightX,t.rightY);
+        }else {
             // Horizontal orbit uses the same discrete yaw as first person.
             if(std::abs(t.rightY)<.25f)pitchArmed_=true;
             if(playMode.normal()&&pitchArmed_&&std::abs(t.rightY)>.7f){

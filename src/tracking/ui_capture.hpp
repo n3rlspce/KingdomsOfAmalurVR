@@ -22,6 +22,25 @@ class UiCapture {
     bool haveBlend_=false,cleared_=false,otherCleared_=false;
     unsigned draws_=0;
 public:
+    // Native room copies share HUD vertex shaders. Recognize them even when
+    // capture is inactive so they cannot fall through to HUD transformation.
+    static bool sceneBackdrop(ID3D11DeviceContext* c){
+        Ptr<ID3D11RenderTargetView> target;c->OMGetRenderTargets(1,&target,nullptr);if(!target)return false;
+        Ptr<ID3D11Resource> output;target->GetResource(&output);Ptr<ID3D11Texture2D> destination;
+        if(FAILED(output.As(&destination)))return false;
+        D3D11_TEXTURE2D_DESC d{};destination->GetDesc(&d);
+        Ptr<ID3D11ShaderResourceView> input;c->PSGetShaderResources(0,1,&input);if(!input)return false;
+        Ptr<ID3D11Resource> source;input->GetResource(&source);Ptr<ID3D11Texture2D> image;
+        if(FAILED(source.As(&image)))return false;
+        D3D11_TEXTURE2D_DESC sd{};image->GetDesc(&sd);
+        if(!(sd.BindFlags&D3D11_BIND_RENDER_TARGET))return false;
+        if(sd.Width==d.Width&&sd.Height==d.Height)return true;
+        // Loading/resize can retain the previous scene target. Permit modest
+        // aspect changes, but keep square minimap render targets eligible.
+        const double aspect=double(sd.Width)/sd.Height,outputAspect=double(d.Width)/d.Height;
+        return aspect>=1.3&&aspect<=2.4&&aspect>outputAspect*.85&&aspect<outputAspect*1.15
+            &&sd.Width>=d.Width/4&&sd.Height>=d.Height/4;
+    }
     void output(ID3D11Texture2D* texture){
         D3D11_TEXTURE2D_DESC d{};if(texture)texture->GetDesc(&d);width_=d.Width;height_=d.Height;
     }
@@ -86,13 +105,7 @@ public:
             // copying it into the transparent layer recreates the nested room.
             // These native UI pixel shaders sample t0. Other slots may retain
             // unused scene textures from a previous draw and are not evidence.
-            std::array<ID3D11ShaderResourceView*,1> inputs{};c->PSGetShaderResources(0,1,inputs.data());
-            for(auto input:inputs)if(input){
-                Ptr<ID3D11Resource> sampled;Ptr<ID3D11Texture2D> image;
-                input->GetResource(&sampled);if(SUCCEEDED(sampled.As(&image))){D3D11_TEXTURE2D_DESC sd{};image->GetDesc(&sd);
-                    if(sd.Width==d.Width&&sd.Height==d.Height&&(sd.BindFlags&D3D11_BIND_RENDER_TARGET))backdrop_=true;
-                }input->Release();
-            }
+            backdrop_=UiCapture::sceneBackdrop(c);
             owner.rejection_=6;if(backdrop_)return;
             // Do not let unrelated depth-tested geometry into the overlay.
             Ptr<ID3D11DepthStencilState> ds;UINT stencil{};c->OMGetDepthStencilState(&ds,&stencil);

@@ -1,4 +1,5 @@
 #pragma once
+#include "../tracking/melee_vfx_selection.hpp"
 // Included inside melee_feedback after resolved. Native functions run only on
 // the caller's game update thread. Hook callbacks change private ownership only.
 namespace native_vfx {
@@ -72,13 +73,20 @@ inline bool trailResource(uint32_t asset,unsigned& flags){
 // scheduler/instance copy82B0D0, never by a borrowed captured pointer.
 struct Descriptor {uint32_t asset{},spatial{},secondary{},tertiary{},owner{};float scale{1.f};int16_t bone{-1};uint16_t pad{};};
 static_assert(sizeof(Descriptor)==28);
+#include "../tracking/melee_vfx_attachment.hpp"
 struct PoseSource {amalur::RigBone world{};uint32_t modelMask{};int16_t bone{-1};};
 inline bool finiteScale(const amalur::RigBone& bone){
     float scales[3];memcpy(scales,bone.opaque,12);
     return std::isfinite(scales[0])&&std::isfinite(scales[1])&&std::isfinite(scales[2]);
 }
 inline bool poseSource(const amalur::MeleeSwingEvent& event,PoseSource& out){
-    if(event.hand)return false; // Left dagger attachment alias not yet proven.
+    const auto effect=amalur::meleeVfxSelection(event);if(!effect.attachment)return false;
+    mgs5vr::Pose tracked;uint64_t trackedTick;
+    AcquireSRWLockShared(&weapon_control::poseLock);
+    tracked=event.hand?weapon_control::desiredLeft:weapon_control::desired;
+    trackedTick=event.hand?weapon_control::leftTick:weapon_control::tick;
+    ReleaseSRWLockShared(&weapon_control::poseLock);
+    if(!amalur::freshWeaponPose(tracked,trackedTick,GetTickCount64()))return false;
     const auto root=rig_probe::playerRoot();if(!root)return false;
     const auto n=word(root+0x28),children=word(root+0x24);if(n>32||!children)return false;
     uintptr_t selected{};
@@ -94,11 +102,13 @@ inline bool poseSource(const amalur::MeleeSwingEvent& event,PoseSource& out){
     const auto count=word(skeleton+0x30),aliases=word(skeleton+0x34),indices=word(skeleton+0x40);
     if(!count||count>4096||!aliases||!indices)return false;
     int index=-1;
-    for(unsigned i=0;i<count;++i)if(word(aliases+i*4)==0x00858053){
+    for(unsigned i=0;i<count;++i)if(word(aliases+i*4)==effect.attachment){
         if(index!=-1)return false;index=*reinterpret_cast<const int16_t*>(indices+i*2);
     }
     const auto bones=word(selected+0x34),boneCount=word(selected+0x38);
     if(index<0||unsigned(index)>=boneCount||boneCount>64||!bones)return false;
+    if(event.asset==1520&&trailAttachmentIndex(event.asset,event.hand,boneCount,count,
+        reinterpret_cast<const uint32_t*>(aliases),reinterpret_cast<const int16_t*>(indices))!=index)return false;
     amalur::RigBone world{},local{};
     memcpy(&world,reinterpret_cast<const void*>(selected+0x124),48);
     memcpy(&local,reinterpret_cast<const void*>(bones+index*48),48);
@@ -175,11 +185,12 @@ inline Backend backend;
 inline amalur::MeleeVfxLifetime driver;
 inline amalur::MeleeVfxEpoch observed;
 inline uint64_t updatedAt{};
+inline amalur::MeleeVfxPoseIdentity poseIdentity[2];
 inline bool allowedNow{};
-inline bool knownModel(uint32_t model){return model==2478||model==5457||model==1520||model==1250||model==1323;}
+inline bool knownModel(uint32_t model){return model==2478||model==5457||model==1520||model==1250||amalur::knownHammerModel(model);}
 inline void cancel(){
     __try{auto now=observed;now.groups=word(gameBase+0x15fdf60);now.instances=word(gameBase+0x15fdf5c);now.spatial=word(gameBase+0x15fe010);now.poolGeneration=epoch();
-        driver.reset(backend,now);allowedNow=false;
+        driver.reset(backend,now);allowedNow=false;for(auto& pose:poseIdentity)pose.clear();
     }__except(EXCEPTION_EXECUTE_HANDLER){failed=true;}
 }
 inline void update(uint32_t owner,uint32_t weapon,uint32_t model,unsigned generation,bool allowed,uint64_t now){
@@ -190,15 +201,18 @@ inline void update(uint32_t owner,uint32_t weapon,uint32_t model,unsigned genera
         driver.update(backend,observed,allowedNow,now);
         // The spatial provider follows the currently remapped selected weapon's
         // exact named attachment, not a controller pose or historical pointer.
-        amalur::MeleeSwingEvent p;p.owner=owner;p.weapon=weapon;p.asset=model;p.generation=generation;p.tick=now;
-        driver.pose(backend,0,p,now);
+        for(unsigned hand=0;hand<2;++hand){
+            const auto p=poseIdentity[hand].current(owner,weapon,model,generation,now);
+            driver.pose(backend,hand,p,now);
+        }
     }__except(EXCEPTION_EXECUTE_HANDLER){failed=true;cancel();}
 }
 inline void onSwing(const amalur::MeleeSwingEvent& event){
-    if(!ready||!allowedNow||failed||event.heavy||event.hand)return;
+    const auto effect=amalur::meleeVfxSelection(event);
+    if(!ready||!allowedNow||failed||!effect.selector)return;
     __try{
         if(event.owner!=observed.owner||event.weapon!=observed.weapon||event.asset!=observed.model)return;
-        uint32_t object[7]{};object[6]=0x0032dcd4;uint32_t asset{};unsigned flags{};
+        uint32_t object[7]{};object[6]=effect.selector;uint32_t asset{};unsigned flags{};
         resolve(object,reinterpret_cast<uintptr_t>(&asset),event.weapon);
         if(!trailResource(asset,flags)){
             static unsigned rejected{};if(rejected++<12)log("VR native VFX rejected model=%u asset=%u reason=nonresident-or-not-only-FXTrail\n",event.asset,asset);return;
@@ -206,8 +220,9 @@ inline void onSwing(const amalur::MeleeSwingEvent& event){
         // Captured ordinary dagger=160ms and sword=200ms trail windows.
         // Other proven normal melee families use the same bounded VR stroke
         // duration adaptation; their effect resource still resolves natively.
-        amalur::MeleeVfxRecipe recipe{asset,event.asset==1520?160u:200u,true,true,true,true};
+        amalur::MeleeVfxRecipe recipe{asset,effect.durationMs,true,true,true,true};
         const bool queued=driver.start(backend,event,recipe,updatedAt);
+        if(queued)poseIdentity[event.hand].committed(event);
         log("VR native VFX request model=%u hand=%u serial=%u asset=%u queued=%u fault=%u\n",event.asset,event.hand,event.serial,asset,unsigned(queued),unsigned(failed.load()||driver.faulted()));
     }__except(EXCEPTION_EXECUTE_HANDLER){failed=true;cancel();}
 }
@@ -240,7 +255,7 @@ inline void install(){
         if(!hook(reinterpret_cast<unsigned char*>(gameBase+0x93cea0),reinterpret_cast<void*>(&created),reinterpret_cast<void**>(&originalCreate),"Owned VFX group reuse"))return;
         if(!hook(reinterpret_cast<unsigned char*>(gameBase+0x91bce0),reinterpret_cast<void*>(&released),reinterpret_cast<void**>(&originalRelease),"Owned VFX group release"))return;
         setPose=reinterpret_cast<SetPose>(gameBase+0x8b1780);ready=true;
-        log("VR native VFX backend armed normal right-hand sword/dagger/greatsword/hammer; fresh FXTrail-only resources; left dagger/heavies unavailable\n");
+        log("VR native VFX backend armed normal sword/dual-dagger/greatsword/hammer and verified sword release81; fresh FXTrail-only resources\n");
     }__except(EXCEPTION_EXECUTE_HANDLER){failed=true;}
 }
 }

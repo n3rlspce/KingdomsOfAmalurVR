@@ -49,6 +49,14 @@ int main(){try{
     {amalur::UiCapture::Binding layer(capture,context.Get(),false);require(!bool(layer),"non-UI draw rejected");}
     auto sceneImage=texture(64,48);ComPtr<ID3D11ShaderResourceView> sceneSrv;hr(device->CreateShaderResourceView(sceneImage.Get(),nullptr,&sceneSrv));auto sceneRaw=sceneSrv.Get();context->PSSetShaderResources(0,1,&sceneRaw);
     {amalur::UiCapture::Binding layer(capture,context.Get(),true);require(!bool(layer)&&layer.nativeBackdrop(),"sampled full-resolution room stays out of UI layer");}
+    require(amalur::UiCapture::sceneBackdrop(context.Get()),"room bypasses HUD transform even when capture disabled");
+    {amalur::UiCapture::Binding layer(capture,context.Get(),false);require(!bool(layer)&&amalur::UiCapture::sceneBackdrop(context.Get()),"gameplay fallback still recognizes scene copy");}
+    auto previousScene=texture(32,24);ComPtr<ID3D11ShaderResourceView> previousSrv;hr(device->CreateShaderResourceView(previousScene.Get(),nullptr,&previousSrv));
+    auto previousRaw=previousSrv.Get();context->PSSetShaderResources(0,1,&previousRaw);
+    {amalur::UiCapture::Binding layer(capture,context.Get(),true);require(!bool(layer)&&layer.nativeBackdrop(),"older scene size rejected after resize");}
+    auto square=texture(32,32);ComPtr<ID3D11ShaderResourceView> squareSrv;hr(device->CreateShaderResourceView(square.Get(),nullptr,&squareSrv));
+    auto squareRaw=squareSrv.Get();context->PSSetShaderResources(0,1,&squareRaw);
+    require(!amalur::UiCapture::sceneBackdrop(context.Get()),"square minimap remains eligible");
     sceneRaw=nullptr;context->PSSetShaderResources(0,1,&sceneRaw);
     bind(smallRt.Get());{amalur::UiCapture::Binding layer(capture,context.Get(),true);require(!bool(layer),"small intermediate target rejected");}
     bind(leftRt.Get());capture.beginFrame();clip={16,16,48,32};context->RSSetScissorRects(1,&clip);

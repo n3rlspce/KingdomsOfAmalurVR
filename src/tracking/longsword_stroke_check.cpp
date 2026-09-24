@@ -3,6 +3,7 @@
 #include "longsword_contact_policy.hpp"
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 using namespace amalur;
 void check(bool ok,const char* name){if(!ok){std::printf("FAIL: %s\n",name);std::exit(1);}}
 struct Replay {
@@ -17,6 +18,15 @@ struct Replay {
     void contact(){if(stroke.contactReady()&&stroke.commit(tick)){combo.commit(tick);++events;}}
 };
 int main(){
+    Replay resetTrace;resetTrace.run(200);resetTrace.tick+=150;resetTrace.run(10);
+    check(resetTrace.stroke.resetInfo().count==1&&std::strcmp(resetTrace.stroke.resetInfo().reason,"tracking-gap")==0
+        &&resetTrace.stroke.resetInfo().gap==160,"reset diagnostic preserves tracking discontinuity");
+    resetTrace.hand.x+=2;resetTrace.run(10);
+    check(resetTrace.stroke.resetInfo().count==2&&std::strcmp(resetTrace.stroke.resetInfo().reason,"hand-jump")==0
+        &&resetTrace.stroke.resetInfo().handDelta>1.9f,"reset diagnostic preserves jump magnitude");
+    resetTrace.allowed=false;resetTrace.run(100);
+    check(resetTrace.stroke.resetInfo().count==3&&std::strcmp(resetTrace.stroke.resetInfo().reason,"ineligible")==0,
+        "disabled frames retain one reset edge");
     MeleeSwingEvent proposed{};proposed.serial=1;proposed.weapon=12;proposed.asset=5457;proposed.generation=4;proposed.attackAsset=50;
     auto identity=[&](MeleeSwingEvent live,uint64_t frame=100,unsigned attack=50,unsigned flags=0){return sameLongswordContact(proposed,live,12,5457,4,100,frame,attack,flags);};
     check(identity(proposed),"exact contact identity");
@@ -49,6 +59,23 @@ int main(){
     Replay lost;lost.run(200);lost.allowed=false;lost.run(10);lost.allowed=true;lost.run(140,{6,0,0});lost.run(100);check(lost.events==0,"focus tracking weapon reset requires rearm");
     Replay rec;rec.run(200);++rec.generation;rec.run(140,{6,0,0});rec.run(100);check(rec.events==0,"recenter");
     Replay stale;stale.run(200);stale.tick+=200;stale.run(140,{6,0,0});stale.run(100);check(stale.events==0,"tracking gap");
+    Replay continuous;continuous.run(350,{6,0,0});continuous.contact();
+    check(continuous.events==0&&!continuous.stroke.contactReady(),"startup continuous first leg harmless");
+    continuous.run(160,{-6,0,0});continuous.contact();
+    check(continuous.events==1,"deliberate return cut rearms without quiet");
+    continuous.run(700,{-6,0,0});continuous.contact();
+    check(continuous.events==1,"recovered long sweep does not repeatedly emit");
+    Replay jump;jump.run(200);jump.hand.x+=2.f;jump.run(160,{6,0,0});jump.contact();
+    check(jump.events==0&&!jump.stroke.contactReady(),"tracking jump plus first leg cannot damage");
+    jump.run(160,{-6,0,0});jump.contact();check(jump.events==1,"fresh post-jump reversal recovers");
+    Replay recoveryGap;recoveryGap.run(160,{6,0,0});recoveryGap.tick+=200;
+    recoveryGap.run(160,{-6,0,0});recoveryGap.contact();
+    check(recoveryGap.events==0,"gap erases earlier recovery leg");
+    recoveryGap.run(160,{6,0,0});recoveryGap.contact();check(recoveryGap.events==1,"new complete legs after gap recover");
+    Replay unarmedJitter;for(unsigned i=0;i<100;++i){unarmedJitter.run(10,{3,0,0});unarmedJitter.run(10,{-3,0,0});}
+    unarmedJitter.contact();check(unarmedJitter.events==0,"unarmed jitter cannot supply recovery leg");
+    Replay movingBody;movingBody.run(200,{6,0,0},false,true);movingBody.run(200,{-6,0,0},false,true);movingBody.contact();
+    check(movingBody.events==0,"whole-body reversal cannot supply recovery leg");
     LongswordSeparation separation;
     auto overlap=[&](uint64_t t){separation.beginFrame(t);const bool allowed=separation.observe(7,t);separation.endFrame(true);return allowed;};
     auto emptyScan=[&](uint64_t t,bool complete=true){separation.beginFrame(t);separation.endFrame(complete);};

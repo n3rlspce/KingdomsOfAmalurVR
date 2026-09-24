@@ -3,13 +3,15 @@
 #include <cstdint>
 #include <cstring>
 #include "game_pause.hpp"
+#include "../tracking/finisher_sequence.hpp"
 
 // Read-only identities verified against the resident resource managers and the
 // successful physical RT-release -> A capture. No native predicates or writes.
 namespace native_finisher_state {
 struct Snapshot {
     bool valid{},gameplay{},magicMode{},targetKnown{},targetDown{},finisherReady{},specialBoss{},magicResidue{},nativeSequence{};
-    uint32_t owner{},target{};
+    uint32_t owner{},target{},currentTarget{};
+    bool usingRecoveryTarget{};
     uintptr_t player{},entity{},targetEntity{};
     float playerPosition[3]{};
     float distanceMetres{1000000.f};
@@ -32,7 +34,7 @@ inline bool contains(const uint32_t* values,unsigned count,uint32_t id){
     for(unsigned i=0;i<count;++i)if(values[i]==id)return true;
     return false;
 }
-inline Snapshot read(){
+inline Snapshot read(uint32_t recoveryTarget=0){
     Snapshot s{};
     __try {
         if(!gameBase)return s;
@@ -55,14 +57,14 @@ inline Snapshot read(){
         if(!manager||player_rig::word(manager+0x7c)!=27)return s;
         const auto resources=player_rig::word(manager+0x18),resourceCount=player_rig::word(manager+0x1c);
         const auto list=player_rig::word(stack+0x24),count=player_rig::word(stack+0x28);
-        if(!resources||resourceCount<=84||resourceCount>256||!list||!count||count>32)return s;
-        const auto baseMode=player_rig::word(resources+66*4),meleeMode=player_rig::word(resources+46*4),magicMode=player_rig::word(resources+48*4),sequenceMode=player_rig::word(resources+84*4);
-        bool basePresent=false,fateActionPresent=false,sequencePresent=false,ledgerPresent=false;
+        if(!resources||resourceCount<=66||resourceCount>256||!list||!count||count>32)return s;
+        const auto baseMode=player_rig::word(resources+66*4),magicMode=player_rig::word(resources+48*4);
+        bool basePresent=false,fateActionPresent=false,ledgerPresent=false;
         const auto ledgerMode=player_rig::word(resources+31*4);
         for(unsigned i=0;i<count;++i){
             const auto mode=player_rig::word(list+i*4);
             if(!mode||player_rig::word(mode)!=gameBase+0x1336470)return s;
-            basePresent|=mode==baseMode;sequencePresent|=mode==sequenceMode;ledgerPresent|=mode==ledgerMode;
+            basePresent|=mode==baseMode;ledgerPresent|=mode==ledgerMode;
             s.magicMode|=mode==magicMode;
             const auto actionCount=player_rig::word(mode+4),actions=player_rig::word(mode+8);
             if(actionCount>2048||(actionCount&&!actions))return s;
@@ -70,11 +72,13 @@ inline Snapshot read(){
             if(player_rig::word(mode+4)!=actionCount||player_rig::word(mode+8)!=actions)return s;
         }
         if(player_rig::word(stack+0x24)!=list||player_rig::word(stack+0x28)!=count||player_rig::word(manager+0x18)!=resources)return s;
-        s.nativeSequence=sequencePresent&&contains(playerStates,playerCount,314); // Fate_Shift
+        s.nativeSequence=amalur::nativeFinisherSequence(contains(playerStates,playerCount,314)); // Native Fate_Shift lifetime
         // Configured finisher action is necessary, not proof of dispatch priority.
         // Pause, ledger, focus, dialogue and user-input gates remain independent.
         s.gameplay=basePresent&&(fateActionPresent||s.magicMode)&&!ledgerPresent&&game_pause::sample(true)==0;
-        s.target=uint32_t(player_rig::word(actor+0xbc));
+        s.currentTarget=uint32_t(player_rig::word(actor+0xbc));
+        s.usingRecoveryTarget=!s.currentTarget&&recoveryTarget!=0;
+        s.target=s.currentTarget?s.currentTarget:recoveryTarget;
         s.targetEntity=s.target?player_rig::resolve(s.target):0;
         if(s.targetEntity){
             const auto targetLocation=part(s.targetEntity,s.target,6),health=part(s.targetEntity,s.target,1);
@@ -99,7 +103,8 @@ inline Snapshot read(){
                     (contains(targetStates,targetCount,785)||s.specialBoss);
             }
         }
-        if(player_rig::word(actor+0xbc)!=s.target||player_rig::resolve(s.owner)!=s.entity)return Snapshot{};
+        if(player_rig::word(actor+0xbc)!=s.currentTarget||player_rig::resolve(s.owner)!=s.entity
+            ||(s.target&&player_rig::resolve(s.target)!=s.targetEntity))return Snapshot{};
         s.valid=true;
     }__except(EXCEPTION_EXECUTE_HANDLER){return Snapshot{};}
     return s;

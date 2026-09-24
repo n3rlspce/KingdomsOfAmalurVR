@@ -1,4 +1,5 @@
 #include "finisher_view.hpp"
+#include "finisher_sequence.hpp"
 #include <cstdio>
 #include <cstdlib>
 #include <limits>
@@ -6,6 +7,16 @@ static void ck(bool b,const char* s){if(!b){std::fprintf(stderr,"FAIL %s\n",s);s
 static bool near(amalur::Vec3 a,amalur::Vec3 b){auto d=a-b;return mgs5vr::dot(d,d)<1e-5f;}
 int main(){
  using namespace amalur;
+ // Native lifecycle, independent of input-mode swaps or QTE subphases.
+ ck(!nativeFinisherSequence(false),"ordinary Reckoning without Fate_Shift is not a sequence");
+ ck(nativeFinisherSequence(true),"Fate_Shift_Start owns camera after native entry");
+ FinisherView sequenceView;Pose sequenceHead{};CameraPose sequenceCamera{};
+ for(unsigned observedMode:{83u,84u,48u,66u}){
+     (void)observedMode; // Deliberately not an input to ownership.
+     ck(nativeFinisherSequence(true)&&sequenceView.apply(10,0,0,{0,0,195},{1,0,0},sequenceHead,100,sequenceCamera),"native mode changes retain active script camera");
+ }
+ if(!nativeFinisherSequence(false))sequenceView.reset();
+ ck(!sequenceView.active,"native script completion releases camera");
  RigBone world{},joint{};world.orientation.w=joint.orientation.w=1;
  world.position={1000,2000,3000};joint.position={20,30,154};
  float inactive[]{0,0,NAN};memcpy(world.opaque,inactive,12);memcpy(joint.opaque,inactive,12);

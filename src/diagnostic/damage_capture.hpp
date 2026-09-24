@@ -59,6 +59,7 @@ inline void runtime(const char* phase,uintptr_t address,uint32_t owner,uint32_t 
     log("Talent capture script owner=%08x asset=%u script=%u name=%s nameTruncated=%u bytes=%u fnv=%08x status=%s\n",owner,asset,fields[1],name,length>64,size,hash,hashValid?"hashed":"truncated-or-unavailable");
 }
 inline void created(uintptr_t address,uint32_t asset,uint32_t owner,uint32_t index,int result,bool ownedRequest){
+    native_cast_haptics::created(address,asset,owner,index,result,ownedRequest);
     if(ownedRequest){++ownedSkipped;return;}
     if(busy.test_and_set(std::memory_order_acquire)){++concurrentDrops;return;}
     __try{if(owner&&owner==localOwner()){

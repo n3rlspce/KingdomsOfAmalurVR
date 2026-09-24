@@ -95,7 +95,7 @@ inline void activateSelected(uintptr_t player,uintptr_t physics,uint32_t owner,u
     state.contextValid=input.active&&arm_rig::enabled.load()&&!amalur::bodyDebug.enabled(amalur::nativeArms)
         &&!weapon_control::weaponSheathed.load()&&!weapon_control::backGripClaimed.load()
         &&!motion_controls::explicitSpellActive(now);
-    state.inputBusy=(input.buttons&(XINPUT_GAMEPAD_A|XINPUT_GAMEPAD_B|XINPUT_GAMEPAD_X|XINPUT_GAMEPAD_Y))!=0;
+    state.inputBusy=motion_controls::nativeAttackHeld(now)||(input.buttons&(XINPUT_GAMEPAD_A|XINPUT_GAMEPAD_B|XINPUT_GAMEPAD_X|XINPUT_GAMEPAD_Y))!=0;
     if(state.nativePrimary!=weapon){
         static uint64_t reported{};if(now>=reported+2000){reported=now;
             log("VR native activation state tick=%llu weapon=%08x native=%08x pending=%08x owned=%u override=%08x cachedKeys=%u cachedWeapons=%u windows=%u context=%u inputBusy=%u eligible=%u attempts=%u\n",
@@ -143,7 +143,7 @@ inline void sample(uintptr_t physics){
         // through a fresh visual publication until visibility has recovered.
         weapon_control::publishSelectedWeapon(player,owner,weapon,input.selectedWeapon,input.session,GetTickCount64());
         activateSelected(player,physics,owner,weapon,input);
-        if(disabled)return;
+        if(disabled||motion_controls::nativeAttackHeld(GetTickCount64()))return;
         const amalur::WeaponSelectionRequest request{player,owner,input.session,input.selectedWeapon,weapon};
         if(!requests.pending(request))return;
         // Commit before invoking: reentrancy cannot duplicate a request. Native

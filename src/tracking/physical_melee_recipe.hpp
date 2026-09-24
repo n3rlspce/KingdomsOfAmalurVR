@@ -7,8 +7,9 @@ struct PhysicalMeleeRecipe {uint32_t model{},attack{},flags{};unsigned hands{};}
 // are distinct. Hammer16 uses captured flags1; downstream audit035 traces this
 // field through feedback forwarding, with no extra runtime ownership mode.
 inline constexpr PhysicalMeleeRecipe physicalMeleeRecipe(uint32_t model){
+ if(knownHammerModel(model))return {model,16,1,1};
  if(knownLongswordModel(model))return {model,50,0,1};
- switch(model){case 1520:return {1520,199,0,2};case 1250:return {1250,417,0,1};case 1323:return {1323,16,1,1};default:return {};}
+ switch(model){case 1520:return {1520,199,0,2};case 1250:return {1250,417,0,1};default:return {};}
 }
 inline constexpr bool currentPhysicalPublication(uint32_t owner,uint32_t model,unsigned publishedSelection,unsigned selected,uint64_t tick,uint64_t now){
  return owner&&physicalMeleeRecipe(model).attack&&selected<=1&&publishedSelection==selected&&tick&&tick<=now&&now-tick<100;
