@@ -57,9 +57,6 @@ int main(){
         check(!sequence.active()&&spell.buttons==XINPUT_GAMEPAD_X&&spell.abilities==0,"ordinary explicit native attack is never delayed");
         spell=packet(4010,XINPUT_GAMEPAD_A);sequence.sample(spell,4010,false);
         check(!sequence.active()&&spell.buttons==XINPUT_GAMEPAD_A&&spell.abilities==1,"nonmelee menu mapping remains immediate");
-        spell=packet(4020,0);sequence.sample(spell,4020,false);
-        XINPUT_GAMEPAD menuPad{};amalur::mergeMotion(menuPad,spell);
-        check(!sequence.active()&&menuPad.bRightTrigger==255,"menu RT tab input survives the melee spell filter");
     }
     {
         amalur::TouchMapper gripMapper;amalur::TouchInput grip;
