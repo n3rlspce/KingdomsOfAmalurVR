@@ -39,7 +39,7 @@ struct TouchInput {
     bool a{},b{},x{},y{},leftClick{},rightClick{},menu{},rightThumbrest{};
 };
 class TouchMapper {
-    bool active_{},gameplay_{true},ready_{},attack_{},previousY_{},turnArmed_{true},movementBlocked_{};
+    bool active_{},gameplay_{true},ready_{},attack_{},reckoningUsed_{},previousY_{},turnArmed_{true},movementBlocked_{};
     bool modeRearm_{},actionContext_{},abilityContext_{},clicksBlocked_{};float heldAbilities_{};
     uint32_t selected_{},attackOwner_{};float turn_{};
     bool pitchArmed_{true};int32_t pitchSteps_{};
@@ -54,7 +54,7 @@ class TouchMapper {
         for(float v:{t.leftTrigger,t.rightTrigger,t.leftGrip,t.rightGrip})if(!std::isfinite(v)||v<0||v>1)return false;
         return true;
     }
-    void cancel(){modeRearm_=false;pitchArmed_=true;ready_=attack_=previousY_=actionContext_=abilityContext_=false;heldAbilities_=0;turnArmed_=true;movementBlocked_=clicksBlocked_=previousLeftClick_=previousRightClick_=false;mapPulseUntil_=stealthPulseUntil_=leftPressTick_=0;wheelHeld_=false;}
+    void cancel(){modeRearm_=false;pitchArmed_=true;ready_=attack_=reckoningUsed_=previousY_=actionContext_=abilityContext_=false;heldAbilities_=0;turnArmed_=true;movementBlocked_=clicksBlocked_=previousLeftClick_=previousRightClick_=false;mapPulseUntil_=stealthPulseUntil_=leftPressTick_=0;wheelHeld_=false;}
     static void dpad(MotionInputPacket& p,float x,float y){
         if(x<-.65f)p.buttons|=XINPUT_GAMEPAD_DPAD_LEFT;
         if(x>.65f)p.buttons|=XINPUT_GAMEPAD_DPAD_RIGHT;
@@ -105,14 +105,19 @@ public:
         }
         p.block=t.leftTrigger;
         const bool faces=t.a||t.b||t.x||t.y;
+        if(t.rightTrigger<.45f)reckoningUsed_=false;
+        // The game's LT+RT Reckoning prompt uses the physical Touch triggers.
+        // RT alone remains the temporary attack fallback for physical melee.
+        const bool reckoning=gameplay&&t.leftTrigger>=.65f&&t.rightTrigger>=.65f&&!faces;
+        if(reckoning){reckoningUsed_=true;attack_=actionContext_=abilityContext_=false;heldAbilities_=0;}
         if(actionContext_&&!faces&&t.rightTrigger<.45f)actionContext_=false;
-        if(!actionContext_&&(faces||t.rightTrigger>=.65f)){
+        if(!reckoningUsed_&&!actionContext_&&(faces||t.rightTrigger>=.65f)){
             actionContext_=true;abilityContext_=t.rightGrip>.65f;heldAbilities_=abilityContext_?t.rightGrip:0;
         }
-        // Grip selects spells during gameplay; UI confirmations stay unmodified.
-        p.abilities=gameplay?(actionContext_?heldAbilities_:(t.rightGrip>.65f?t.rightGrip:0)):0;
+        // Grip selects spells during gameplay; menus use the analog right trigger.
+        p.abilities=gameplay?(reckoning?t.rightTrigger:(reckoningUsed_?0:(actionContext_?heldAbilities_:(t.rightGrip>.65f?t.rightGrip:0)))):t.rightTrigger;
         const bool abilities=actionContext_?abilityContext_:t.rightGrip>.65f;
-        const bool attack=t.rightTrigger>=(attack_?.45f:.65f);
+        const bool attack=gameplay&&!reckoningUsed_&&t.rightTrigger>=(attack_?.45f:.65f);
         if(attack&&!attack_)attackOwner_=selected_;
         attack_=attack;
         if(t.a)p.buttons|=XINPUT_GAMEPAD_A;if(t.b)p.buttons|=XINPUT_GAMEPAD_B;

@@ -147,7 +147,7 @@ public:
 inline constexpr uint32_t spellSlots=XINPUT_GAMEPAD_A|XINPUT_GAMEPAD_B|XINPUT_GAMEPAD_X|XINPUT_GAMEPAD_Y;
 inline bool explicitSpellRequest(const MotionInputPacket& p){return p.abilities>.65f&&(p.buttons&spellSlots);}
 inline void suppressIdleMeleeSpellModifier(MotionInputPacket& p,bool physicalMelee){
-    if(physicalMelee&&!(p.buttons&spellSlots))p.abilities=0;
+    if(physicalMelee&&!(p.buttons&spellSlots)&&!(p.block>.65f&&p.abilities>.65f))p.abilities=0;
 }
 // Native ability selection gets a modifier-only preparation interval before the
 // requested slot. Retain a short tap until a later game poll actually emits it;
@@ -160,6 +160,8 @@ public:
     bool active()const{return slots_!=0;}
     void sample(MotionInputPacket& p,uint64_t now,bool physicalMelee){
         if(!physicalMelee||!validMotionInput(p,now)){reset();return;}
+        // Reckoning owns both triggers; a queued spell cannot consume RT.
+        if(p.block>.65f&&p.abilities>.65f&&!(p.buttons&spellSlots)){reset();return;}
         if(lastNow_&&(now<lastNow_||now-lastNow_>=250||p.session!=session_))reset();
         lastNow_=now;session_=p.session;
         const bool requested=explicitSpellRequest(p);

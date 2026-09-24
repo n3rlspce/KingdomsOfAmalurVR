@@ -8,6 +8,14 @@ static void check(bool pass,const char* label){if(!pass){printf("FAIL: %s\n",lab
 static bool closeEnough(float a,float b){return std::abs(a-b)<.002f;}
 int main(){
     {
+        amalur::MotionInputPacket chord;chord.active=1;chord.tick=1000;chord.session=42;
+        chord.block=chord.abilities=1;
+        amalur::MeleeSpellSequence sequence;sequence.sample(chord,1000,true);
+        check(chord.abilities==1&&chord.buttons==0&&!sequence.active(),"native Reckoning survives physical melee spell filter");
+        chord.block=0;amalur::suppressIdleMeleeSpellModifier(chord,true);
+        check(chord.abilities==0,"idle ability grip remains suppressed");
+    }
+    {
         amalur::MeleeSpellSequence sequence;
         auto packet=[](uint64_t now,uint32_t buttons,float modifier=1.f){
             amalur::MotionInputPacket p;p.active=1;p.tick=now;p.session=42;
