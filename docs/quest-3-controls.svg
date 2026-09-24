@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1280" height="660" viewBox="0 0 1280 660" role="img" aria-labelledby="title desc">
   <title id="title">Kingdoms of Amalur VR — Quest 3 controls</title>
-  <desc id="desc">Schematic of left and right Touch Plus controllers, viewed from above with triggers shown behind the top edge. Left: stick moves, quick click and release sends gamepad BACK or View and opens map, hold 350 milliseconds opens quick access; Y selects weapon, X attacks with primary, trigger blocks, grip supports a weapon, menu opens game menu. Right: stick snap turns 30 degrees, click and release toggles stealth; B interacts or sprints and goes back in menus, A dodges or confirms, trigger attacks with selected weapon, grip modifies abilities, thumbrest touch has no game action. Combinations and gesture details are in the README legend and CONTROLS.md.</desc>
+  <desc id="desc">Schematic of left and right Touch Plus controllers, viewed from above with triggers shown behind the top edge. Left: stick moves, quick click and release sends gamepad BACK or View and opens map, hold 350 milliseconds opens quick access; Y selects weapon, X attacks with primary, trigger blocks, grip supports a weapon, menu opens game menu. Right: stick snap turns 30 degrees, click and release toggles stealth; B interacts or sprints and goes back in menus, A dodges or confirms, trigger attacks with selected weapon, grip modifies abilities, thumbrest touch has no game action. Combinations and gesture details are in the README controls section.</desc>
   <defs>
     <linearGradient id="shell" x1="0" y1="0" x2="1" y2="1">
       <stop stop-color="#ffffff"/><stop offset="1" stop-color="#b9c8d8"/>
@@ -87,5 +87,5 @@
     <text x="1074" y="469" class="label">Thumbrest</text><text x="1074" y="498" class="action">No action</text><text x="1074" y="523" class="small">Movement unaffected</text>
     <text x="672" y="574" class="small">Small system button: Quest menu (system control)</text>
   </g>
-  <text x="32" y="631" class="action">Combinations, support grip and experimental gestures: see the legend below and the full controls guide.</text>
+  <text x="32" y="631" class="action">Combinations, support grip and experimental gestures: see the controls table in the README.</text>
 </svg>
