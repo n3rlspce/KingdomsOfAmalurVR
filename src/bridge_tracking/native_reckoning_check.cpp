@@ -28,5 +28,11 @@ int main(){
     touch={};touch.leftTrigger=1;touch.rightTrigger=1;
     auto menu=menuMapper.map(touch,true,false,2010);
     check(menu.buttons==0&&menu.block==1&&menu.abilities==1,"menus keep native triggers");
+    auto entering=menuMapper.map(touch,true,true,2020);
+    check(entering.active&&entering.buttons==0&&entering.block==1&&entering.abilities==1,
+        "tutorial unpause keeps LT+RT held into gameplay");
+    touch.leftTrigger=touch.rightTrigger=0;
+    auto after=menuMapper.map(touch,true,true,2030);
+    check(after.block==0&&after.abilities==0,"tutorial chord releases normally");
     std::puts("PASS: native Reckoning, attack rearm, grip held, menu triggers");
 }

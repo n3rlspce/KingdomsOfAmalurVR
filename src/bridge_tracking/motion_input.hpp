@@ -71,7 +71,11 @@ public:
         const bool continuingWheel=active_&&wheelHeld_&&t.leftClick;
         if(!active_){cancel();active_=true;gameplay_=gameplay;}
         else if(gameplay_!=gameplay){
-            if(!continuingWheel){cancel();modeRearm_=true;}
+            // The Reckoning tutorial unpauses as LT+RT is held. Keep the chord
+            // through that transition so the game can finish activating it.
+            const bool enteringReckoning=gameplay&&!gameplay_
+                &&t.leftTrigger>=.65f&&t.rightTrigger>=.65f&&!t.a&&!t.b&&!t.x&&!t.y;
+            if(!continuingWheel&&!enteringReckoning){cancel();modeRearm_=true;}
             gameplay_=gameplay;
         }
         p.active=1;
